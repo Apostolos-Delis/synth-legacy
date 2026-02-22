@@ -1,57 +1,60 @@
-import { useState, useCallback, type ReactNode } from "react";
+import { useState, useCallback, useMemo, type ReactNode } from "react";
 import { useKeyboard } from "@opentui/react";
-import type { TuiState } from "./types.js";
+import type { TuiState, TuiEngineData, ViewMode } from "./types.js";
 import { ExecutionView } from "./ExecutionView.js";
 import { DashboardView } from "./DashboardView.js";
 import { InterviewView } from "./InterviewView.js";
 
-interface AppProps {
-  initialState: TuiState;
+interface AppProps extends TuiEngineData {
+  defaultView?: ViewMode;
   onQuit?: () => void;
   onPause?: () => void;
   onResume?: () => void;
 }
 
 export function App({
-  initialState,
+  defaultView = "execution",
   onQuit,
   onPause,
   onResume,
+  ...engineData
 }: AppProps): ReactNode {
-  const [state, setState] = useState<TuiState>(initialState);
+  const [view, setView] = useState<ViewMode>(defaultView);
+
+  const state: TuiState = useMemo(
+    () => ({ ...engineData, view }),
+    [engineData, view],
+  );
 
   const handleKeyboard = useCallback(
     (key: { name: string }) => {
       switch (key.name) {
         case "q":
         case "escape":
-          if (state.view === "dashboard") {
-            setState((s) => ({ ...s, view: "execution" }));
+          if (view === "dashboard") {
+            setView("execution");
           } else {
             onQuit?.();
           }
           break;
         case "d":
-          setState((s) => ({
-            ...s,
-            view: s.view === "dashboard" ? "execution" : "dashboard",
-          }));
+          setView((v) => (v === "dashboard" ? "execution" : "dashboard"));
           break;
         case "p":
-          if (state.engineState === "executing") {
+          if (engineData.engineState === "executing") {
             onPause?.();
-          } else if (state.engineState === "paused") {
+          } else if (engineData.engineState === "paused") {
             onResume?.();
           }
           break;
       }
     },
-    [state.view, state.engineState, onQuit, onPause, onResume],
+    [view, engineData.engineState, onQuit, onPause, onResume],
   );
 
   useKeyboard(handleKeyboard);
 
-  switch (state.view) {
+  switch (view) {
     case "interview":
       return <InterviewView state={state} />;
     case "dashboard":
@@ -62,4 +65,4 @@ export function App({
   }
 }
 
-export type { TuiState };
+export type { TuiState, TuiEngineData };

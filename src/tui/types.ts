@@ -4,8 +4,7 @@ import type { InterviewMessage } from "../interview/types.js";
 
 export type ViewMode = "execution" | "dashboard" | "interview";
 
-export interface TuiState {
-  view: ViewMode;
+export interface TuiEngineData {
   engineState: EngineState;
   iteration: number;
   maxIterations: number;
@@ -16,4 +15,8 @@ export interface TuiState {
   planId: string;
   startTime: number;
   interviewMessages: InterviewMessage[];
+}
+
+export interface TuiState extends TuiEngineData {
+  view: ViewMode;
 }

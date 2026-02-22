@@ -25,6 +25,11 @@ import { finalize } from "./finalize/finalize.js";
 import { writeText, readText, fileExists } from "./utils/fs.js";
 import { spawn } from "./utils/process.js";
 import { colors, STATUS_ICONS, STATUS_COLORS, PRIORITY_COLORS } from "./tui/theme.js";
+import { createCliRenderer } from "@opentui/core";
+import { createRoot, type Root } from "@opentui/react";
+import type { CliRenderer } from "@opentui/core";
+import { App } from "./tui/App.js";
+import type { TuiEngineData } from "./tui/types.js";
 
 const VERSION = "0.1.0";
 const REPO = "Apostolos-Delis/synth";
@@ -32,6 +37,8 @@ const REPO = "Apostolos-Delis/synth";
 const cwd = process.cwd();
 const args = process.argv.slice(2);
 const command = args[0];
+
+const tuiEnabled = process.stdout.isTTY === true && !args.includes("--no-tui");
 
 function log(msg: string): void {
   console.log(msg);
@@ -247,40 +254,99 @@ async function cmdRun(planId?: string, startIteration = 0): Promise<void> {
 
   const engine = new Engine(config, agent, fallbackAgent, plan.paths, cwd);
 
-  // Event logging (non-TUI mode — plain text output)
-  engine.on((event) => {
-    switch (event.type) {
-      case "iteration:start":
-        log(
-          `\n${colors.bold}━━━ Iteration ${event.iteration} ━━━${colors.reset} task: ${event.taskId}`,
-        );
-        break;
-      case "task:complete":
-        logSuccess(`  ✓ ${event.taskId}: ${event.message}`);
-        break;
-      case "task:failed":
-        logError(`  ✗ ${event.taskId}: ${event.message}`);
-        break;
-      case "backpressure:pass":
-        log(`  ${colors.success}✓ backpressure passed${colors.reset}`);
-        break;
-      case "backpressure:fail":
-        log(`  ${colors.error}✗ backpressure failed: ${event.message}${colors.reset}`);
-        break;
-      case "circuit:trip":
-        logError(`Circuit breaker: ${event.message}`);
-        break;
-      case "rate-limit:detected":
-        log(`  ${colors.warning}⏳ ${event.message}${colors.reset}`);
-        break;
-      case "complete":
-        logSuccess("\nAll tasks complete!");
-        break;
-      case "agent:stdout":
-        if (event.message) process.stdout.write(event.message);
-        break;
+  // TUI renderer setup
+  let renderer: CliRenderer | null = null;
+  let root: Root | null = null;
+  let tuiData: TuiEngineData | null = null;
+
+  if (tuiEnabled) {
+    renderer = await createCliRenderer();
+    root = createRoot(renderer);
+    tuiData = {
+      engineState: "executing",
+      iteration: startIteration,
+      maxIterations: config.execution.max_iterations,
+      tasks: [...taskFile.tasks],
+      currentTaskId: null,
+      output: "",
+      agentName: config.agent.name,
+      planId: plan.metadata.id,
+      startTime: Date.now(),
+      interviewMessages: [],
+    };
+  }
+
+  const renderTui = () => {
+    if (root && tuiData) {
+      root.render(<App {...tuiData} onQuit={() => cleanup().then(() => process.exit(0))} />);
     }
-  });
+  };
+
+  if (tuiEnabled) {
+    // TUI-aware event listener
+    engine.on((event) => {
+      if (!tuiData) return;
+      switch (event.type) {
+        case "iteration:start":
+          tuiData.iteration = event.iteration ?? tuiData.iteration;
+          tuiData.currentTaskId = event.taskId ?? null;
+          tuiData.output = "";
+          break;
+        case "task:complete":
+        case "task:failed": {
+          const task = tuiData.tasks.find((t) => t.id === event.taskId);
+          if (task) task.status = event.type === "task:complete" ? "done" : "failed";
+          break;
+        }
+        case "agent:stdout":
+          if (event.message) tuiData.output += event.message;
+          break;
+        case "complete":
+          tuiData.engineState = "completed";
+          break;
+        case "state:change":
+          if (event.message) tuiData.engineState = event.message as TuiEngineData["engineState"];
+          break;
+      }
+      renderTui();
+    });
+    renderTui();
+  } else {
+    // Plain text event listener
+    engine.on((event) => {
+      switch (event.type) {
+        case "iteration:start":
+          log(
+            `\n${colors.bold}━━━ Iteration ${event.iteration} ━━━${colors.reset} task: ${event.taskId}`,
+          );
+          break;
+        case "task:complete":
+          logSuccess(`  ✓ ${event.taskId}: ${event.message}`);
+          break;
+        case "task:failed":
+          logError(`  ✗ ${event.taskId}: ${event.message}`);
+          break;
+        case "backpressure:pass":
+          log(`  ${colors.success}✓ backpressure passed${colors.reset}`);
+          break;
+        case "backpressure:fail":
+          log(`  ${colors.error}✗ backpressure failed: ${event.message}${colors.reset}`);
+          break;
+        case "circuit:trip":
+          logError(`Circuit breaker: ${event.message}`);
+          break;
+        case "rate-limit:detected":
+          log(`  ${colors.warning}⏳ ${event.message}${colors.reset}`);
+          break;
+        case "complete":
+          logSuccess("\nAll tasks complete!");
+          break;
+        case "agent:stdout":
+          if (event.message) process.stdout.write(event.message);
+          break;
+      }
+    });
+  }
 
   // Handle Ctrl+C — await cleanup before exiting to prevent stale locks
   let cleaningUp = false;
@@ -288,9 +354,13 @@ async function cmdRun(planId?: string, startIteration = 0): Promise<void> {
     if (cleaningUp) return; // Prevent double-cleanup on rapid signals
     cleaningUp = true;
     engine.stop();
+    if (root) root.unmount();
+    if (renderer) renderer.destroy();
     await endSession(plan!.paths, "interrupted");
     await updatePlanMetadata(cwd, plan!.metadata.id, { status: "paused" });
-    log(`\n${colors.warning}Session interrupted. Resume with: synth resume ${plan!.metadata.id}${colors.reset}`);
+    if (!tuiEnabled) {
+      log(`\n${colors.warning}Session interrupted. Resume with: synth resume ${plan!.metadata.id}${colors.reset}`);
+    }
   };
 
   process.on("SIGINT", () => { cleanup().then(() => process.exit(0)); });
@@ -306,8 +376,10 @@ async function cmdRun(planId?: string, startIteration = 0): Promise<void> {
   } catch (err) {
     await endSession(plan.paths, "failed");
     await updatePlanMetadata(cwd, plan.metadata.id, { status: "failed" });
-    logError(`Engine error: ${err}`);
+    if (!tuiEnabled) logError(`Engine error: ${err}`);
   } finally {
+    if (root) root.unmount();
+    if (renderer) renderer.destroy();
     await releaseLock(plan.paths);
     agent.dispose();
     fallbackAgent?.dispose();
@@ -415,9 +487,33 @@ async function cmdPlan(planIdOrFlag?: string): Promise<void> {
   const interviewer = new Interviewer(agent, cwd, config.agent.model);
 
   // Start interview
-  log(`${colors.magenta}Synth:${colors.reset}`);
   const opening = await interviewer.start();
-  log(opening);
+
+  // TUI renderer for interview
+  let planRenderer: CliRenderer | null = null;
+  let planRoot: Root | null = null;
+  let planTuiData: TuiEngineData | null = null;
+
+  if (tuiEnabled) {
+    planRenderer = await createCliRenderer();
+    planRoot = createRoot(planRenderer);
+    planTuiData = {
+      engineState: "idle",
+      iteration: 0,
+      maxIterations: 0,
+      tasks: [],
+      currentTaskId: null,
+      output: "",
+      agentName: config.agent.name,
+      planId: id,
+      startTime: Date.now(),
+      interviewMessages: [{ role: "assistant", content: opening }],
+    };
+    planRoot.render(<App {...planTuiData} defaultView="interview" />);
+  } else {
+    log(`${colors.magenta}Synth:${colors.reset}`);
+    log(opening);
+  }
 
   // Interactive loop
   const readline = await import("node:readline");
@@ -436,13 +532,32 @@ async function cmdPlan(planIdOrFlag?: string): Promise<void> {
     const userInput = await askQuestion();
     if (userInput.toLowerCase() === "q" || userInput.toLowerCase() === "quit") {
       rl.close();
+      if (planRoot) planRoot.unmount();
+      if (planRenderer) planRenderer.destroy();
       agent.dispose();
       return;
     }
 
-    log(`\n${colors.magenta}Synth:${colors.reset}`);
+    if (planTuiData && planRoot) {
+      planTuiData.interviewMessages = [
+        ...planTuiData.interviewMessages,
+        { role: "user", content: userInput },
+      ];
+      planRoot.render(<App {...planTuiData} defaultView="interview" />);
+    }
+
     const response = await interviewer.respond(userInput);
-    log(response);
+
+    if (planTuiData && planRoot) {
+      planTuiData.interviewMessages = [
+        ...planTuiData.interviewMessages,
+        { role: "assistant", content: response },
+      ];
+      planRoot.render(<App {...planTuiData} defaultView="interview" />);
+    } else {
+      log(`\n${colors.magenta}Synth:${colors.reset}`);
+      log(response);
+    }
 
     prd = interviewer.extractPrd(response);
   }
@@ -454,8 +569,10 @@ async function cmdPlan(planIdOrFlag?: string): Promise<void> {
   await writeText(paths.prd, prdMarkdown);
   await updatePlanMetadata(cwd, id, { description: prd.title });
 
-  log(`\n${colors.success}PRD saved to ${paths.prd}${colors.reset}`);
-  log("Generating tasks...\n");
+  if (!tuiEnabled) {
+    log(`\n${colors.success}PRD saved to ${paths.prd}${colors.reset}`);
+    log("Generating tasks...\n");
+  }
 
   // Generate tasks
   const taskFile = await generateTasks(
@@ -473,11 +590,21 @@ async function cmdPlan(planIdOrFlag?: string): Promise<void> {
     taskCount: taskFile.tasks.length,
   });
 
-  log(`${colors.bold}Generated ${taskFile.tasks.length} tasks:${colors.reset}\n`);
-  for (const task of taskFile.tasks) {
-    const priorityColor = PRIORITY_COLORS[task.priority] ?? colors.muted;
-    log(`  ${priorityColor}P${task.priority}${colors.reset} ${task.id} ${task.title}`);
+  if (planTuiData && planRoot) {
+    // Update TUI to show generated tasks
+    planTuiData.tasks = [...taskFile.tasks];
+    planRoot.render(<App {...planTuiData} defaultView="interview" />);
+  } else {
+    log(`${colors.bold}Generated ${taskFile.tasks.length} tasks:${colors.reset}\n`);
+    for (const task of taskFile.tasks) {
+      const priorityColor = PRIORITY_COLORS[task.priority] ?? colors.muted;
+      log(`  ${priorityColor}P${task.priority}${colors.reset} ${task.id} ${task.title}`);
+    }
   }
+
+  // Clean up TUI before prompting
+  if (planRoot) planRoot.unmount();
+  if (planRenderer) planRenderer.destroy();
 
   // Prompt to start
   const rl2 = readline.createInterface({
@@ -698,7 +825,7 @@ async function main(): Promise<void> {
       log("Usage: synth <command> [options]\n");
       log("Commands:");
       log("  plan [--prd <path>]    Interview → generate tasks → execute");
-      log("  run [<plan-id>]        Execute the task loop");
+      log("  run [<plan-id>]        Execute the task loop (--no-tui for plain text)");
       log("  resume [<plan-id>]     Resume paused session");
       log("  finalize [<plan-id>]   Self-review → format → split → PR");
       log("  ls                     List all plans for current repo");
