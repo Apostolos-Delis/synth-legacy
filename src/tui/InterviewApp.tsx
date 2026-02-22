@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef, type ReactNode } from "react";
-import { useKeyboard } from "@opentui/react";
+import { useKeyboard, useTerminalDimensions } from "@opentui/react";
 import type { TextareaRenderable } from "@opentui/core";
 import type { InterviewMessage } from "../interview/types.js";
 import { WELCOME_MESSAGE } from "../interview/interviewer.js";
@@ -47,6 +47,21 @@ export function InterviewApp({ onSendMessage, onComplete, onQuit }: InterviewApp
   const [isLoading, setIsLoading] = useState(false);
   const [streamingText, setStreamingText] = useState("");
   const textareaRef = useRef<TextareaRenderable>(null);
+  const [inputLineCount, setInputLineCount] = useState(1);
+  const { height: termHeight } = useTerminalDimensions();
+
+  const destroyedRef = useRef(false);
+  useEffect(() => () => { destroyedRef.current = true; }, []);
+
+  const syncLineCount = useCallback(() => {
+    if (destroyedRef.current) return;
+    try {
+      const text = textareaRef.current?.plainText ?? "";
+      setInputLineCount(Math.max(1, text.split("\n").length));
+    } catch {
+      // EditBuffer may be destroyed during shutdown
+    }
+  }, []);
 
   const handleSubmit = useCallback(async () => {
     if (isLoading) return;
@@ -62,6 +77,7 @@ export function InterviewApp({ onSendMessage, onComplete, onQuit }: InterviewApp
     }
 
     textarea.editBuffer.setText("");
+    setInputLineCount(1);
     const userMsg: InterviewMessage = { role: "user", content: value };
     setMessages((prev) => [...prev, userMsg]);
     setIsLoading(true);
@@ -88,17 +104,24 @@ export function InterviewApp({ onSendMessage, onComplete, onQuit }: InterviewApp
   useKeyboard(useCallback((key: { name: string; shift?: boolean; ctrl?: boolean; meta?: boolean; option?: boolean; preventDefault?: () => void }) => {
     const textarea = textareaRef.current;
 
-    // Enter to send
-    if (key.name === "return" && !key.shift && !key.ctrl && !key.meta) {
+    // Shift+Enter or Ctrl+J for newline — check BEFORE bare Enter
+    // Ghostty (legacy mode) sends ESC CR for Shift+Enter → parsed as meta=true
+    // Kitty protocol sends CSI 13;2u → parsed as shift=true
+    // Ctrl+J sends \n → parsed as name="linefeed" in legacy mode
+    if (
+      (key.name === "return" && (key.shift || key.meta)) ||
+      key.name === "linefeed" ||
+      (key.name === "j" && key.ctrl)
+    ) {
       key.preventDefault?.();
-      handleSubmit();
+      textarea?.newLine();
       return;
     }
 
-    // Shift+Enter or Ctrl+J for newline
-    if ((key.name === "return" && key.shift) || (key.name === "j" && key.ctrl)) {
+    // Enter to send (bare, unmodified)
+    if (key.name === "return" && !key.shift && !key.ctrl && !key.meta) {
       key.preventDefault?.();
-      textarea?.newLine();
+      handleSubmit();
       return;
     }
 
@@ -190,7 +213,23 @@ export function InterviewApp({ onSendMessage, onComplete, onQuit }: InterviewApp
         return;
       }
     }
-  }, [handleSubmit, onQuit, isLoading]));
+  }, [handleSubmit, onQuit, isLoading, syncLineCount]));
+
+  // Sync line count after every key event (runs after textarea processes the key)
+  useKeyboard(useCallback(() => {
+    // Use setTimeout(0) so it runs after the textarea has processed the current key
+    setTimeout(syncLineCount, 0);
+  }, [syncLineCount]));
+
+  // Input area grows with content, capped so header + a few message rows remain visible
+  const BORDER = 2;          // top + bottom border
+  const HEADER_HEIGHT = 3;
+  const MIN_MESSAGES_VISIBLE = 3;
+  const MIN_INPUT_HEIGHT = 6;
+  const maxInputHeight = Math.max(MIN_INPUT_HEIGHT, termHeight - HEADER_HEIGHT - MIN_MESSAGES_VISIBLE);
+  const inputHeight = Math.min(Math.max(inputLineCount + BORDER, MIN_INPUT_HEIGHT), maxInputHeight);
+  // Explicit textarea height: total box minus borders, minus 1 row buffer so cursor never touches border
+  const textareaHeight = inputHeight - BORDER - 1;
 
   return (
     <box style={{ width: "100%", height: "100%", flexDirection: "column" }}>
@@ -256,7 +295,7 @@ export function InterviewApp({ onSendMessage, onComplete, onQuit }: InterviewApp
       <box
         style={{
           width: "100%",
-          height: 8,
+          height: inputHeight,
           flexDirection: "column",
           backgroundColor: colors.bg.secondary,
           border: true,
@@ -267,7 +306,7 @@ export function InterviewApp({ onSendMessage, onComplete, onQuit }: InterviewApp
       >
         <box
           style={{
-            flexGrow: 1,
+            height: textareaHeight,
             flexDirection: "row",
             alignItems: "flex-start",
           }}
@@ -277,7 +316,7 @@ export function InterviewApp({ onSendMessage, onComplete, onQuit }: InterviewApp
           </text>
           <textarea
             ref={textareaRef}
-            style={{ flexGrow: 1 }}
+            style={{ flexGrow: 1, height: textareaHeight }}
             placeholder={isLoading ? "Waiting for response..." : "Type your message..."}
             focused={!isLoading}
           />
