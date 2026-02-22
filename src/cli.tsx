@@ -12,19 +12,6 @@ import {
   deletePlan,
 } from "./plans/registry.js";
 import { loadTasks, saveTasks, getProgress, resetOrphanedTasks } from "./tasks/store.js";
-import { generateTasks } from "./tasks/planner.js";
-import { getAgent } from "./agents/registry.js";
-import { Engine } from "./engine/engine.js";
-import {
-  createSession,
-  loadSession,
-  acquireLock,
-  releaseLock,
-  endSession,
-} from "./session/session.js";
-import { Interviewer, prdToMarkdown, WELCOME_MESSAGE } from "./interview/interviewer.js";
-import type { GeneratedPrd } from "./interview/types.js";
-import { finalize } from "./finalize/finalize.js";
 import { writeText, readText, fileExists } from "./utils/fs.js";
 import { spawn } from "./utils/process.js";
 import { ansi, fmt, STATUS_ICONS, STATUS_COLORS, PRIORITY_COLORS, initTheme } from "./tui/theme.js";
@@ -36,6 +23,44 @@ import { listSpinnerPresets } from "./tui/spinners.js";
 import { createSpinner, withSpinner } from "./tui/spinner.js";
 import { stripAnsi } from "./tui/utils.js";
 import type { TuiEngineData, TuiContext } from "./tui/types.js";
+
+// Heavy modules are lazy-loaded on first use to keep startup fast.
+// Follows the same pattern as loadTui() below.
+async function loadAgentRegistry() {
+  const { getAgent } = await import("./agents/registry.js");
+  return { getAgent };
+}
+
+async function loadEngine() {
+  const { Engine } = await import("./engine/engine.js");
+  return { Engine };
+}
+
+async function loadSessionModule() {
+  const mod = await import("./session/session.js");
+  return {
+    createSession: mod.createSession,
+    loadSession: mod.loadSession,
+    acquireLock: mod.acquireLock,
+    releaseLock: mod.releaseLock,
+    endSession: mod.endSession,
+  };
+}
+
+async function loadInterviewer() {
+  const { Interviewer, prdToMarkdown, WELCOME_MESSAGE } = await import("./interview/interviewer.js");
+  return { Interviewer, prdToMarkdown, WELCOME_MESSAGE };
+}
+
+async function loadPlanner() {
+  const { generateTasks } = await import("./tasks/planner.js");
+  return { generateTasks };
+}
+
+async function loadFinalize() {
+  const { finalize } = await import("./finalize/finalize.js");
+  return { finalize };
+}
 
 // TUI imports are loaded dynamically to keep non-TUI commands fast.
 async function loadTui() {
@@ -243,7 +268,8 @@ async function cmdStatus(planId?: string): Promise<void> {
     log(`Progress: [${bar}] ${ansi.bold}${pct}%${ansi.reset} (${progress.done}/${progress.total})`);
   }
 
-  const session = await loadSession(plan.paths);
+  const { loadSession: loadSess } = await loadSessionModule();
+  const session = await loadSess(plan.paths);
   if (session) {
     log(fmt.label("Session:", `${session.status} (iteration ${session.currentIteration})`));
   }
@@ -321,6 +347,12 @@ async function cmdRun(planId?: string, startIteration = 0, tuiContext?: TuiConte
     log(fmt.warn("Reset orphaned in_progress tasks from previous session"));
   }
 
+  const [{ getAgent }, { Engine: EngineClass }, sessionMod] = await Promise.all([
+    loadAgentRegistry(),
+    loadEngine(),
+    loadSessionModule(),
+  ]);
+
   const agent = getAgent(config.agent.name);
   const detection = await agent.detect();
   if (!detection.available) {
@@ -328,7 +360,7 @@ async function cmdRun(planId?: string, startIteration = 0, tuiContext?: TuiConte
     process.exit(1);
   }
 
-  const session = await createSession(
+  const session = await sessionMod.createSession(
     plan.paths,
     plan.metadata.id,
     config.agent.name,
@@ -336,7 +368,7 @@ async function cmdRun(planId?: string, startIteration = 0, tuiContext?: TuiConte
     cwd,
   );
 
-  const locked = await acquireLock(plan.paths, session.id);
+  const locked = await sessionMod.acquireLock(plan.paths, session.id);
   if (!locked) {
     logError("Another synth session is already running for this plan.");
     process.exit(1);
@@ -353,7 +385,7 @@ async function cmdRun(planId?: string, startIteration = 0, tuiContext?: TuiConte
     ? getAgent(config.agent.fallback.name)
     : null;
 
-  const engine = new Engine(config, agent, fallbackAgent, plan.paths, cwd);
+  const engine = new EngineClass(config, agent, fallbackAgent, plan.paths, cwd);
 
   const ownsRenderer = !tuiContext;
   let renderer: Awaited<ReturnType<typeof import("@opentui/core")["createCliRenderer"]>> | null = null;
@@ -518,7 +550,7 @@ async function cmdRun(planId?: string, startIteration = 0, tuiContext?: TuiConte
       if (root) root.unmount();
       if (renderer) renderer.destroy();
     }
-    await endSession(plan!.paths, "interrupted");
+    await sessionMod.endSession(plan!.paths, "interrupted");
     await updatePlanMetadata(cwd, plan!.metadata.id, { status: "paused" });
     if (!tuiEnabled) {
       log(`\n${fmt.warn(`Session interrupted. Resume with: synth resume ${plan!.metadata.id}`)}`);
@@ -537,7 +569,7 @@ async function cmdRun(planId?: string, startIteration = 0, tuiContext?: TuiConte
   try {
     await engine.run(startIteration);
     const finalState = engine.getState();
-    await endSession(plan.paths, finalState === "completed" ? "completed" : "paused");
+    await sessionMod.endSession(plan.paths, finalState === "completed" ? "completed" : "paused");
     await updatePlanMetadata(cwd, plan.metadata.id, {
       status: finalState === "completed" ? "completed" : finalState === "blocked" ? "blocked" : "paused",
     });
@@ -560,7 +592,7 @@ async function cmdRun(planId?: string, startIteration = 0, tuiContext?: TuiConte
       }
     }
   } catch (err) {
-    await endSession(plan.paths, "failed");
+    await sessionMod.endSession(plan.paths, "failed");
     await updatePlanMetadata(cwd, plan.metadata.id, { status: "failed" });
     if (!tuiEnabled) logError(`Engine error: ${err}`);
 
@@ -582,7 +614,7 @@ async function cmdRun(planId?: string, startIteration = 0, tuiContext?: TuiConte
       if (root) root.unmount();
       if (renderer) renderer.destroy();
     }
-    await releaseLock(plan.paths);
+    await sessionMod.releaseLock(plan.paths);
     agent.dispose();
     fallbackAgent?.dispose();
   }
@@ -601,7 +633,8 @@ async function cmdResume(planId?: string): Promise<void> {
     process.exit(1);
   }
 
-  const session = await loadSession(plan.paths);
+  const { loadSession: loadSess } = await loadSessionModule();
+  const session = await loadSess(plan.paths);
   if (!session) {
     logError("No session found. Run 'synth run' instead.");
     process.exit(1);
@@ -637,6 +670,10 @@ async function cmdPlan(planIdOrFlag?: string): Promise<void> {
     await writeText(paths.prd, prdContent);
     log(fmt.info(`Created plan: ${id}`));
 
+    const [{ getAgent }, { generateTasks }] = await Promise.all([
+      loadAgentRegistry(),
+      loadPlanner(),
+    ]);
     const agent = getAgent(config.agent.name);
 
     const taskFile = tuiEnabled
@@ -672,8 +709,14 @@ async function cmdPlan(planIdOrFlag?: string): Promise<void> {
     }
   }
 
+  const [{ getAgent }, interviewMod, { generateTasks }] = await Promise.all([
+    loadAgentRegistry(),
+    loadInterviewer(),
+    loadPlanner(),
+  ]);
+
   const agent = getAgent(config.agent.name);
-  const interviewer = new Interviewer(agent, cwd, config.agent.model);
+  const interviewer = new interviewMod.Interviewer(agent, cwd, config.agent.model);
 
   let prd: import("./interview/types.js").GeneratedPrd | null = null;
 
@@ -728,9 +771,9 @@ async function cmdPlan(planIdOrFlag?: string): Promise<void> {
     }
 
     // Phase 2: Task Generation (keep renderer alive)
-    const extractedPrd = prd as GeneratedPrd;
+    const extractedPrd = prd as import("./interview/types.js").GeneratedPrd;
     const { id, paths } = await createPlan(cwd, "");
-    const prdMarkdown = prdToMarkdown(extractedPrd);
+    const prdMarkdown = interviewMod.prdToMarkdown(extractedPrd);
     await writeText(paths.prd, prdMarkdown);
     await updatePlanMetadata(cwd, id, { description: extractedPrd.title });
 
@@ -788,7 +831,7 @@ async function cmdPlan(planIdOrFlag?: string): Promise<void> {
     return;
   } else {
     log(`\n${ansi.magenta}Synth:${ansi.reset}`);
-    log(WELCOME_MESSAGE);
+    log(interviewMod.WELCOME_MESSAGE);
 
     const readline = await import("node:readline");
     const askQuestion = (): Promise<string | null> => {
@@ -842,7 +885,7 @@ async function cmdPlan(planIdOrFlag?: string): Promise<void> {
   }
 
   const { id, paths } = await createPlan(cwd, "");
-  const prdMarkdown = prdToMarkdown(prd);
+  const prdMarkdown = interviewMod.prdToMarkdown(prd);
   await writeText(paths.prd, prdMarkdown);
   await updatePlanMetadata(cwd, id, { description: prd.title });
 
@@ -903,6 +946,10 @@ async function cmdFinalize(planId?: string): Promise<void> {
 
   log(`${fmt.bold("synth finalize")} ${ansi.muted}─${ansi.reset} ${plan.metadata.id}\n`);
 
+  const [{ getAgent }, { finalize }] = await Promise.all([
+    loadAgentRegistry(),
+    loadFinalize(),
+  ]);
   const agent = getAgent(config.agent.name);
 
   const result = tuiEnabled
