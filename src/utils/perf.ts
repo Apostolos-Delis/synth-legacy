@@ -56,6 +56,17 @@ export class PerfTrace {
     phase.startedAt = null;
   }
 
+  recordPhase(name: string, durationMs: number): void {
+    if (!this.enabled) return;
+    if (this.traceStart === null) {
+      this.traceStart = performance.now();
+    }
+    if (!this.phases.has(name)) {
+      this.addPhase(name);
+    }
+    this.phases.get(name)!.durationMs = durationMs;
+  }
+
   report(): PerfReport {
     const phases: PhaseEntry[] = this.order.map((name) => ({
       name,

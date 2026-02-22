@@ -9,11 +9,19 @@ export interface SpawnOptions {
   onStderr?: (chunk: string) => void;
 }
 
+export interface SpawnTimings {
+  spawnMs: number;
+  firstStdoutMs: number | null;
+  firstStderrMs: number | null;
+  totalMs: number;
+}
+
 export interface SpawnResult {
   exitCode: number;
   stdout: string;
   stderr: string;
   timedOut: boolean;
+  timings: SpawnTimings;
 }
 
 export interface SpawnHandle {
@@ -26,15 +34,19 @@ export interface SpawnHandle {
 export function spawn(options: SpawnOptions): SpawnHandle {
   const { cmd, cwd, env, timeout, onStdout, onStderr } = options;
 
+  const spawnStart = performance.now();
   const proc = Bun.spawn(cmd, {
     cwd,
     env: { ...process.env, ...env },
     stdout: "pipe",
     stderr: "pipe",
   });
+  const spawnMs = performance.now() - spawnStart;
 
   let timedOut = false;
   let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  let firstStdoutMs: number | null = null;
+  let firstStderrMs: number | null = null;
 
   const promise = (async (): Promise<SpawnResult> => {
     const stdoutChunks: string[] = [];
@@ -44,14 +56,20 @@ export function spawn(options: SpawnOptions): SpawnHandle {
       stream: ReadableStream<Uint8Array> | null,
       chunks: string[],
       cb?: (chunk: string) => void,
+      onFirst?: () => void,
     ) => {
       if (!stream) return;
       const reader = stream.getReader();
       const decoder = new TextDecoder();
+      let first = true;
       try {
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
+          if (first) {
+            onFirst?.();
+            first = false;
+          }
           const text = decoder.decode(value, { stream: true });
           chunks.push(text);
           cb?.(text);
@@ -69,18 +87,25 @@ export function spawn(options: SpawnOptions): SpawnHandle {
     }
 
     await Promise.all([
-      readStream(proc.stdout, stdoutChunks, onStdout),
-      readStream(proc.stderr, stderrChunks, onStderr),
+      readStream(proc.stdout, stdoutChunks, onStdout, () => {
+        firstStdoutMs = performance.now() - spawnStart;
+      }),
+      readStream(proc.stderr, stderrChunks, onStderr, () => {
+        firstStderrMs = performance.now() - spawnStart;
+      }),
     ]);
 
     const exitCode = await proc.exited;
     if (timeoutId) clearTimeout(timeoutId);
+
+    const totalMs = performance.now() - spawnStart;
 
     return {
       exitCode,
       stdout: stdoutChunks.join(""),
       stderr: stderrChunks.join(""),
       timedOut,
+      timings: { spawnMs, firstStdoutMs, firstStderrMs, totalMs },
     };
   })();
 

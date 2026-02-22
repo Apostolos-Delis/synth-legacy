@@ -16,6 +16,7 @@ import { buildPrompt } from "../prompts/build.js";
 import { appendText, writeText, ensureDir } from "../utils/fs.js";
 import { spawn } from "../utils/process.js";
 import { updateSession } from "../session/session.js";
+import { globalTrace } from "../utils/perf.js";
 
 const COMPLETION_PATTERN = /<promise>COMPLETE<\/promise>/;
 
@@ -103,7 +104,10 @@ export class Engine {
       }
 
       // Select next task
+      const trace = globalTrace();
+      trace.startPhase("engine:task-selection");
       const task = selectNextTask(taskFile);
+      trace.endPhase("engine:task-selection");
       if (!task) {
         this.setState("blocked");
         this.emit({
@@ -126,14 +130,17 @@ export class Engine {
       await saveTasks(this.planPaths.tasks, updatedFile);
 
       // Build prompt
+      trace.startPhase("engine:prompt-build");
       const prompt = await buildPrompt(
         task,
         this.planPaths,
         this.cwd,
         this.iteration,
       );
+      trace.endPhase("engine:prompt-build");
 
       // Execute agent
+      trace.startPhase("engine:agent-execution");
       const startTime = Date.now();
       let output = "";
       const currentAgent =
@@ -158,6 +165,7 @@ export class Engine {
       this.activeInterrupt = () => handle.interrupt();
       const result = await handle.promise;
       this.activeInterrupt = null;
+      trace.endPhase("engine:agent-execution");
       const duration = Date.now() - startTime;
 
       if (this.shouldStop) break;
@@ -166,6 +174,9 @@ export class Engine {
       const logPath = `${this.planPaths.logs}/iteration-${String(this.iteration).padStart(3, "0")}.jsonl`;
       await ensureDir(this.planPaths.logs);
       await writeText(logPath, output);
+
+      // Result processing
+      trace.startPhase("engine:result-processing");
 
       // Rate limit check
       if (detectRateLimit(result.stdout + result.stderr)) {
@@ -179,6 +190,7 @@ export class Engine {
         const freshFile = await loadTasks(this.planPaths.tasks);
         const reverted = updateTaskStatus(freshFile, task.id, "open");
         await saveTasks(this.planPaths.tasks, reverted);
+        trace.endPhase("engine:result-processing");
         await Bun.sleep(delay);
         continue;
       }
@@ -276,11 +288,18 @@ export class Engine {
         }
       }
 
+      trace.endPhase("engine:result-processing");
+
       // Update session with current iteration
       try {
         await updateSession(this.planPaths, { currentIteration: this.iteration });
       } catch {
         // Session may not exist in all contexts
+      }
+
+      // Store first-token timestamp for reporting
+      if (result.firstTokenMs !== undefined && result.firstTokenMs !== null) {
+        trace.recordPhase("engine:first-token", result.firstTokenMs);
       }
 
       const iterResult: IterationResult = {

@@ -9,6 +9,7 @@ export interface AgentExecutionResult {
   stdout: string;
   stderr: string;
   timedOut: boolean;
+  firstTokenMs?: number | null;
 }
 
 export interface AgentExecuteOptions {
