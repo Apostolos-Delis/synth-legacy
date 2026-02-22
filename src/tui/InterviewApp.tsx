@@ -3,7 +3,7 @@ import { useKeyboard, useTerminalDimensions, useRenderer } from "@opentui/react"
 import type { TextareaRenderable } from "@opentui/core";
 import type { InterviewMessage } from "../interview/types.js";
 import { WELCOME_MESSAGE } from "../interview/interviewer.js";
-import { boldAttr, colors } from "./theme.js";
+import { boldAttr, colors, markdownSyntaxStyle } from "./theme.js";
 import { PhaseIndicator } from "./components/PhaseIndicator.js";
 import { openInEditor } from "../utils/editor.js";
 
@@ -24,7 +24,7 @@ function MessageBubble({ message }: { message: InterviewMessage }): ReactNode {
         <text fg={roleColor} attributes={boldAttr()}>{roleLabel}</text>
       </box>
       <box style={{ paddingLeft: 2 }}>
-        <text fg={colors.fg.primary}>{message.content}</text>
+        <markdown content={message.content} syntaxStyle={markdownSyntaxStyle()} />
       </box>
     </box>
   );
@@ -308,7 +308,7 @@ export function InterviewApp({ onSendMessage, onComplete, onQuit }: InterviewApp
               </box>
               {streamingText && (
                 <box style={{ paddingLeft: 2 }}>
-                  <text fg={colors.fg.primary}>{streamingText}</text>
+                  <markdown content={streamingText} syntaxStyle={markdownSyntaxStyle()} streaming={true} />
                 </box>
               )}
             </box>

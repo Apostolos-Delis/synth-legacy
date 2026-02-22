@@ -1,9 +1,15 @@
-import { createTextAttributes } from "@opentui/core";
+import { createTextAttributes, SyntaxStyle } from "@opentui/core";
 
 // Lazy-initialized bold attribute — avoids module-order issues in compiled binaries
 let _boldAttr: number | undefined;
 export function boldAttr(): number {
   return (_boldAttr ??= createTextAttributes({ bold: true }));
+}
+
+// Lazy-initialized SyntaxStyle for <markdown> components
+let _syntaxStyle: SyntaxStyle | undefined;
+export function markdownSyntaxStyle(): SyntaxStyle {
+  return (_syntaxStyle ??= SyntaxStyle.create());
 }
 
 // Hex color theme for TUI components (used with <span fg={}>)
