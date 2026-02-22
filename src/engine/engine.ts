@@ -7,6 +7,7 @@ import type {
   EngineState,
   IterationResult,
 } from "./types.js";
+import { parseAcDoneMarkers, stripAcDoneMarkers } from "./ac-done.js";
 import { CircuitBreaker } from "./circuit-breaker.js";
 import { detectRateLimit, getBackoffDelay } from "./rate-limit.js";
 import { runBackpressure } from "./backpressure.js";
@@ -162,10 +163,28 @@ export class Engine {
           if (isFirst) {
             firstChunkReceived = true;
           }
-          output += chunk;
-          // Carry isFirstChunk so the TUI can update phase and append output
-          // in a single render pass instead of emitting a separate phase event.
-          this.emit({ type: "agent:stdout", message: chunk, taskId: task.id, isFirstChunk: isFirst });
+
+          // Parse ac-done markers before appending to output
+          const markers = parseAcDoneMarkers(chunk);
+          for (const oneBasedIdx of markers) {
+            const zeroBasedIdx = oneBasedIdx - 1;
+            if (
+              task.criteriaCompleted &&
+              zeroBasedIdx >= 0 &&
+              zeroBasedIdx < task.criteriaCompleted.length
+            ) {
+              task.criteriaCompleted[zeroBasedIdx] = true;
+              this.emit({
+                type: "ac:criteria-met",
+                taskId: task.id,
+                criterionIndex: zeroBasedIdx,
+              });
+            }
+          }
+
+          const stripped = stripAcDoneMarkers(chunk);
+          output += stripped;
+          this.emit({ type: "agent:stdout", message: stripped, taskId: task.id, isFirstChunk: isFirst });
         },
         onStderr: (chunk) => {
           this.emit({ type: "agent:stderr", message: chunk, taskId: task.id });
@@ -242,7 +261,22 @@ export class Engine {
       const freshTaskFile = await loadTasks(this.planPaths.tasks);
 
       if (success) {
-        const doneFile = updateTaskStatus(freshTaskFile, task.id, "done");
+        // Mark all criteria as complete on successful task completion
+        if (task.criteriaCompleted) {
+          for (let i = 0; i < task.criteriaCompleted.length; i++) {
+            task.criteriaCompleted[i] = true;
+          }
+        }
+        // Merge in-memory criteriaCompleted before persisting
+        const mergedFile: typeof freshTaskFile = {
+          ...freshTaskFile,
+          tasks: freshTaskFile.tasks.map((t) =>
+            t.id === task.id
+              ? { ...t, criteriaCompleted: task.criteriaCompleted ?? t.criteriaCompleted }
+              : t,
+          ),
+        };
+        const doneFile = updateTaskStatus(mergedFile, task.id, "done");
         await saveTasks(this.planPaths.tasks, doneFile);
         this.circuitBreaker.recordSuccess();
         this.emit({
@@ -276,8 +310,17 @@ export class Engine {
             ? `Iteration ${this.iteration}: timed out`
             : `Iteration ${this.iteration}: agent exited with code ${result.exitCode}`;
 
+        // Merge any criteria progress observed during this iteration
+        const mergedFailFile: typeof freshTaskFile = {
+          ...freshTaskFile,
+          tasks: freshTaskFile.tasks.map((t) =>
+            t.id === task.id
+              ? { ...t, criteriaCompleted: task.criteriaCompleted ?? t.criteriaCompleted }
+              : t,
+          ),
+        };
         const failedFile = updateTaskStatus(
-          freshTaskFile,
+          mergedFailFile,
           task.id,
           "open",
           failNotes,

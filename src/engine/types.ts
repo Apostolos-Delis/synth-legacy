@@ -25,7 +25,8 @@ export type EngineEventType =
   | "phase:building-prompt"
   | "phase:spawning-agent"
   | "phase:waiting-response"
-  | "phase:streaming";
+  | "phase:streaming"
+  | "ac:criteria-met";
 
 export interface EngineEvent {
   type: EngineEventType;
@@ -35,6 +36,7 @@ export interface EngineEvent {
   data?: unknown;
   timestamp?: number;
   isFirstChunk?: boolean;
+  criterionIndex?: number;
 }
 
 export interface IterationResult {
