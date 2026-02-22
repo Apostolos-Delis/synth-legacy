@@ -38,8 +38,8 @@ describe("buildPrompt", () => {
         acceptanceCriteria: ["Users can log in", "Sessions persist"],
       });
       const prompt = await buildPrompt(task, paths, dir, 1);
-      expect(prompt).toContain("- [ ] Users can log in");
-      expect(prompt).toContain("- [ ] Sessions persist");
+      expect(prompt).toContain("- [ ] #1: Users can log in");
+      expect(prompt).toContain("- [ ] #2: Sessions persist");
     });
   });
 

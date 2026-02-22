@@ -92,7 +92,7 @@ export async function buildPrompt(
 **Description**: ${task.description}
 
 ### Acceptance Criteria
-${task.acceptanceCriteria.map((c) => `- [ ] ${c}`).join("\n")}
+${task.acceptanceCriteria.map((c, i) => `- [ ] #${i + 1}: ${c}`).join("\n")}
 ${
   task.verification?.length
     ? `\n### Verification Commands\n${task.verification.map((v) => `- \`${v.value}\``).join("\n")}`
