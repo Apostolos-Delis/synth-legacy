@@ -1,8 +1,12 @@
-import { useState, useCallback, useMemo, type ReactNode } from "react";
+import { useState, useCallback, useMemo, useRef, useEffect, type ReactNode } from "react";
 import { useKeyboard } from "@opentui/react";
 import type { TuiState, TuiEngineData, ViewMode } from "./types.js";
 import { ExecutionView } from "./ExecutionView.js";
 import { DashboardView } from "./DashboardView.js";
+import { HelpOverlay } from "./components/HelpOverlay.js";
+import { ConfirmationDialog } from "./components/ConfirmationDialog.js";
+import { ToastContainer } from "./components/Toast.js";
+import { useToast } from "./hooks/useToast.js";
 
 interface AppProps extends TuiEngineData {
   defaultView?: ViewMode;
@@ -19,6 +23,21 @@ export function App({
   ...engineData
 }: AppProps): ReactNode {
   const [view, setView] = useState<ViewMode>(defaultView);
+  const [showHelp, setShowHelp] = useState(false);
+  const [showQuitConfirm, setShowQuitConfirm] = useState(false);
+  const { toasts, showSuccess, showInfo, showWarning } = useToast();
+
+  const prevEngineState = useRef(engineData.engineState);
+  useEffect(() => {
+    const prev = prevEngineState.current;
+    const curr = engineData.engineState;
+    if (prev === curr) return;
+    prevEngineState.current = curr;
+
+    if (curr === "completed") showSuccess("All tasks complete!");
+    else if (curr === "paused" && prev === "executing") showInfo("Execution paused");
+    else if (curr === "blocked") showWarning("Execution blocked");
+  }, [engineData.engineState, showSuccess, showInfo, showWarning]);
 
   const state: TuiState = useMemo(
     () => ({ ...engineData, view }),
@@ -26,8 +45,36 @@ export function App({
   );
 
   const handleKeyboard = useCallback(
-    (key: { name: string }) => {
+    (key: { name: string; ctrl?: boolean }) => {
+      // Help overlay takes precedence
+      if (showHelp) {
+        if (key.name === "?" || key.name === "escape") {
+          setShowHelp(false);
+        }
+        return;
+      }
+
+      // Quit confirmation dialog
+      if (showQuitConfirm) {
+        if (key.name === "y") {
+          setShowQuitConfirm(false);
+          onQuit?.();
+        } else if (key.name === "n" || key.name === "escape") {
+          setShowQuitConfirm(false);
+        }
+        return;
+      }
+
+      // Ctrl+C shows confirmation during execution
+      if (key.name === "c" && key.ctrl && engineData.engineState === "executing") {
+        setShowQuitConfirm(true);
+        return;
+      }
+
       switch (key.name) {
+        case "?":
+          setShowHelp(true);
+          break;
         case "q":
         case "escape":
           if (view === "dashboard") {
@@ -48,18 +95,27 @@ export function App({
           break;
       }
     },
-    [view, engineData.engineState, onQuit, onPause, onResume],
+    [view, showHelp, showQuitConfirm, engineData.engineState, onQuit, onPause, onResume],
   );
 
   useKeyboard(handleKeyboard);
 
-  switch (view) {
-    case "dashboard":
-      return <DashboardView state={state} />;
-    case "execution":
-    default:
-      return <ExecutionView state={state} />;
-  }
+  return (
+    <box style={{ width: "100%", height: "100%", position: "relative" }}>
+      {view === "dashboard" ? (
+        <DashboardView state={state} />
+      ) : (
+        <ExecutionView state={state} />
+      )}
+      <ToastContainer toasts={toasts} />
+      <HelpOverlay visible={showHelp} />
+      <ConfirmationDialog
+        visible={showQuitConfirm}
+        title="Quit Synth?"
+        message="Execution will be paused. You can resume later."
+      />
+    </box>
+  );
 }
 
 export type { TuiState, TuiEngineData };

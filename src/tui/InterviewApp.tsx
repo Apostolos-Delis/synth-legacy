@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef, type ReactNode } from "react";
 import { useKeyboard } from "@opentui/react";
+import type { TextareaRenderable } from "@opentui/core";
 import type { InterviewMessage } from "../interview/types.js";
 import { WELCOME_MESSAGE } from "../interview/interviewer.js";
 import { boldAttr, colors, SPINNER_FRAMES } from "./theme.js";
@@ -9,6 +10,7 @@ interface InterviewAppProps {
   onComplete: () => void;
   onQuit: () => void;
 }
+
 
 function AnimatedSpinner(): ReactNode {
   const [frame, setFrame] = useState(0);
@@ -44,7 +46,7 @@ export function InterviewApp({ onSendMessage, onComplete, onQuit }: InterviewApp
   ]);
   const [isLoading, setIsLoading] = useState(false);
   const [streamingText, setStreamingText] = useState("");
-  const textareaRef = useRef<any>(null);
+  const textareaRef = useRef<TextareaRenderable>(null);
 
   const handleSubmit = useCallback(async () => {
     if (isLoading) return;
@@ -83,19 +85,112 @@ export function InterviewApp({ onSendMessage, onComplete, onQuit }: InterviewApp
     }
   }, [isLoading, onSendMessage, onComplete, onQuit]);
 
-  useKeyboard(useCallback((key: { name: string; shift?: boolean; ctrl?: boolean; meta?: boolean; preventDefault?: () => void }) => {
+  useKeyboard(useCallback((key: { name: string; shift?: boolean; ctrl?: boolean; meta?: boolean; option?: boolean; preventDefault?: () => void }) => {
+    const textarea = textareaRef.current;
+
+    // Enter to send
     if (key.name === "return" && !key.shift && !key.ctrl && !key.meta) {
       key.preventDefault?.();
       handleSubmit();
-    } else if ((key.name === "return" && key.shift) || (key.name === "j" && key.ctrl)) {
-      key.preventDefault?.();
-      textareaRef.current?.editBuffer?.newLine();
-    } else if (key.name === "escape") {
-      onQuit();
-    } else if (key.name === "c" && key.ctrl) {
-      onQuit();
+      return;
     }
-  }, [handleSubmit, onQuit]));
+
+    // Shift+Enter or Ctrl+J for newline
+    if ((key.name === "return" && key.shift) || (key.name === "j" && key.ctrl)) {
+      key.preventDefault?.();
+      textarea?.newLine();
+      return;
+    }
+
+    // Escape or Ctrl+C to quit
+    if (key.name === "escape") {
+      onQuit();
+      return;
+    }
+    if (key.name === "c" && key.ctrl) {
+      onQuit();
+      return;
+    }
+
+    // Text editing shortcuts (only when textarea is available and not loading)
+    if (!textarea || isLoading) return;
+
+    // Ctrl+W / Option+Backspace — delete word backward
+    if ((key.ctrl && key.name === "w") || (key.option && key.name === "backspace")) {
+      key.preventDefault?.();
+      textarea.deleteWordBackward();
+      return;
+    }
+
+    // Ctrl+U — kill to start of line
+    if (key.ctrl && key.name === "u") {
+      key.preventDefault?.();
+      textarea.deleteToLineStart();
+      return;
+    }
+
+    // Ctrl+K — kill to end of line
+    if (key.ctrl && key.name === "k") {
+      key.preventDefault?.();
+      textarea.deleteToLineEnd();
+      return;
+    }
+
+    // Option+Delete — delete word forward
+    if (key.option && key.name === "delete") {
+      key.preventDefault?.();
+      textarea.deleteWordForward();
+      return;
+    }
+
+    // Option+Left/Right — word movement
+    if (key.option && !key.shift && key.name === "left") {
+      key.preventDefault?.();
+      textarea.moveWordBackward();
+      return;
+    }
+    if (key.option && !key.shift && key.name === "right") {
+      key.preventDefault?.();
+      textarea.moveWordForward();
+      return;
+    }
+
+    // Shift+Option+Left/Right — word selection
+    if (key.shift && key.option && key.name === "left") {
+      key.preventDefault?.();
+      textarea.moveWordBackward({ select: true });
+      return;
+    }
+    if (key.shift && key.option && key.name === "right") {
+      key.preventDefault?.();
+      textarea.moveWordForward({ select: true });
+      return;
+    }
+
+    // Shift+arrow keys — text selection
+    if (key.shift && !key.meta && !key.option && !key.ctrl) {
+      if (key.name === "left") {
+        key.preventDefault?.();
+        textarea.moveCursorLeft({ select: true });
+        return;
+      }
+      if (key.name === "right") {
+        key.preventDefault?.();
+        textarea.moveCursorRight({ select: true });
+        return;
+      }
+      if (key.name === "up") {
+        key.preventDefault?.();
+        textarea.moveCursorUp({ select: true });
+        return;
+      }
+      if (key.name === "down") {
+        key.preventDefault?.();
+        textarea.moveCursorDown({ select: true });
+        return;
+      }
+    }
+  }, [handleSubmit, onQuit, isLoading]));
 
   return (
     <box style={{ width: "100%", height: "100%", flexDirection: "column" }}>
@@ -170,31 +265,48 @@ export function InterviewApp({ onSendMessage, onComplete, onQuit }: InterviewApp
           paddingRight: 1,
         }}
       >
-        <textarea
-          ref={textareaRef}
-          style={{ flexGrow: 1 }}
-          placeholder={isLoading ? "Waiting for response..." : "Type your message... (Enter to send, q to quit)"}
-          focused={!isLoading}
-        />
-      </box>
+        <box
+          style={{
+            flexGrow: 1,
+            flexDirection: "row",
+            alignItems: "flex-start",
+          }}
+        >
+          <text fg={colors.accent.primary} style={{ paddingTop: 0 }}>
+            {">"}{" "}
+          </text>
+          <textarea
+            ref={textareaRef}
+            style={{ flexGrow: 1 }}
+            placeholder={isLoading ? "Waiting for response..." : "Type your message..."}
+            focused={!isLoading}
+          />
+        </box>
 
-      {/* Footer */}
-      <box
-        style={{
-          width: "100%",
-          height: 1,
-          backgroundColor: colors.bg.secondary,
-          paddingLeft: 1,
-        }}
-      >
-        {isLoading ? (
-          <box style={{ flexDirection: "row", gap: 1 }}>
-            <AnimatedSpinner />
-            <text fg={colors.status.info}>{streamingText ? "Streaming..." : "Waiting for response..."}</text>
-          </box>
-        ) : (
-          <text fg={colors.fg.muted}>Enter:send  Shift+Enter/Ctrl+J:newline  Esc:quit</text>
-        )}
+        {/* Hint bar - positioned on bottom border */}
+        <box
+          style={{
+            position: "absolute",
+            bottom: 0,
+            left: 2,
+            right: 2,
+            height: 1,
+            flexDirection: "row",
+            justifyContent: "center",
+            alignItems: "center",
+            gap: 1,
+            backgroundColor: colors.bg.secondary,
+          }}
+        >
+          {isLoading ? (
+            <>
+              <AnimatedSpinner />
+              <text fg={colors.status.info}>{streamingText ? "Streaming..." : "Waiting for response..."}</text>
+            </>
+          ) : (
+            <text fg={colors.fg.muted}>Enter:send  Shift+Enter:newline  Ctrl+W:del word  Esc:quit</text>
+          )}
+        </box>
       </box>
     </box>
   );
