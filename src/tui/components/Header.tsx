@@ -51,18 +51,18 @@ export function Header({
     >
       <text>
         <span fg={colors.accent.primary} attributes={1}>synth</span>
-        <span fg={colors.fg.muted}> \u2502 </span>
+        <span fg={colors.fg.muted}>{" │ "}</span>
         <span fg={colors.fg.primary}>{projectName}</span>
         <span fg={colors.fg.muted}> ({planId})</span>
       </text>
       <box flexGrow={1} />
       <text>
         <span fg={colors.status.success}>{miniProgressBar(done, total, 10)}</span>
-        <span fg={colors.fg.muted}> {pct}% \u2502 </span>
+        <span fg={colors.fg.muted}>{` ${pct}% │ `}</span>
         <span fg={colors.accent.primary}>{agentName}</span>
-        <span fg={colors.fg.muted}> \u2502 </span>
+        <span fg={colors.fg.muted}>{" │ "}</span>
         <span fg={colors.fg.secondary}>iter {iteration}/{maxIterations}</span>
-        <span fg={colors.fg.muted}> \u2502 </span>
+        <span fg={colors.fg.muted}>{" │ "}</span>
         <span fg={colors.fg.secondary}>{formatElapsed(elapsedMs)}</span>
       </text>
     </box>

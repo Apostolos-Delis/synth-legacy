@@ -18,9 +18,9 @@ export function InterviewView({ state }: InterviewViewProps): ReactNode {
       <box height={1} style={{ backgroundColor: colors.bg.secondary, paddingLeft: 1 }}>
         <text>
           <span fg={colors.accent.primary} attributes={1}>synth plan</span>
-          <span fg={colors.fg.muted}> \u2502 </span>
+          <span fg={colors.fg.muted}>{" │ "}</span>
           <span fg={colors.fg.secondary}>PRD Interview</span>
-          <span fg={colors.fg.muted}> \u2502 </span>
+          <span fg={colors.fg.muted}>{" │ "}</span>
           <span fg={colors.fg.muted}>{state.interviewMessages.length} messages</span>
         </text>
       </box>

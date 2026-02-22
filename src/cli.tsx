@@ -492,32 +492,10 @@ async function cmdPlan(planIdOrFlag?: string): Promise<void> {
 
   const opening = await interviewer.start();
 
-  let planRenderer: CliRenderer | null = null;
-  let planRoot: Root | null = null;
-  let planTuiData: TuiEngineData | null = null;
-
-  if (tuiEnabled) {
-    planRenderer = await createCliRenderer();
-    planRoot = createRoot(planRenderer);
-    planTuiData = {
-      engineState: "idle",
-      iteration: 0,
-      maxIterations: 0,
-      tasks: [],
-      currentTaskId: null,
-      output: "",
-      agentName: config.agent.name,
-      projectName: config.project.name,
-      planId: id,
-      startTime: Date.now(),
-      interviewMessages: [{ role: "assistant", content: opening }],
-      isThinking: false,
-    };
-    planRoot.render(<App {...planTuiData} defaultView="interview" />);
-  } else {
-    log(`${ansi.magenta}Synth:${ansi.reset}`);
-    log(opening);
-  }
+  // Interview uses plain console output — TUI renderer and readline
+  // conflict for terminal control, so we use styled console output here.
+  log(`\n${ansi.magenta}Synth:${ansi.reset}`);
+  log(opening);
 
   const readline = await import("node:readline");
   const rl = readline.createInterface({
@@ -535,34 +513,21 @@ async function cmdPlan(planIdOrFlag?: string): Promise<void> {
     const userInput = await askQuestion();
     if (userInput.toLowerCase() === "q" || userInput.toLowerCase() === "quit") {
       rl.close();
-      if (planRoot) planRoot.unmount();
-      if (planRenderer) planRenderer.destroy();
       agent.dispose();
       return;
     }
 
-    if (planTuiData && planRoot) {
-      planTuiData.interviewMessages = [
-        ...planTuiData.interviewMessages,
-        { role: "user", content: userInput },
-      ];
-      planTuiData.isThinking = true;
-      planRoot.render(<App {...planTuiData} defaultView="interview" />);
-    }
-
-    const response = await interviewer.respond(userInput);
-
-    if (planTuiData && planRoot) {
-      planTuiData.isThinking = false;
-      planTuiData.interviewMessages = [
-        ...planTuiData.interviewMessages,
-        { role: "assistant", content: response },
-      ];
-      planRoot.render(<App {...planTuiData} defaultView="interview" />);
+    let response: string;
+    if (tuiEnabled) {
+      const spinner = createSpinner("Thinking");
+      response = await interviewer.respond(userInput);
+      spinner.stop("");
     } else {
-      log(`\n${ansi.magenta}Synth:${ansi.reset}`);
-      log(response);
+      response = await interviewer.respond(userInput);
     }
+
+    log(`\n${ansi.magenta}Synth:${ansi.reset}`);
+    log(response);
 
     prd = interviewer.extractPrd(response);
   }
@@ -573,19 +538,18 @@ async function cmdPlan(planIdOrFlag?: string): Promise<void> {
   await writeText(paths.prd, prdMarkdown);
   await updatePlanMetadata(cwd, id, { description: prd.title });
 
-  if (!tuiEnabled) {
-    logSuccess(`PRD saved to ${paths.prd}`);
-    log("Generating tasks...\n");
-  }
+  logSuccess(`PRD saved to ${paths.prd}`);
 
-  const taskFile = await generateTasks(
-    agent,
-    prdMarkdown,
-    config.project.name,
-    config.project.branch || `synth/${id}`,
-    cwd,
-    config.agent.model,
-  );
+  const taskFile = tuiEnabled
+    ? await withSpinner("Generating tasks", () =>
+        generateTasks(agent, prdMarkdown, config.project.name, config.project.branch || `synth/${id}`, cwd, config.agent.model),
+        { successMessage: fmt.success("Tasks generated") },
+      )
+    : await (async () => {
+        log("Generating tasks...\n");
+        return generateTasks(agent, prdMarkdown, config.project.name, config.project.branch || `synth/${id}`, cwd, config.agent.model);
+      })();
+
   await saveTasks(paths.tasks, taskFile);
   await writeText(paths.progress, "## Codebase Patterns\n\n---\n\n");
   await updatePlanMetadata(cwd, id, {
@@ -593,19 +557,11 @@ async function cmdPlan(planIdOrFlag?: string): Promise<void> {
     taskCount: taskFile.tasks.length,
   });
 
-  if (planTuiData && planRoot) {
-    planTuiData.tasks = [...taskFile.tasks];
-    planRoot.render(<App {...planTuiData} defaultView="interview" />);
-  } else {
-    log(fmt.bold(`Generated ${taskFile.tasks.length} tasks:`) + "\n");
-    for (const task of taskFile.tasks) {
-      const priorityColor = PRIORITY_COLORS[task.priority] ?? ansi.muted;
-      log(`  ${priorityColor}P${task.priority}${ansi.reset} ${task.id} ${task.title}`);
-    }
+  log(fmt.bold(`Generated ${taskFile.tasks.length} tasks:`) + "\n");
+  for (const task of taskFile.tasks) {
+    const priorityColor = PRIORITY_COLORS[task.priority] ?? ansi.muted;
+    log(`  ${priorityColor}P${task.priority}${ansi.reset} ${task.id} ${task.title}`);
   }
-
-  if (planRoot) planRoot.unmount();
-  if (planRenderer) planRenderer.destroy();
 
   const rl2 = readline.createInterface({
     input: process.stdin,

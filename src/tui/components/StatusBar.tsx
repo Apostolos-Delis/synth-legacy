@@ -38,13 +38,13 @@ export function StatusBar({
     >
       <text>
         <span fg={display.color}>{display.indicator} {display.label}</span>
-        <span fg={colors.fg.muted}> \u2502 </span>
+        <span fg={colors.fg.muted}>{" │ "}</span>
         <span fg={colors.fg.secondary}>{agentName}</span>
-        <span fg={colors.fg.muted}> \u2502 </span>
+        <span fg={colors.fg.muted}>{" │ "}</span>
         <span fg={colors.fg.secondary}>iter {iteration}</span>
-        <span fg={colors.fg.muted}> \u2502 </span>
+        <span fg={colors.fg.muted}>{" │ "}</span>
         <span fg={colors.fg.secondary}>{elapsed}s</span>
-        <span fg={colors.fg.muted}> \u2502 </span>
+        <span fg={colors.fg.muted}>{" │ "}</span>
         <span fg={colors.fg.muted}>q:quit  p:pause  d:dashboard</span>
       </text>
     </box>

@@ -27,12 +27,12 @@ export function DashboardView({ state }: DashboardViewProps): ReactNode {
       <box height={1} style={{ backgroundColor: colors.bg.secondary, paddingLeft: 1 }}>
         <text>
           <span fg={colors.accent.primary} attributes={1}>Dashboard</span>
-          <span fg={colors.fg.muted}> \u2502 </span>
+          <span fg={colors.fg.muted}>{" │ "}</span>
           <span fg={colors.fg.secondary}>{done}/{total} tasks</span>
-          <span fg={colors.fg.muted}> \u2502 </span>
+          <span fg={colors.fg.muted}>{" │ "}</span>
           <span fg={colors.status.success}>{miniProgressBar(done, total)}</span>
           <span fg={colors.fg.primary} attributes={1}> {pct}%</span>
-          <span fg={colors.fg.muted}> \u2502 </span>
+          <span fg={colors.fg.muted}>{" │ "}</span>
           <span fg={colors.fg.secondary}>iter {state.iteration}/{state.maxIterations}</span>
         </text>
       </box>
