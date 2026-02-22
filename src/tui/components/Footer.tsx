@@ -11,6 +11,8 @@ const SHORTCUTS: Record<ViewMode, string> = {
   execution: "q:quit  p:pause/resume  d:dashboard",
   dashboard: "q:quit  p:pause/resume  Esc:back",
   interview: "Enter:send  q:quit",
+  generating: "Please wait...",
+  review: "Enter:start execution  Esc/q:save and quit",
 };
 
 export function Footer({ view, width }: FooterProps): ReactNode {

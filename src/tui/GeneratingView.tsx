@@ -1,0 +1,39 @@
+import type { ReactNode } from "react";
+import { useTerminalDimensions } from "@opentui/react";
+import { createTextAttributes } from "@opentui/core";
+import { colors } from "./theme.js";
+import { Spinner } from "./components/Spinner.js";
+import { Footer } from "./components/Footer.js";
+
+const boldAttr = createTextAttributes({ bold: true });
+
+interface GeneratingViewProps {
+  output: string;
+}
+
+export function GeneratingView({ output }: GeneratingViewProps): ReactNode {
+  const { width, height } = useTerminalDimensions();
+
+  return (
+    <box width={width} height={height} flexDirection="column">
+      <box height={1} style={{ backgroundColor: colors.bg.secondary, paddingLeft: 1 }}>
+        <text>
+          <span fg={colors.accent.primary} attributes={boldAttr}>synth plan</span>
+          <span fg={colors.fg.muted}>{" │ "}</span>
+          <span fg={colors.status.info}>Generating tasks...</span>
+        </text>
+      </box>
+
+      <box style={{ flexGrow: 1, flexDirection: "column", paddingLeft: 1, paddingTop: 1 }}>
+        <box style={{ flexDirection: "row", gap: 1, marginBottom: 1 }}>
+          <Spinner label="Agent is generating tasks" color={colors.status.info} />
+        </box>
+        <scrollbox style={{ flexGrow: 1 }} stickyScroll={true} stickyStart="bottom">
+          <text fg={colors.fg.muted}>{output || "Waiting for agent output..."}</text>
+        </scrollbox>
+      </box>
+
+      <Footer view="generating" width={width} />
+    </box>
+  );
+}

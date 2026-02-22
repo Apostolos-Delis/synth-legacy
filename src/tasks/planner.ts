@@ -41,6 +41,7 @@ export async function generateTasks(
   branchName: string,
   cwd: string,
   model?: string,
+  onProgress?: (chunk: string) => void,
 ): Promise<TaskFile> {
   const prompt = `${PLANNER_PROMPT}
 
@@ -57,6 +58,7 @@ ${prd}`;
     skipPermissions: false,
     onStdout: (chunk) => {
       output += chunk;
+      onProgress?.(chunk);
     },
   });
   await handle.promise;

@@ -21,23 +21,25 @@ import {
   endSession,
 } from "./session/session.js";
 import { Interviewer, prdToMarkdown, WELCOME_MESSAGE } from "./interview/interviewer.js";
+import type { GeneratedPrd } from "./interview/types.js";
 import { finalize } from "./finalize/finalize.js";
 import { writeText, readText, fileExists } from "./utils/fs.js";
 import { spawn } from "./utils/process.js";
 import { ansi, fmt, STATUS_ICONS, STATUS_COLORS, PRIORITY_COLORS } from "./tui/theme.js";
 import { createSpinner, withSpinner } from "./tui/spinner.js";
-import type { TuiEngineData } from "./tui/types.js";
+import type { TuiEngineData, TuiContext } from "./tui/types.js";
 
 // TUI imports are loaded dynamically to keep non-TUI commands fast.
-// Use loadTui() to get createCliRenderer, createRoot, App, InterviewApp.
 async function loadTui() {
-  const [{ createCliRenderer }, { createRoot }, { App }, { InterviewApp }] = await Promise.all([
+  const [{ createCliRenderer }, { createRoot }, { App }, { InterviewApp }, { GeneratingView }, { ReviewView }] = await Promise.all([
     import("@opentui/core"),
     import("@opentui/react"),
     import("./tui/App.js"),
     import("./tui/InterviewApp.js"),
+    import("./tui/GeneratingView.js"),
+    import("./tui/ReviewView.js"),
   ]);
-  return { createCliRenderer, createRoot, App, InterviewApp };
+  return { createCliRenderer, createRoot, App, InterviewApp, GeneratingView, ReviewView };
 }
 
 const VERSION = "0.1.2";
@@ -209,7 +211,7 @@ async function cmdConfig(): Promise<void> {
   log(colorized);
 }
 
-async function cmdRun(planId?: string, startIteration = 0): Promise<void> {
+async function cmdRun(planId?: string, startIteration = 0, tuiContext?: TuiContext): Promise<void> {
   const config = await loadConfig(cwd);
 
   let plan;
@@ -270,6 +272,7 @@ async function cmdRun(planId?: string, startIteration = 0): Promise<void> {
 
   const engine = new Engine(config, agent, fallbackAgent, plan.paths, cwd);
 
+  const ownsRenderer = !tuiContext;
   let renderer: Awaited<ReturnType<typeof import("@opentui/core")["createCliRenderer"]>> | null = null;
   let root: ReturnType<typeof import("@opentui/react")["createRoot"]> | null = null;
   let tuiData: TuiEngineData | null = null;
@@ -278,8 +281,13 @@ async function cmdRun(planId?: string, startIteration = 0): Promise<void> {
   if (tuiEnabled) {
     const tui = await loadTui();
     App = tui.App;
-    renderer = await tui.createCliRenderer();
-    root = tui.createRoot(renderer);
+    if (tuiContext) {
+      renderer = tuiContext.renderer;
+      root = tuiContext.root;
+    } else {
+      renderer = await tui.createCliRenderer();
+      root = tui.createRoot(renderer);
+    }
     tuiData = {
       engineState: "executing",
       iteration: startIteration,
@@ -371,8 +379,10 @@ async function cmdRun(planId?: string, startIteration = 0): Promise<void> {
     if (cleaningUp) return;
     cleaningUp = true;
     engine.stop();
-    if (root) root.unmount();
-    if (renderer) renderer.destroy();
+    if (ownsRenderer) {
+      if (root) root.unmount();
+      if (renderer) renderer.destroy();
+    }
     await endSession(plan!.paths, "interrupted");
     await updatePlanMetadata(cwd, plan!.metadata.id, { status: "paused" });
     if (!tuiEnabled) {
@@ -380,8 +390,10 @@ async function cmdRun(planId?: string, startIteration = 0): Promise<void> {
     }
   };
 
-  process.on("SIGINT", () => { cleanup().then(() => process.exit(0)); });
-  process.on("SIGTERM", () => { cleanup().then(() => process.exit(0)); });
+  const onSigInt = () => { cleanup().then(() => process.exit(0)); };
+  const onSigTerm = () => { cleanup().then(() => process.exit(0)); };
+  process.on("SIGINT", onSigInt);
+  process.on("SIGTERM", onSigTerm);
 
   try {
     await engine.run(startIteration);
@@ -395,8 +407,12 @@ async function cmdRun(planId?: string, startIteration = 0): Promise<void> {
     await updatePlanMetadata(cwd, plan.metadata.id, { status: "failed" });
     if (!tuiEnabled) logError(`Engine error: ${err}`);
   } finally {
-    if (root) root.unmount();
-    if (renderer) renderer.destroy();
+    process.off("SIGINT", onSigInt);
+    process.off("SIGTERM", onSigTerm);
+    if (ownsRenderer) {
+      if (root) root.unmount();
+      if (renderer) renderer.destroy();
+    }
     await releaseLock(plan.paths);
     agent.dispose();
     fallbackAgent?.dispose();
@@ -490,7 +506,7 @@ async function cmdPlan(planIdOrFlag?: string): Promise<void> {
   const agent = getAgent(config.agent.name);
   const interviewer = new Interviewer(agent, cwd, config.agent.model);
 
-  let prd: ReturnType<typeof interviewer.extractPrd> = null;
+  let prd: import("./interview/types.js").GeneratedPrd | null = null;
 
   if (tuiEnabled) {
     const tui = await loadTui();
@@ -509,6 +525,7 @@ async function cmdPlan(planIdOrFlag?: string): Promise<void> {
     };
     process.on("SIGINT", sigintHandler);
 
+    // Phase 1: Interview
     const interviewResult = await new Promise<boolean>((resolve) => {
       planRoot.render(
         <tui.InterviewApp
@@ -524,13 +541,79 @@ async function cmdPlan(planIdOrFlag?: string): Promise<void> {
       );
     });
 
-    process.off("SIGINT", sigintHandler);
-    cleanup();
-
     if (!interviewResult) {
+      process.off("SIGINT", sigintHandler);
+      cleanup();
       agent.dispose();
       return;
     }
+
+    if (!prd) {
+      process.off("SIGINT", sigintHandler);
+      cleanup();
+      agent.dispose();
+      return;
+    }
+
+    // Phase 2: Task Generation (keep renderer alive)
+    const extractedPrd = prd as GeneratedPrd;
+    const { id, paths } = await createPlan(cwd, "");
+    const prdMarkdown = prdToMarkdown(extractedPrd);
+    await writeText(paths.prd, prdMarkdown);
+    await updatePlanMetadata(cwd, id, { description: extractedPrd.title });
+
+    let streamOutput = "";
+    planRoot.render(<tui.GeneratingView output={streamOutput} />);
+
+    let taskFile;
+    try {
+      taskFile = await generateTasks(
+        agent, prdMarkdown, config.project.name, config.project.branch || `synth/${id}`, cwd, config.agent.model,
+        (chunk) => {
+          streamOutput += chunk;
+          planRoot.render(<tui.GeneratingView output={streamOutput} />);
+        },
+      );
+    } catch (err) {
+      process.off("SIGINT", sigintHandler);
+      cleanup();
+      agent.dispose();
+      throw err;
+    }
+
+    await saveTasks(paths.tasks, taskFile);
+    await writeText(paths.progress, "## Codebase Patterns\n\n---\n\n");
+    await updatePlanMetadata(cwd, id, {
+      status: "planning",
+      taskCount: taskFile.tasks.length,
+    });
+
+    // Phase 3: Task Review
+    const confirmed = await new Promise<boolean>((resolve) => {
+      planRoot.render(
+        <tui.ReviewView
+          tasks={taskFile.tasks}
+          planId={id}
+          onConfirm={() => resolve(true)}
+          onDecline={() => resolve(false)}
+        />,
+      );
+    });
+
+    process.off("SIGINT", sigintHandler);
+
+    if (!confirmed) {
+      cleanup();
+      agent.dispose();
+      log(`\nPlan saved. Run later with: ${fmt.bold(`synth run ${id}`)}`);
+      return;
+    }
+
+    // Phase 4: Execution (reuse renderer+root)
+    agent.dispose();
+    await cmdRun(id, 0, { renderer: planRenderer, root: planRoot });
+    cleanup();
+    return;
   } else {
     log(`\n${ansi.magenta}Synth:${ansi.reset}`);
     log(WELCOME_MESSAGE);
@@ -564,6 +647,7 @@ async function cmdPlan(planIdOrFlag?: string): Promise<void> {
     }
   }
 
+  // Non-TUI path continues here (TUI path returns early above)
   if (!prd) {
     agent.dispose();
     return;
@@ -576,15 +660,8 @@ async function cmdPlan(planIdOrFlag?: string): Promise<void> {
 
   logSuccess(`PRD saved to ${paths.prd}`);
 
-  const taskFile = tuiEnabled
-    ? await withSpinner("Generating tasks", () =>
-        generateTasks(agent, prdMarkdown, config.project.name, config.project.branch || `synth/${id}`, cwd, config.agent.model),
-        { successMessage: fmt.success("Tasks generated") },
-      )
-    : await (async () => {
-        log("Generating tasks...\n");
-        return generateTasks(agent, prdMarkdown, config.project.name, config.project.branch || `synth/${id}`, cwd, config.agent.model);
-      })();
+  log("Generating tasks...\n");
+  const taskFile = await generateTasks(agent, prdMarkdown, config.project.name, config.project.branch || `synth/${id}`, cwd, config.agent.model);
 
   await saveTasks(paths.tasks, taskFile);
   await writeText(paths.progress, "## Codebase Patterns\n\n---\n\n");
