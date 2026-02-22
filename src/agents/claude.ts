@@ -25,12 +25,13 @@ export class ClaudeAdapter implements AgentAdapter {
   }
 
   execute(prompt: string, options: AgentExecuteOptions): AgentExecutionHandle {
+    // Use plain text print mode (like ralph-tui's default).
+    // stream-json requires --verbose and complex JSONL parsing; plain text
+    // streams raw output directly which is simpler and more reliable.
     const cmd = [
       "claude",
       "-p",
       prompt,
-      "--output-format",
-      "stream-json",
       ...(options.model ? ["--model", options.model] : []),
       ...(options.skipPermissions !== false ? ["--dangerously-skip-permissions"] : []),
     ];
@@ -39,28 +40,7 @@ export class ClaudeAdapter implements AgentAdapter {
       cmd,
       cwd: options.cwd,
       timeout: options.timeout,
-      onStdout: (chunk) => {
-        // Parse stream-json format: each line is a JSON object
-        const lines = chunk.split("\n").filter((l) => l.trim());
-        for (const line of lines) {
-          try {
-            const msg = JSON.parse(line);
-            // Extract text content from assistant messages
-            if (msg.type === "assistant" && msg.message?.content) {
-              for (const block of msg.message.content) {
-                if (block.type === "text" && block.text) {
-                  options.onStdout?.(block.text);
-                }
-              }
-            } else if (msg.type === "result" && msg.result) {
-              options.onStdout?.(msg.result);
-            }
-          } catch {
-            // Not JSON or unexpected format — pass through raw
-            options.onStdout?.(line);
-          }
-        }
-      },
+      onStdout: options.onStdout,
       onStderr: options.onStderr,
     });
 
