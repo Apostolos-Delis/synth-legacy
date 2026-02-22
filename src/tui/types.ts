@@ -37,6 +37,7 @@ export interface TuiEngineData {
   currentPhase: string | null;
   phaseStartTime: number | null;
   completionSummary: CompletionSummary | null;
+  taskOutputMap: Record<string, string>;
 }
 
 export interface TuiState extends TuiEngineData {

@@ -422,6 +422,7 @@ async function cmdRun(planId?: string, startIteration = 0, tuiContext?: TuiConte
       currentPhase: null,
       phaseStartTime: null,
       completionSummary: null,
+      taskOutputMap: {},
     };
   }
 
@@ -459,6 +460,7 @@ async function cmdRun(planId?: string, startIteration = 0, tuiContext?: TuiConte
           tuiData.isThinking = true;
           tuiData.currentPhase = "Starting task...";
           tuiData.phaseStartTime = event.timestamp ?? Date.now();
+          if (event.taskId) tuiData.taskOutputMap[event.taskId] = "";
           break;
         case "task:complete":
         case "task:failed": {
@@ -496,7 +498,13 @@ async function cmdRun(planId?: string, startIteration = 0, tuiContext?: TuiConte
             tuiData.currentPhase = "Streaming response...";
             tuiData.phaseStartTime = renderStart;
           }
-          if (event.message) tuiData.output += stripAnsi(event.message);
+          const stripped = event.message ? stripAnsi(event.message) : "";
+          if (stripped) {
+            tuiData.output += stripped;
+            if (tuiData.currentTaskId && tuiData.currentTaskId in tuiData.taskOutputMap) {
+              tuiData.taskOutputMap[tuiData.currentTaskId] += stripped;
+            }
+          }
           renderTui();
           // Record first-token-to-render latency for --profile reporting
           if (event.isFirstChunk && !firstTokenRendered) {
