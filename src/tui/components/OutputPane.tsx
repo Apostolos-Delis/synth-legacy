@@ -8,16 +8,29 @@ interface OutputPaneProps {
 }
 
 export function OutputPane({ output, width, height }: OutputPaneProps): ReactNode {
-  // Show the last N lines that fit in the pane
   const lines = output.split("\n");
-  const visibleLines = lines.slice(-(height - 1));
 
   return (
-    <box width={width} height={height} flexDirection="column">
-      <text>{colors.bold} Output{colors.reset}</text>
-      {visibleLines.map((line, i) => (
-        <text key={i}>{` ${line.slice(0, width - 2)}`}</text>
-      ))}
+    <box
+      width={width}
+      height={height}
+      border={true}
+      borderColor={colors.border.normal}
+      title="Output"
+      flexDirection="column"
+    >
+      <scrollbox
+        flexGrow={1}
+        stickyScroll={true}
+        stickyStart="bottom"
+        style={{ flexDirection: "column" }}
+      >
+        {lines.map((line, i) => (
+          <text key={i}>
+            <span fg={colors.fg.secondary}>{line}</span>
+          </text>
+        ))}
+      </scrollbox>
     </box>
   );
 }

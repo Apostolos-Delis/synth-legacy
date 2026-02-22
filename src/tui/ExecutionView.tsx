@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { useTerminalDimensions } from "@opentui/react";
 import type { TuiState } from "./types.js";
+import { layout } from "./theme.js";
 import { Header } from "./components/Header.js";
 import { TaskSidebar } from "./components/TaskSidebar.js";
 import { OutputPane } from "./components/OutputPane.js";
@@ -12,9 +13,13 @@ interface ExecutionViewProps {
 
 export function ExecutionView({ state }: ExecutionViewProps): ReactNode {
   const { width, height } = useTerminalDimensions();
-  const sidebarWidth = Math.min(40, Math.floor(width * 0.3));
+  const sidebarWidth = Math.max(
+    layout.sidebar.minWidth,
+    Math.min(layout.sidebar.maxWidth, Math.floor(width * layout.sidebar.defaultWidthPercent / 100)),
+  );
   const contentWidth = width - sidebarWidth;
-  const bodyHeight = height - 3; // header + status bar + footer line
+  const bodyHeight = height - layout.header.height - layout.footer.height - 1;
+  const done = state.tasks.filter((t) => t.status === "done").length;
 
   return (
     <box width={width} height={height} flexDirection="column">
@@ -25,6 +30,8 @@ export function ExecutionView({ state }: ExecutionViewProps): ReactNode {
         maxIterations={state.maxIterations}
         agentName={state.agentName}
         elapsedMs={Date.now() - state.startTime}
+        done={done}
+        total={state.tasks.length}
         width={width}
       />
       <box flexDirection="row" height={bodyHeight}>

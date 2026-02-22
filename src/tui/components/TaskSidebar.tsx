@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import type { Task } from "../../tasks/types.js";
-import { STATUS_ICONS, STATUS_COLORS, PRIORITY_COLORS, colors } from "../theme.js";
+import { statusIndicators, colors, STATUS_COLORS_HEX, PRIORITY_COLORS_HEX } from "../theme.js";
 
 interface TaskSidebarProps {
   tasks: Task[];
@@ -15,32 +15,51 @@ export function TaskSidebar({
   width,
   height,
 }: TaskSidebarProps): ReactNode {
-  const maxVisible = height - 2;
-  const visibleTasks = tasks.slice(0, maxVisible);
+  const isCurrent = (id: string) => id === currentTaskId;
+  const borderFg = currentTaskId ? colors.border.active : colors.border.normal;
 
   return (
-    <box width={width} height={height} flexDirection="column">
-      <text>{colors.bold} Tasks{colors.reset}</text>
-      {visibleTasks.map((task) => {
-        const icon = STATUS_ICONS[task.status] ?? "?";
-        const statusColor = STATUS_COLORS[task.status] ?? colors.muted;
-        const priorityColor = PRIORITY_COLORS[task.priority] ?? colors.muted;
-        const isCurrent = task.id === currentTaskId;
-        const marker = isCurrent ? ">" : " ";
-        const title =
-          task.title.length > width - 12
-            ? task.title.slice(0, width - 15) + "..."
-            : task.title;
+    <box
+      width={width}
+      height={height}
+      border={true}
+      borderColor={borderFg}
+      title="Tasks"
+      flexDirection="column"
+    >
+      <scrollbox
+        flexGrow={1}
+        stickyScroll={true}
+        stickyStart="top"
+        style={{ flexDirection: "column" }}
+      >
+        {tasks.map((task) => {
+          const icon = statusIndicators[task.status] ?? "?";
+          const statusColor = STATUS_COLORS_HEX[task.status] ?? colors.fg.muted;
+          const priorityColor = PRIORITY_COLORS_HEX[task.priority] ?? colors.fg.muted;
+          const active = isCurrent(task.id);
+          const titleMaxLen = width - 14;
+          const title =
+            task.title.length > titleMaxLen
+              ? task.title.slice(0, titleMaxLen - 3) + "..."
+              : task.title;
 
-        return (
-          <text key={task.id}>
-            {`${marker}${statusColor}${icon}${colors.reset} ${priorityColor}P${task.priority}${colors.reset} ${isCurrent ? colors.bold : ""}${task.id} ${title}${isCurrent ? colors.reset : ""}`}
-          </text>
-        );
-      })}
-      {tasks.length > maxVisible && (
-        <text>{colors.muted} +{tasks.length - maxVisible} more{colors.reset}</text>
-      )}
+          return (
+            <text key={task.id}>
+              <span fg={active ? colors.accent.primary : colors.fg.dim}>{active ? "\u25B8" : " "}</span>
+              <span fg={statusColor}>{icon}</span>
+              {" "}
+              <span fg={priorityColor}>P{task.priority}</span>
+              {" "}
+              <span fg={active ? colors.fg.primary : colors.fg.secondary} attributes={active ? 1 : 0}>
+                {task.id}
+              </span>
+              {" "}
+              <span fg={active ? colors.fg.primary : colors.fg.muted}>{title}</span>
+            </text>
+          );
+        })}
+      </scrollbox>
     </box>
   );
 }

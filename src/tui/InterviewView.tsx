@@ -1,9 +1,9 @@
 import type { ReactNode } from "react";
 import { useTerminalDimensions } from "@opentui/react";
 import type { TuiState } from "./types.js";
+import { colors } from "./theme.js";
 import { ChatPane } from "./components/ChatPane.js";
 import { Footer } from "./components/Footer.js";
-import { colors } from "./theme.js";
 
 interface InterviewViewProps {
   state: TuiState;
@@ -11,19 +11,25 @@ interface InterviewViewProps {
 
 export function InterviewView({ state }: InterviewViewProps): ReactNode {
   const { width, height } = useTerminalDimensions();
-  const chatHeight = height - 3; // header + input + footer
+  const chatHeight = height - 3;
 
   return (
     <box width={width} height={height} flexDirection="column">
-      <text>
-        {` ${colors.bold}synth plan${colors.reset} ${colors.muted}│${colors.reset} PRD Interview ${colors.muted}│${colors.reset} ${state.interviewMessages.length} messages`}
-      </text>
+      <box height={1} style={{ backgroundColor: colors.bg.secondary, paddingLeft: 1 }}>
+        <text>
+          <span fg={colors.accent.primary} attributes={1}>synth plan</span>
+          <span fg={colors.fg.muted}> \u2502 </span>
+          <span fg={colors.fg.secondary}>PRD Interview</span>
+          <span fg={colors.fg.muted}> \u2502 </span>
+          <span fg={colors.fg.muted}>{state.interviewMessages.length} messages</span>
+        </text>
+      </box>
       <ChatPane
         messages={state.interviewMessages}
         width={width}
         height={chatHeight}
+        isThinking={state.isThinking}
       />
-      <text>{` ${colors.muted}─${colors.reset}`.repeat(Math.floor(width / 2))}</text>
       <Footer view="interview" width={width} />
     </box>
   );

@@ -15,8 +15,14 @@ const SHORTCUTS: Record<ViewMode, string> = {
 
 export function Footer({ view, width }: FooterProps): ReactNode {
   return (
-    <box width={width} height={1}>
-      <text>{` ${colors.muted}${SHORTCUTS[view]}${colors.reset}`}</text>
+    <box
+      width={width}
+      height={1}
+      style={{ backgroundColor: colors.bg.secondary, paddingLeft: 1 }}
+    >
+      <text>
+        <span fg={colors.fg.muted}>{SHORTCUTS[view]}</span>
+      </text>
     </box>
   );
 }
