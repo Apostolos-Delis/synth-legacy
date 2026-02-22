@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { memo, type ReactNode } from "react";
 import type { ViewMode } from "../types.js";
 import { colors } from "../theme.js";
 
@@ -15,7 +15,7 @@ const SHORTCUTS: Record<ViewMode, string> = {
   review: "Enter:start execution  Esc/q:save and quit",
 };
 
-export function Footer({ view, width }: FooterProps): ReactNode {
+export const Footer = memo(function Footer({ view, width }: FooterProps): ReactNode {
   return (
     <box
       width={width}
@@ -27,4 +27,4 @@ export function Footer({ view, width }: FooterProps): ReactNode {
       </text>
     </box>
   );
-}
+});

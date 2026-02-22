@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { memo, type ReactNode } from "react";
 import { boldAttr, colors } from "../theme.js";
 
 interface HeaderProps {
@@ -29,7 +29,7 @@ function miniProgressBar(done: number, total: number, width: number): string {
   return "\u2593".repeat(filled) + "\u2591".repeat(barWidth - filled);
 }
 
-export function Header({
+export const Header = memo(function Header({
   projectName,
   planId,
   iteration,
@@ -67,4 +67,14 @@ export function Header({
       </text>
     </box>
   );
-}
+}, (prev, next) =>
+  prev.projectName === next.projectName &&
+  prev.planId === next.planId &&
+  prev.iteration === next.iteration &&
+  prev.maxIterations === next.maxIterations &&
+  prev.agentName === next.agentName &&
+  prev.done === next.done &&
+  prev.total === next.total &&
+  prev.width === next.width &&
+  Math.floor(prev.elapsedMs / 1000) === Math.floor(next.elapsedMs / 1000),
+);
