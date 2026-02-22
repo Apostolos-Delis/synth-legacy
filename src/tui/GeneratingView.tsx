@@ -1,11 +1,8 @@
 import type { ReactNode } from "react";
 import { useTerminalDimensions } from "@opentui/react";
-import { createTextAttributes } from "@opentui/core";
-import { colors } from "./theme.js";
+import { boldAttr, colors } from "./theme.js";
 import { Spinner } from "./components/Spinner.js";
 import { Footer } from "./components/Footer.js";
-
-const boldAttr = createTextAttributes({ bold: true });
 
 interface GeneratingViewProps {
   output: string;
@@ -18,7 +15,7 @@ export function GeneratingView({ output }: GeneratingViewProps): ReactNode {
     <box width={width} height={height} flexDirection="column">
       <box height={1} style={{ backgroundColor: colors.bg.secondary, paddingLeft: 1 }}>
         <text>
-          <span fg={colors.accent.primary} attributes={boldAttr}>synth plan</span>
+          <span fg={colors.accent.primary} attributes={boldAttr()}>synth plan</span>
           <span fg={colors.fg.muted}>{" │ "}</span>
           <span fg={colors.status.info}>Generating tasks...</span>
         </text>

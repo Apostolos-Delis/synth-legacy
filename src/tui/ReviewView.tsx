@@ -1,11 +1,8 @@
 import { useCallback, type ReactNode } from "react";
 import { useTerminalDimensions, useKeyboard } from "@opentui/react";
-import { createTextAttributes } from "@opentui/core";
 import type { Task } from "../tasks/types.js";
-import { colors, statusIndicators, STATUS_COLORS_HEX, PRIORITY_COLORS_HEX } from "./theme.js";
+import { boldAttr, colors, statusIndicators, STATUS_COLORS_HEX, PRIORITY_COLORS_HEX } from "./theme.js";
 import { Footer } from "./components/Footer.js";
-
-const boldAttr = createTextAttributes({ bold: true });
 
 interface ReviewViewProps {
   tasks: Task[];
@@ -29,7 +26,7 @@ export function ReviewView({ tasks, planId, onConfirm, onDecline }: ReviewViewPr
     <box width={width} height={height} flexDirection="column">
       <box height={1} style={{ backgroundColor: colors.bg.secondary, paddingLeft: 1 }}>
         <text>
-          <span fg={colors.accent.primary} attributes={boldAttr}>Task Review</span>
+          <span fg={colors.accent.primary} attributes={boldAttr()}>Task Review</span>
           <span fg={colors.fg.muted}>{" │ "}</span>
           <span fg={colors.fg.secondary}>{tasks.length} tasks</span>
           <span fg={colors.fg.muted}>{" │ "}</span>
@@ -40,7 +37,7 @@ export function ReviewView({ tasks, planId, onConfirm, onDecline }: ReviewViewPr
       <text>{""}</text>
       <box style={{ paddingLeft: 1 }}>
         <text>
-          <span fg={colors.fg.muted} attributes={boldAttr}>
+          <span fg={colors.fg.muted} attributes={boldAttr()}>
             {"ID".padEnd(8)} {"Title".padEnd(40)} {"Pri".padEnd(4)} Deps
           </span>
         </text>

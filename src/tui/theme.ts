@@ -1,3 +1,11 @@
+import { createTextAttributes } from "@opentui/core";
+
+// Lazy-initialized bold attribute — avoids module-order issues in compiled binaries
+let _boldAttr: number | undefined;
+export function boldAttr(): number {
+  return (_boldAttr ??= createTextAttributes({ bold: true }));
+}
+
 // Hex color theme for TUI components (used with <span fg={}>)
 export interface ThemeColors {
   bg: { primary: string; secondary: string; highlight: string };

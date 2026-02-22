@@ -1,11 +1,8 @@
 import { useState, useEffect, useCallback, useRef, type ReactNode } from "react";
 import { useKeyboard } from "@opentui/react";
-import { createTextAttributes } from "@opentui/core";
 import type { InterviewMessage } from "../interview/types.js";
 import { WELCOME_MESSAGE } from "../interview/interviewer.js";
-import { colors, SPINNER_FRAMES } from "./theme.js";
-
-const boldAttr = createTextAttributes({ bold: true });
+import { boldAttr, colors, SPINNER_FRAMES } from "./theme.js";
 
 interface InterviewAppProps {
   onSendMessage: (msg: string, onChunk: (chunk: string) => void) => Promise<{ response: string; done: boolean }>;
@@ -32,7 +29,7 @@ function MessageBubble({ message }: { message: InterviewMessage }): ReactNode {
   return (
     <box style={{ width: "100%", flexDirection: "column", marginBottom: 1 }}>
       <box style={{ flexDirection: "row", gap: 1 }}>
-        <text fg={roleColor} attributes={boldAttr}>{roleLabel}</text>
+        <text fg={roleColor} attributes={boldAttr()}>{roleLabel}</text>
       </box>
       <box style={{ paddingLeft: 2 }}>
         <text fg={colors.fg.primary}>{message.content}</text>
@@ -118,7 +115,7 @@ export function InterviewApp({ onSendMessage, onComplete, onQuit }: InterviewApp
         }}
       >
         <box style={{ flexDirection: "row", gap: 2 }}>
-          <text fg={colors.accent.primary} attributes={boldAttr}>synth plan</text>
+          <text fg={colors.accent.primary} attributes={boldAttr()}>synth plan</text>
           <text fg={colors.fg.muted}>PRD Interview</text>
         </box>
         <text fg={colors.fg.muted}>
@@ -143,7 +140,7 @@ export function InterviewApp({ onSendMessage, onComplete, onQuit }: InterviewApp
           {isLoading && (
             <box style={{ width: "100%", flexDirection: "column", marginBottom: 1 }}>
               <box style={{ flexDirection: "row", gap: 1 }}>
-                <text fg={colors.accent.secondary} attributes={boldAttr}>Synth</text>
+                <text fg={colors.accent.secondary} attributes={boldAttr()}>Synth</text>
                 {!streamingText && <AnimatedSpinner />}
               </box>
               {streamingText ? (

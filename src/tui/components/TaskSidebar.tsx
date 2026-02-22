@@ -1,9 +1,6 @@
 import type { ReactNode } from "react";
-import { createTextAttributes } from "@opentui/core";
 import type { Task } from "../../tasks/types.js";
-import { statusIndicators, colors, STATUS_COLORS_HEX, PRIORITY_COLORS_HEX } from "../theme.js";
-
-const boldAttr = createTextAttributes({ bold: true });
+import { boldAttr, statusIndicators, colors, STATUS_COLORS_HEX, PRIORITY_COLORS_HEX } from "../theme.js";
 
 interface TaskSidebarProps {
   tasks: Task[];
@@ -54,7 +51,7 @@ export function TaskSidebar({
               {" "}
               <span fg={priorityColor}>P{task.priority}</span>
               {" "}
-              <span fg={active ? colors.fg.primary : colors.fg.secondary} attributes={active ? boldAttr : undefined}>
+              <span fg={active ? colors.fg.primary : colors.fg.secondary} attributes={active ? boldAttr() : undefined}>
                 {task.id}
               </span>
               {" "}
