@@ -5,6 +5,13 @@ import { ITERATION_INSTRUCTIONS } from "./instructions.js";
 import { fileExists, readText } from "../utils/fs.js";
 import { globalTrace } from "../utils/perf.js";
 
+async function safeReadText(path: string): Promise<string | null> {
+  if (await fileExists(path)) {
+    return await readText(path);
+  }
+  return null;
+}
+
 export async function buildPrompt(
   task: Task,
   planPaths: PlanPaths,
@@ -17,20 +24,18 @@ export async function buildPrompt(
   // 1. Instructions
   sections.push(ITERATION_INSTRUCTIONS);
 
-  // 2. AGENTS.md (project-level context)
-  trace.startPhase("build:read-agents-md");
+  // 2 & 3. Read AGENTS.md and progress.md concurrently
+  trace.startPhase("build:read-files");
   const agentsPath = join(cwd, "AGENTS.md");
-  if (await fileExists(agentsPath)) {
-    const agents = await readText(agentsPath);
+  const [agents, progress] = await Promise.all([
+    safeReadText(agentsPath),
+    safeReadText(planPaths.progress),
+  ]);
+  trace.endPhase("build:read-files");
+
+  if (agents) {
     sections.push(`## Project Context (AGENTS.md)\n\n${agents}`);
   }
-  trace.endPhase("build:read-agents-md");
-
-  // 3. Codebase patterns (top of progress.md)
-  trace.startPhase("build:read-progress-md");
-  const progressExists = await fileExists(planPaths.progress);
-  const progress = progressExists ? await readText(planPaths.progress) : null;
-  trace.endPhase("build:read-progress-md");
 
   if (progress) {
     trace.startPhase("build:extract-codebase-patterns");
