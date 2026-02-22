@@ -1,6 +1,6 @@
 {
   "name": "synth",
-  "version": "0.1.2",
+  "version": "0.3.0",
   "type": "module",
   "bin": {
     "synth": "./src/cli.tsx"
