@@ -18,6 +18,37 @@ export function TaskSidebar({
   const isCurrent = (id: string) => id === currentTaskId;
   const borderFg = currentTaskId ? colors.border.active : colors.border.normal;
 
+  // 2 rows for top+bottom border
+  const innerHeight = height - 2;
+  const needsScroll = tasks.length > innerHeight;
+
+  const taskRows = tasks.map((task) => {
+    const icon = statusIndicators[task.status] ?? "?";
+    const statusColor = STATUS_COLORS_HEX[task.status] ?? colors.fg.muted;
+    const priorityColor = PRIORITY_COLORS_HEX[task.priority] ?? colors.fg.muted;
+    const active = isCurrent(task.id);
+    const titleMaxLen = width - 14;
+    const title =
+      task.title.length > titleMaxLen
+        ? task.title.slice(0, titleMaxLen - 3) + "..."
+        : task.title;
+
+    return (
+      <text key={task.id}>
+        <span fg={active ? colors.accent.primary : colors.fg.dim}>{active ? "\u25B8" : " "}</span>
+        <span fg={statusColor}>{icon}</span>
+        {" "}
+        <span fg={priorityColor}>P{task.priority}</span>
+        {" "}
+        <span fg={active ? colors.fg.primary : colors.fg.secondary} attributes={active ? boldAttr() : undefined}>
+          {task.id}
+        </span>
+        {" "}
+        <span fg={active ? colors.fg.primary : colors.fg.muted}>{title}</span>
+      </text>
+    );
+  });
+
   return (
     <box
       width={width}
@@ -27,39 +58,20 @@ export function TaskSidebar({
       title="Tasks"
       flexDirection="column"
     >
-      <scrollbox
-        flexGrow={1}
-        stickyScroll={true}
-        stickyStart="top"
-        style={{ flexDirection: "column" }}
-      >
-        {tasks.map((task) => {
-          const icon = statusIndicators[task.status] ?? "?";
-          const statusColor = STATUS_COLORS_HEX[task.status] ?? colors.fg.muted;
-          const priorityColor = PRIORITY_COLORS_HEX[task.priority] ?? colors.fg.muted;
-          const active = isCurrent(task.id);
-          const titleMaxLen = width - 14;
-          const title =
-            task.title.length > titleMaxLen
-              ? task.title.slice(0, titleMaxLen - 3) + "..."
-              : task.title;
-
-          return (
-            <text key={task.id}>
-              <span fg={active ? colors.accent.primary : colors.fg.dim}>{active ? "\u25B8" : " "}</span>
-              <span fg={statusColor}>{icon}</span>
-              {" "}
-              <span fg={priorityColor}>P{task.priority}</span>
-              {" "}
-              <span fg={active ? colors.fg.primary : colors.fg.secondary} attributes={active ? boldAttr() : undefined}>
-                {task.id}
-              </span>
-              {" "}
-              <span fg={active ? colors.fg.primary : colors.fg.muted}>{title}</span>
-            </text>
-          );
-        })}
-      </scrollbox>
+      {needsScroll ? (
+        <scrollbox
+          flexGrow={1}
+          stickyScroll={true}
+          stickyStart="top"
+          style={{ flexDirection: "column" }}
+        >
+          {taskRows}
+        </scrollbox>
+      ) : (
+        <box flexGrow={1} style={{ flexDirection: "column" }}>
+          {taskRows}
+        </box>
+      )}
     </box>
   );
 }
