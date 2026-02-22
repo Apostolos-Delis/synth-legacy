@@ -38,7 +38,7 @@ export async function finalize(
     const diffResult = await diffHandle.promise;
 
     if (diffResult.stdout.trim()) {
-      findings = await selfReview(agent, diffResult.stdout, cwd);
+      findings = await selfReview(agent, diffResult.stdout, cwd, config.agent.model);
 
       // Check for critical findings
       const criticals = findings.filter((f) => f.severity === "critical");

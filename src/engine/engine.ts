@@ -144,6 +144,7 @@ export class Engine {
       const handle = currentAgent.execute(prompt, {
         cwd: this.cwd,
         timeout: this.config.agent.timeout,
+        model: this.config.agent.model,
         skipPermissions: this.config.agent.skip_permissions,
         onStdout: (chunk) => {
           output += chunk;

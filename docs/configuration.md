@@ -27,7 +27,7 @@ The loader performs a deep merge, so you only need to specify the fields you wan
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `name` | `"claude"` \| `"codex"` | `"claude"` | Primary AI agent to use |
-| `model` | string | `"sonnet"` | Model name passed to the agent CLI |
+| `model` | string | `"opus"` | Model name passed to the agent CLI |
 | `timeout` | number (ms) | `600000` (10 min) | Per-iteration timeout. Agent is SIGTERM'd if exceeded |
 | `skip_permissions` | boolean | `true` | Skip agent permission prompts for file/command access |
 
@@ -72,7 +72,7 @@ base_branch = "main"
 
 [agent]
 name = "claude"
-model = "sonnet"
+model = "opus"
 timeout = 600000
 skip_permissions = true
 

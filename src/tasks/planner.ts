@@ -40,6 +40,7 @@ export async function generateTasks(
   projectName: string,
   branchName: string,
   cwd: string,
+  model?: string,
 ): Promise<TaskFile> {
   const prompt = `${PLANNER_PROMPT}
 
@@ -52,6 +53,7 @@ ${prd}`;
   let output = "";
   const handle = agent.execute(prompt, {
     cwd,
+    model,
     skipPermissions: false,
     onStdout: (chunk) => {
       output += chunk;

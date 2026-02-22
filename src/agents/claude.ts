@@ -31,6 +31,7 @@ export class ClaudeAdapter implements AgentAdapter {
       prompt,
       "--output-format",
       "stream-json",
+      ...(options.model ? ["--model", options.model] : []),
       ...(options.skipPermissions !== false ? ["--dangerously-skip-permissions"] : []),
     ];
 

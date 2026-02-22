@@ -64,7 +64,7 @@ branch = "feature/synth"
 
 [agent]
 name = "claude"
-model = "sonnet"
+model = "opus"
 timeout = 600000
 
 [execution]
@@ -373,6 +373,7 @@ async function cmdPlan(planIdOrFlag?: string): Promise<void> {
       config.project.name,
       config.project.branch,
       cwd,
+      config.agent.model,
     );
     await saveTasks(paths.tasks, taskFile);
     await writeText(paths.progress, "## Codebase Patterns\n\n---\n\n");
@@ -411,7 +412,7 @@ async function cmdPlan(planIdOrFlag?: string): Promise<void> {
   }
 
   const { id, paths } = await createPlan(cwd, "");
-  const interviewer = new Interviewer(agent, cwd);
+  const interviewer = new Interviewer(agent, cwd, config.agent.model);
 
   // Start interview
   log(`${colors.magenta}Synth:${colors.reset}`);
@@ -463,6 +464,7 @@ async function cmdPlan(planIdOrFlag?: string): Promise<void> {
     config.project.name,
     config.project.branch || `synth/${id}`,
     cwd,
+    config.agent.model,
   );
   await saveTasks(paths.tasks, taskFile);
   await writeText(paths.progress, "## Codebase Patterns\n\n---\n\n");

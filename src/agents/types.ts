@@ -14,6 +14,7 @@ export interface AgentExecutionResult {
 export interface AgentExecuteOptions {
   cwd: string;
   timeout?: number;
+  model?: string;
   skipPermissions?: boolean;
   onStdout?: (chunk: string) => void;
   onStderr?: (chunk: string) => void;

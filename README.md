@@ -68,7 +68,7 @@ branch = "feature/my-feature"
 
 [agent]
 name = "claude"             # "claude" | "codex"
-model = "sonnet"
+model = "opus"
 timeout = 600000            # 10 min per iteration
 
 [agent.fallback]

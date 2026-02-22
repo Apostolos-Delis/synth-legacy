@@ -8,7 +8,7 @@ export const DEFAULT_CONFIG: SynthConfig = {
   },
   agent: {
     name: "claude",
-    model: "sonnet",
+    model: "opus",
     timeout: 600_000,
     skip_permissions: true,
   },

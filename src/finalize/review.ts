@@ -29,12 +29,14 @@ export async function selfReview(
   agent: AgentAdapter,
   diff: string,
   cwd: string,
+  model?: string,
 ): Promise<ReviewFinding[]> {
   const prompt = `${REVIEW_PROMPT}\n\nGit diff:\n\`\`\`\n${diff.slice(0, 50000)}\n\`\`\``;
 
   let output = "";
   const handle = agent.execute(prompt, {
     cwd,
+    model,
     skipPermissions: false,
     onStdout: (chunk) => {
       output += chunk;

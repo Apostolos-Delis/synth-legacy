@@ -5,7 +5,7 @@ import { INTERVIEWER_SYSTEM_PROMPT } from "./prompts.js";
 export class Interviewer {
   private history: InterviewMessage[] = [];
 
-  constructor(private agent: AgentAdapter, private cwd: string) {}
+  constructor(private agent: AgentAdapter, private cwd: string, private model?: string) {}
 
   async start(): Promise<string> {
     const response = await this.sendToAgent(INTERVIEWER_SYSTEM_PROMPT);
@@ -59,6 +59,7 @@ export class Interviewer {
     let output = "";
     const handle = this.agent.execute(prompt, {
       cwd: this.cwd,
+      model: this.model,
       skipPermissions: false,
       onStdout: (chunk) => {
         output += chunk;
