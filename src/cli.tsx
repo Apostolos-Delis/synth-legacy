@@ -28,6 +28,7 @@ import { writeText, readText, fileExists } from "./utils/fs.js";
 import { spawn } from "./utils/process.js";
 import { ansi, fmt, STATUS_ICONS, STATUS_COLORS, PRIORITY_COLORS } from "./tui/theme.js";
 import { createSpinner, withSpinner } from "./tui/spinner.js";
+import { stripAnsi } from "./tui/utils.js";
 import type { TuiEngineData, TuiContext } from "./tui/types.js";
 
 // TUI imports are loaded dynamically to keep non-TUI commands fast.
@@ -348,14 +349,21 @@ async function cmdRun(planId?: string, startIteration = 0, tuiContext?: TuiConte
           tuiData.currentTaskId = event.taskId ?? null;
           tuiData.output = "";
           break;
+        case "task:start":
+          tuiData.isThinking = true;
+          break;
         case "task:complete":
         case "task:failed": {
+          tuiData.isThinking = false;
           const task = tuiData.tasks.find((t) => t.id === event.taskId);
           if (task) task.status = event.type === "task:complete" ? "done" : "failed";
           break;
         }
         case "agent:stdout":
           if (event.message) tuiData.output += event.message;
+          break;
+        case "agent:stderr":
+          if (event.message) tuiData.output += stripAnsi(event.message);
           break;
         case "complete":
           tuiData.engineState = "completed";

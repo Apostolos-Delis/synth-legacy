@@ -45,6 +45,7 @@ export function ExecutionView({ state }: ExecutionViewProps): ReactNode {
           output={state.output}
           width={contentWidth}
           height={bodyHeight}
+          isThinking={state.isThinking}
         />
       </box>
       <StatusBar
