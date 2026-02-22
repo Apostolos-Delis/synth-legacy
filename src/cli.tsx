@@ -29,6 +29,8 @@ import { writeText, readText, fileExists } from "./utils/fs.js";
 import { spawn } from "./utils/process.js";
 import { ansi, fmt, STATUS_ICONS, STATUS_COLORS, PRIORITY_COLORS, initTheme } from "./tui/theme.js";
 import { resolveTheme } from "./tui/themes/resolve.js";
+import { listBuiltinThemes, discoverCustomThemes } from "./tui/themes/registry.js";
+import { listSpinnerPresets } from "./tui/spinners.js";
 import { createSpinner, withSpinner } from "./tui/spinner.js";
 import { stripAnsi } from "./tui/utils.js";
 import type { TuiEngineData, TuiContext } from "./tui/types.js";
@@ -248,6 +250,40 @@ async function cmdConfig(): Promise<void> {
     .replace(/: (\d+)/g, `: ${ansi.warning}$1${ansi.reset}`)
     .replace(/: (true|false)/g, `: ${ansi.magenta}$1${ansi.reset}`);
   log(colorized);
+}
+
+async function cmdThemes(): Promise<void> {
+  const config = await applyTheme();
+  const activeTheme = config.tui?.theme ?? "tokyonight";
+  const activeSpinner = config.tui?.spinner ?? "braille";
+
+  // Built-in themes
+  const builtins = listBuiltinThemes();
+  log(fmt.bold("Built-in Themes:"));
+  for (const { name } of builtins) {
+    const marker = name === activeTheme ? ` ${ansi.success}● active${ansi.reset}` : "";
+    log(`  ${ansi.primary}${name}${ansi.reset}${marker}`);
+  }
+
+  // Custom themes
+  const custom = await discoverCustomThemes();
+  if (custom.length > 0) {
+    log(`\n${fmt.bold("Custom Themes:")} ${ansi.muted}(~/.config/synth/themes/)${ansi.reset}`);
+    for (const name of custom) {
+      const marker = name === activeTheme ? ` ${ansi.success}● active${ansi.reset}` : "";
+      log(`  ${ansi.primary}${name}${ansi.reset}${marker}`);
+    }
+  } else {
+    log(`\n${fmt.dim("No custom themes found in ~/.config/synth/themes/")}`);
+  }
+
+  // Spinner presets
+  const spinners = listSpinnerPresets();
+  log(`\n${fmt.bold("Spinner Presets:")}`);
+  for (const name of spinners) {
+    const marker = name === activeSpinner ? ` ${ansi.success}● active${ansi.reset}` : "";
+    log(`  ${ansi.primary}${name}${ansi.reset}${marker}`);
+  }
 }
 
 async function cmdRun(planId?: string, startIteration = 0, tuiContext?: TuiContext): Promise<void> {
@@ -997,6 +1033,9 @@ async function main(): Promise<void> {
     case "config":
       await cmdConfig();
       break;
+    case "themes":
+      await cmdThemes();
+      break;
     case "spawn":
       await cmdSpawn(await resolvePlanId(args[1]));
       break;
@@ -1034,6 +1073,7 @@ async function main(): Promise<void> {
       log(`  ${ansi.primary}status${ansi.reset} ${ansi.muted}[<plan-id>]${ansi.reset}      Plan/session status`);
       log(`  ${ansi.primary}ps${ansi.reset}                       List running instances`);
       log(`  ${ansi.primary}config${ansi.reset}                   Display configuration`);
+      log(`  ${ansi.primary}themes${ansi.reset}                   List themes and spinners`);
 
       log(`\n${ansi.bold}System:${ansi.reset}`);
       log(`  ${ansi.primary}init${ansi.reset}                     Create synth.toml`);
