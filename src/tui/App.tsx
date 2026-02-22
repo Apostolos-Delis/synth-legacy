@@ -3,14 +3,12 @@ import { useKeyboard } from "@opentui/react";
 import type { TuiState, TuiEngineData, ViewMode } from "./types.js";
 import { ExecutionView } from "./ExecutionView.js";
 import { DashboardView } from "./DashboardView.js";
-import { InterviewView } from "./InterviewView.js";
 
 interface AppProps extends TuiEngineData {
   defaultView?: ViewMode;
   onQuit?: () => void;
   onPause?: () => void;
   onResume?: () => void;
-  onInterviewSubmit?: (value: string) => void;
 }
 
 export function App({
@@ -18,7 +16,6 @@ export function App({
   onQuit,
   onPause,
   onResume,
-  onInterviewSubmit,
   ...engineData
 }: AppProps): ReactNode {
   const [view, setView] = useState<ViewMode>(defaultView);
@@ -30,9 +27,6 @@ export function App({
 
   const handleKeyboard = useCallback(
     (key: { name: string }) => {
-      // In interview mode, let the <input> component handle all keys
-      if (view === "interview") return;
-
       switch (key.name) {
         case "q":
         case "escape":
@@ -60,14 +54,6 @@ export function App({
   useKeyboard(handleKeyboard);
 
   switch (view) {
-    case "interview":
-      return (
-        <InterviewView
-          state={state}
-          onSubmit={onInterviewSubmit}
-          onQuit={onQuit}
-        />
-      );
     case "dashboard":
       return <DashboardView state={state} />;
     case "execution":
