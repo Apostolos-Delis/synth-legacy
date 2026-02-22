@@ -8,6 +8,7 @@ interface StatusBarProps {
   agentName: string;
   elapsedMs: number;
   width: number;
+  currentPhase?: string | null;
 }
 
 const STATE_DISPLAY: Record<EngineState, { label: string; color: string; indicator: string }> = {
@@ -25,6 +26,7 @@ export function StatusBar({
   agentName,
   elapsedMs,
   width,
+  currentPhase,
 }: StatusBarProps): ReactNode {
   const display = STATE_DISPLAY[state];
   const elapsed = Math.round(elapsedMs / 1000);
@@ -44,6 +46,12 @@ export function StatusBar({
         <span fg={colors.fg.secondary}>iter {iteration}</span>
         <span fg={colors.fg.muted}>{" │ "}</span>
         <span fg={colors.fg.secondary}>{elapsed}s</span>
+        {currentPhase && (
+          <>
+            <span fg={colors.fg.muted}>{" │ "}</span>
+            <span fg={colors.accent.primary}>{currentPhase}</span>
+          </>
+        )}
         <span fg={colors.fg.muted}>{" │ "}</span>
         <span fg={colors.fg.muted}>q:quit  p:pause  d:dashboard</span>
       </text>

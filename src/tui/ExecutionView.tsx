@@ -53,6 +53,8 @@ export function ExecutionView({ state }: ExecutionViewProps): ReactNode {
           width={contentWidth}
           height={bodyHeight}
           isThinking={state.isThinking}
+          currentPhase={state.currentPhase}
+          phaseStartTime={state.phaseStartTime}
         />
       </box>
       <StatusBar
@@ -61,6 +63,7 @@ export function ExecutionView({ state }: ExecutionViewProps): ReactNode {
         agentName={state.agentName}
         elapsedMs={Date.now() - state.startTime}
         width={width}
+        currentPhase={state.currentPhase}
       />
     </box>
   );

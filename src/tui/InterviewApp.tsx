@@ -3,24 +3,13 @@ import { useKeyboard, useTerminalDimensions } from "@opentui/react";
 import type { TextareaRenderable } from "@opentui/core";
 import type { InterviewMessage } from "../interview/types.js";
 import { WELCOME_MESSAGE } from "../interview/interviewer.js";
-import { boldAttr, colors, SPINNER_FRAMES } from "./theme.js";
+import { boldAttr, colors } from "./theme.js";
+import { PhaseIndicator } from "./components/PhaseIndicator.js";
 
 interface InterviewAppProps {
   onSendMessage: (msg: string, onChunk: (chunk: string) => void) => Promise<{ response: string; done: boolean }>;
   onComplete: () => void;
   onQuit: () => void;
-}
-
-
-function AnimatedSpinner(): ReactNode {
-  const [frame, setFrame] = useState(0);
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setFrame((f) => (f + 1) % SPINNER_FRAMES.length);
-    }, 80);
-    return () => clearInterval(interval);
-  }, []);
-  return <text fg={colors.status.info}>{SPINNER_FRAMES[frame]}</text>;
 }
 
 function MessageBubble({ message }: { message: InterviewMessage }): ReactNode {
@@ -45,6 +34,7 @@ export function InterviewApp({ onSendMessage, onComplete, onQuit }: InterviewApp
     { role: "assistant", content: WELCOME_MESSAGE },
   ]);
   const [isLoading, setIsLoading] = useState(false);
+  const [loadingStartTime, setLoadingStartTime] = useState(0);
   const [streamingText, setStreamingText] = useState("");
   const [pendingConfirmation, setPendingConfirmation] = useState(false);
   const textareaRef = useRef<TextareaRenderable>(null);
@@ -93,6 +83,7 @@ export function InterviewApp({ onSendMessage, onComplete, onQuit }: InterviewApp
     const userMsg: InterviewMessage = { role: "user", content: value };
     setMessages((prev) => [...prev, userMsg]);
     setIsLoading(true);
+    setLoadingStartTime(Date.now());
     setStreamingText("");
 
     try {
@@ -287,8 +278,12 @@ export function InterviewApp({ onSendMessage, onComplete, onQuit }: InterviewApp
             <box style={{ width: "100%", flexDirection: "column", marginBottom: 1 }}>
               <box style={{ flexDirection: "row", gap: 1 }}>
                 <text fg={colors.accent.secondary} attributes={boldAttr()}>Synth</text>
-                {!streamingText && <AnimatedSpinner />}
-                {!streamingText && <text fg={colors.fg.muted}>Thinking...</text>}
+                {!streamingText && (
+                  <PhaseIndicator
+                    phase="Generating response..."
+                    startTime={loadingStartTime}
+                  />
+                )}
               </box>
               {streamingText && (
                 <box style={{ paddingLeft: 2 }}>
@@ -352,10 +347,10 @@ export function InterviewApp({ onSendMessage, onComplete, onQuit }: InterviewApp
           }}
         >
           {isLoading ? (
-            <>
-              <AnimatedSpinner />
-              <text fg={colors.status.info}>{streamingText ? "Streaming..." : "Waiting for response..."}</text>
-            </>
+            <PhaseIndicator
+              phase={streamingText ? "Streaming response..." : "Generating response..."}
+              startTime={loadingStartTime}
+            />
           ) : pendingConfirmation ? (
             <text fg={colors.status.info}>Enter:confirm & generate  Type feedback to refine  Esc:quit</text>
           ) : (

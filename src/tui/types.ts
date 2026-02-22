@@ -22,6 +22,8 @@ export interface TuiEngineData {
   startTime: number;
   interviewMessages: InterviewMessage[];
   isThinking: boolean;
+  currentPhase: string | null;
+  phaseStartTime: number | null;
 }
 
 export interface TuiState extends TuiEngineData {

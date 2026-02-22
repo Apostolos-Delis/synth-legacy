@@ -386,6 +386,8 @@ async function cmdRun(planId?: string, startIteration = 0, tuiContext?: TuiConte
       startTime: Date.now(),
       interviewMessages: [],
       isThinking: false,
+      currentPhase: null,
+      phaseStartTime: null,
     };
   }
 
@@ -406,14 +408,38 @@ async function cmdRun(planId?: string, startIteration = 0, tuiContext?: TuiConte
           break;
         case "task:start":
           tuiData.isThinking = true;
+          tuiData.currentPhase = "Starting task...";
+          tuiData.phaseStartTime = event.timestamp ?? Date.now();
           break;
         case "task:complete":
         case "task:failed": {
           tuiData.isThinking = false;
+          tuiData.currentPhase = null;
+          tuiData.phaseStartTime = null;
           const task = tuiData.tasks.find((t) => t.id === event.taskId);
           if (task) task.status = event.type === "task:complete" ? "done" : "failed";
           break;
         }
+        case "phase:scanning":
+          tuiData.currentPhase = "Scanning project files...";
+          tuiData.phaseStartTime = event.timestamp ?? Date.now();
+          break;
+        case "phase:building-prompt":
+          tuiData.currentPhase = "Building prompt...";
+          tuiData.phaseStartTime = event.timestamp ?? Date.now();
+          break;
+        case "phase:spawning-agent":
+          tuiData.currentPhase = "Spawning agent...";
+          tuiData.phaseStartTime = event.timestamp ?? Date.now();
+          break;
+        case "phase:waiting-response":
+          tuiData.currentPhase = "Waiting for response...";
+          tuiData.phaseStartTime = event.timestamp ?? Date.now();
+          break;
+        case "phase:streaming":
+          tuiData.currentPhase = "Streaming response...";
+          tuiData.phaseStartTime = event.timestamp ?? Date.now();
+          break;
         case "agent:stdout":
           if (event.message) tuiData.output += event.message;
           break;
