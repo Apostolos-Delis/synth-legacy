@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import { boldAttr, colors, SPINNER_FRAMES, initTheme } from "../tui/theme.js";
+import { boldAttr, colors, SPINNER_FRAMES, initTheme, fullKeyboardShortcuts } from "../tui/theme.js";
 import { listBuiltinThemes, getBuiltinTheme } from "../tui/themes/registry.js";
 import { listSpinnerPresets, getSpinnerFrames } from "../tui/spinners.js";
 
@@ -24,6 +24,15 @@ describe("TUI theme", () => {
 
   test("SPINNER_FRAMES is non-empty", () => {
     expect(SPINNER_FRAMES.length).toBeGreaterThan(0);
+  });
+
+  test("fullKeyboardShortcuts has entries with required fields", () => {
+    expect(fullKeyboardShortcuts.length).toBeGreaterThan(0);
+    for (const shortcut of fullKeyboardShortcuts) {
+      expect(shortcut.key).toBeDefined();
+      expect(shortcut.description).toBeDefined();
+      expect(shortcut.category).toBeDefined();
+    }
   });
 });
 

@@ -30,4 +30,7 @@ export const DEFAULT_CONFIG: SynthConfig = {
   tui: {
     theme: "tokyonight",
   },
+  notifications: {
+    enabled: true,
+  },
 };

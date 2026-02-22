@@ -15,6 +15,7 @@ describe("loadConfig", () => {
       expect(config.guardrails.max_consecutive_failures).toBe(3);
       expect(config.project.base_branch).toBe("main");
       expect(config.agent.skip_permissions).toBe(true);
+      expect(config.notifications?.enabled).toBe(true);
     } finally {
       await rm(dir, { recursive: true });
     }

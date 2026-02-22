@@ -28,6 +28,7 @@ import { finalize } from "./finalize/finalize.js";
 import { writeText, readText, fileExists } from "./utils/fs.js";
 import { spawn } from "./utils/process.js";
 import { ansi, fmt, STATUS_ICONS, STATUS_COLORS, PRIORITY_COLORS, initTheme } from "./tui/theme.js";
+
 import { resolveTheme } from "./tui/themes/resolve.js";
 import { listBuiltinThemes, discoverCustomThemes } from "./tui/themes/registry.js";
 import { listSpinnerPresets } from "./tui/spinners.js";
@@ -360,7 +361,9 @@ async function cmdRun(planId?: string, startIteration = 0, tuiContext?: TuiConte
       renderer = tuiContext.renderer;
       root = tuiContext.root;
     } else {
-      renderer = await tui.createCliRenderer();
+      renderer = await tui.createCliRenderer({
+        useKittyKeyboard: { disambiguate: true, alternateKeys: true },
+      });
       root = tui.createRoot(renderer);
     }
     tuiData = {
@@ -477,6 +480,10 @@ async function cmdRun(planId?: string, startIteration = 0, tuiContext?: TuiConte
   process.on("SIGINT", onSigInt);
   process.on("SIGTERM", onSigTerm);
 
+  // Notifications fire regardless of --no-tui; only suppressed in non-TTY (piped) mode
+  const notificationsEnabled = config.notifications?.enabled !== false && process.stdout.isTTY === true;
+  const engineStartTime = Date.now();
+
   try {
     await engine.run(startIteration);
     const finalState = engine.getState();
@@ -484,10 +491,40 @@ async function cmdRun(planId?: string, startIteration = 0, tuiContext?: TuiConte
     await updatePlanMetadata(cwd, plan.metadata.id, {
       status: finalState === "completed" ? "completed" : finalState === "blocked" ? "blocked" : "paused",
     });
+
+    if (notificationsEnabled) {
+      const durationMs = Date.now() - engineStartTime;
+      const currentTasks = await loadTasks(plan.paths.tasks);
+      const progress = getProgress(currentTasks);
+      const notif = await import("./notifications.js");
+
+      if (finalState === "completed") {
+        notif.sendCompletionNotification({ durationMs, taskCount: progress.done });
+      } else if (finalState === "paused" && engine.getIteration() >= config.execution.max_iterations) {
+        notif.sendMaxIterationsNotification({
+          iterationsRun: engine.getIteration(),
+          tasksCompleted: progress.done,
+          tasksRemaining: progress.open,
+          durationMs,
+        });
+      }
+    }
   } catch (err) {
     await endSession(plan.paths, "failed");
     await updatePlanMetadata(cwd, plan.metadata.id, { status: "failed" });
     if (!tuiEnabled) logError(`Engine error: ${err}`);
+
+    if (notificationsEnabled) {
+      const durationMs = Date.now() - engineStartTime;
+      const currentTasks = await loadTasks(plan.paths.tasks).catch(() => null);
+      const tasksCompleted = currentTasks ? getProgress(currentTasks).done : 0;
+      const notif = await import("./notifications.js");
+      notif.sendErrorNotification({
+        errorSummary: String(err),
+        tasksCompleted,
+        durationMs,
+      });
+    }
   } finally {
     process.off("SIGINT", onSigInt);
     process.off("SIGTERM", onSigTerm);
@@ -592,7 +629,10 @@ async function cmdPlan(planIdOrFlag?: string): Promise<void> {
 
   if (tuiEnabled) {
     const tui = await loadTui();
-    const planRenderer = await tui.createCliRenderer({ exitOnCtrlC: false });
+    const planRenderer = await tui.createCliRenderer({
+      exitOnCtrlC: false,
+      useKittyKeyboard: { disambiguate: true, alternateKeys: true },
+    });
     const planRoot = tui.createRoot(planRenderer);
 
     const cleanup = () => {

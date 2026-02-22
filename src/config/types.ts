@@ -33,4 +33,7 @@ export interface SynthConfig {
     theme?: string;
     spinner?: string;
   };
+  notifications?: {
+    enabled?: boolean;
+  };
 }
