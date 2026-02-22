@@ -27,6 +27,16 @@ export function App({
   const [showQuitConfirm, setShowQuitConfirm] = useState(false);
   const { toasts, showSuccess, showInfo, showWarning } = useToast();
 
+  // Use refs for modal states and view so the key handler callback stays stable
+  const showHelpRef = useRef(showHelp);
+  showHelpRef.current = showHelp;
+  const showQuitConfirmRef = useRef(showQuitConfirm);
+  showQuitConfirmRef.current = showQuitConfirm;
+  const viewRef = useRef(view);
+  viewRef.current = view;
+  const engineStateRef = useRef(engineData.engineState);
+  engineStateRef.current = engineData.engineState;
+
   const prevEngineState = useRef(engineData.engineState);
   useEffect(() => {
     const prev = prevEngineState.current;
@@ -39,15 +49,20 @@ export function App({
     else if (curr === "blocked") showWarning("Execution blocked");
   }, [engineData.engineState, showSuccess, showInfo, showWarning]);
 
-  const state: TuiState = useMemo(
-    () => ({ ...engineData, view }),
-    [engineData, view],
+  // Separate state objects per view so inactive view doesn't get new props
+  const executionState: TuiState = useMemo(
+    () => ({ ...engineData, view: "execution" as ViewMode }),
+    [engineData],
+  );
+  const dashboardState: TuiState = useMemo(
+    () => ({ ...engineData, view: "dashboard" as ViewMode }),
+    [engineData],
   );
 
   const handleKeyboard = useCallback(
     (key: { name: string; ctrl?: boolean }) => {
       // Help overlay takes precedence
-      if (showHelp) {
+      if (showHelpRef.current) {
         if (key.name === "?" || key.name === "escape") {
           setShowHelp(false);
         }
@@ -55,7 +70,7 @@ export function App({
       }
 
       // Quit confirmation dialog
-      if (showQuitConfirm) {
+      if (showQuitConfirmRef.current) {
         if (key.name === "y") {
           setShowQuitConfirm(false);
           onQuit?.();
@@ -66,7 +81,7 @@ export function App({
       }
 
       // Ctrl+C shows confirmation during execution
-      if (key.name === "c" && key.ctrl && engineData.engineState === "executing") {
+      if (key.name === "c" && key.ctrl && engineStateRef.current === "executing") {
         setShowQuitConfirm(true);
         return;
       }
@@ -77,7 +92,7 @@ export function App({
           break;
         case "q":
         case "escape":
-          if (view === "dashboard") {
+          if (viewRef.current === "dashboard") {
             setView("execution");
           } else {
             onQuit?.();
@@ -87,26 +102,31 @@ export function App({
           setView((v) => (v === "dashboard" ? "execution" : "dashboard"));
           break;
         case "p":
-          if (engineData.engineState === "executing") {
+          if (engineStateRef.current === "executing") {
             onPause?.();
-          } else if (engineData.engineState === "paused") {
+          } else if (engineStateRef.current === "paused") {
             onResume?.();
           }
           break;
       }
     },
-    [view, showHelp, showQuitConfirm, engineData.engineState, onQuit, onPause, onResume],
+    [onQuit, onPause, onResume],
   );
 
   useKeyboard(handleKeyboard);
 
+  // Render both views — active view gets full size, inactive gets hidden.
+  // This avoids mount/unmount cycles on view switch for single-frame transitions.
+  const isDashboard = view === "dashboard";
+
   return (
     <box style={{ width: "100%", height: "100%", position: "relative" }}>
-      {view === "dashboard" ? (
-        <DashboardView state={state} />
-      ) : (
-        <ExecutionView state={state} />
-      )}
+      <box style={isDashboard ? hiddenStyle : visibleStyle}>
+        <ExecutionView state={executionState} />
+      </box>
+      <box style={isDashboard ? visibleStyle : hiddenStyle}>
+        <DashboardView state={dashboardState} />
+      </box>
       <ToastContainer toasts={toasts} />
       <HelpOverlay visible={showHelp} />
       <ConfirmationDialog
@@ -117,5 +137,9 @@ export function App({
     </box>
   );
 }
+
+// Static style objects to avoid re-creating on every render
+const visibleStyle = { width: "100%" as const, height: "100%" as const };
+const hiddenStyle = { width: 0, height: 0, overflow: "hidden" as const };
 
 export type { TuiState, TuiEngineData };

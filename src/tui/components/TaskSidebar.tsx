@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { memo, type ReactNode } from "react";
 import type { Task } from "../../tasks/types.js";
 import { boldAttr, statusIndicators, colors, STATUS_COLORS_HEX, PRIORITY_COLORS_HEX } from "../theme.js";
 
@@ -9,7 +9,7 @@ interface TaskSidebarProps {
   height: number;
 }
 
-export function TaskSidebar({
+export const TaskSidebar = memo(function TaskSidebar({
   tasks,
   currentTaskId,
   width,
@@ -74,4 +74,13 @@ export function TaskSidebar({
       )}
     </box>
   );
-}
+}, (prev, next) => {
+  if (prev.width !== next.width || prev.height !== next.height || prev.currentTaskId !== next.currentTaskId) return false;
+  if (prev.tasks === next.tasks) return true;
+  if (prev.tasks.length !== next.tasks.length) return false;
+  return prev.tasks.every((t, i) =>
+    t.id === next.tasks[i].id &&
+    t.status === next.tasks[i].status &&
+    t.priority === next.tasks[i].priority,
+  );
+});

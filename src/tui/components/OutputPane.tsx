@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useMemo, type ReactNode } from "react";
 import { colors } from "../theme.js";
 import { PhaseIndicator } from "./PhaseIndicator.js";
 
@@ -37,7 +37,7 @@ export function OutputPane({ output, width, height, isThinking = false, currentP
     );
   }
 
-  const lines = output.split("\n");
+  const lines = useMemo(() => output.split("\n"), [output]);
 
   return (
     <box
@@ -52,6 +52,7 @@ export function OutputPane({ output, width, height, isThinking = false, currentP
         flexGrow={1}
         stickyScroll={true}
         stickyStart="bottom"
+        viewportCulling={true}
         style={{ flexDirection: "column" }}
       >
         {lines.map((line, i) => (

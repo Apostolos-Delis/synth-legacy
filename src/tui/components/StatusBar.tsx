@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { memo, type ReactNode } from "react";
 import type { EngineState } from "../../engine/types.js";
 import { colors, statusIndicators } from "../theme.js";
 
@@ -20,7 +20,7 @@ const STATE_DISPLAY: Record<EngineState, { label: string; color: string; indicat
   failed: { label: "FAILED", color: colors.status.error, indicator: statusIndicators.failed },
 };
 
-export function StatusBar({
+export const StatusBar = memo(function StatusBar({
   state,
   iteration,
   agentName,
@@ -57,4 +57,11 @@ export function StatusBar({
       </text>
     </box>
   );
-}
+}, (prev, next) =>
+  prev.state === next.state &&
+  prev.iteration === next.iteration &&
+  prev.agentName === next.agentName &&
+  prev.width === next.width &&
+  prev.currentPhase === next.currentPhase &&
+  Math.floor(prev.elapsedMs / 1000) === Math.floor(next.elapsedMs / 1000),
+);

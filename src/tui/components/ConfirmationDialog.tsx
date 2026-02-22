@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { memo, type ReactNode } from "react";
 import { colors } from "../theme.js";
 
 export interface ConfirmationDialogProps {
@@ -8,7 +8,7 @@ export interface ConfirmationDialogProps {
   hint?: string;
 }
 
-export function ConfirmationDialog({
+export const ConfirmationDialog = memo(function ConfirmationDialog({
   visible,
   title,
   message,
@@ -51,4 +51,4 @@ export function ConfirmationDialog({
       </box>
     </box>
   );
-}
+});
