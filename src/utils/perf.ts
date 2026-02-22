@@ -27,14 +27,17 @@ export class PerfTrace {
   private phases = new Map<string, PhaseState>();
   private order: string[] = [];
   private traceStart: number | null = null;
+  enabled = false;
 
   addPhase(name: string): void {
+    if (!this.enabled) return;
     if (this.phases.has(name)) return;
     this.phases.set(name, { startedAt: null, durationMs: 0 });
     this.order.push(name);
   }
 
   startPhase(name: string): void {
+    if (!this.enabled) return;
     if (!this.phases.has(name)) {
       this.addPhase(name);
     }
@@ -46,6 +49,7 @@ export class PerfTrace {
   }
 
   endPhase(name: string): void {
+    if (!this.enabled) return;
     const phase = this.phases.get(name);
     if (!phase || phase.startedAt === null) return;
     phase.durationMs += performance.now() - phase.startedAt;

@@ -1,6 +1,7 @@
 import type { AgentAdapter } from "../agents/types.js";
 import type { InterviewMessage, GeneratedPrd } from "./types.js";
 import { INTERVIEWER_SYSTEM_PROMPT } from "./prompts.js";
+import { globalTrace } from "../utils/perf.js";
 
 export const WELCOME_MESSAGE =
   "I'll help you create a PRD. What do you want to build? " +
@@ -37,7 +38,10 @@ export class Interviewer {
   }
 
   private buildPromptWithHistory(): string {
+    const trace = globalTrace();
+
     // Sliding window: keep last 16 messages (8 turns) to prevent context overflow
+    trace.startPhase("interview:history-assembly");
     const MAX_HISTORY = 16;
     const recentHistory = this.history.slice(-MAX_HISTORY);
     const truncated = this.history.length > MAX_HISTORY;
@@ -45,12 +49,17 @@ export class Interviewer {
     const turns = recentHistory
       .map((m) => `${m.role === "user" ? "User" : "Assistant"}: ${m.content}`)
       .join("\n\n");
+    trace.endPhase("interview:history-assembly");
 
+    trace.startPhase("interview:system-prompt-construction");
     const prefix = truncated
       ? `${INTERVIEWER_SYSTEM_PROMPT}\n\n[Earlier conversation truncated — ${this.history.length - MAX_HISTORY} messages omitted]\n\nRecent conversation:\n\n`
       : `${INTERVIEWER_SYSTEM_PROMPT}\n\nConversation so far:\n\n`;
 
-    return `${prefix}${turns}\n\nContinue the interview. If you have enough information, output the PRD JSON.`;
+    const result = `${prefix}${turns}\n\nContinue the interview. If you have enough information, output the PRD JSON.`;
+    trace.endPhase("interview:system-prompt-construction");
+
+    return result;
   }
 
   private async sendToAgent(prompt: string, onChunk?: (chunk: string) => void): Promise<string> {
