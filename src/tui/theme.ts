@@ -98,6 +98,7 @@ export const fullKeyboardShortcuts = [
   { key: "Enter", description: "Send message (interview)", category: "Input" },
   { key: "Shift+Enter", description: "New line (interview)", category: "Input" },
   { key: "Ctrl+J", description: "New line (interview)", category: "Input" },
+  { key: "Ctrl+G", description: "Edit in $EDITOR", category: "Input" },
   { key: "Ctrl+W", description: "Delete word backward", category: "Input" },
   { key: "Ctrl+U", description: "Delete to line start", category: "Input" },
   { key: "Ctrl+K", description: "Delete to line end", category: "Input" },

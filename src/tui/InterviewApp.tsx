@@ -1,10 +1,11 @@
 import { useState, useEffect, useCallback, useRef, type ReactNode } from "react";
-import { useKeyboard, useTerminalDimensions } from "@opentui/react";
+import { useKeyboard, useTerminalDimensions, useRenderer } from "@opentui/react";
 import type { TextareaRenderable } from "@opentui/core";
 import type { InterviewMessage } from "../interview/types.js";
 import { WELCOME_MESSAGE } from "../interview/interviewer.js";
 import { boldAttr, colors } from "./theme.js";
 import { PhaseIndicator } from "./components/PhaseIndicator.js";
+import { openInEditor } from "../utils/editor.js";
 
 interface InterviewAppProps {
   onSendMessage: (msg: string, onChunk: (chunk: string) => void) => Promise<{ response: string; done: boolean }>;
@@ -40,6 +41,8 @@ export function InterviewApp({ onSendMessage, onComplete, onQuit }: InterviewApp
   const textareaRef = useRef<TextareaRenderable>(null);
   const [inputLineCount, setInputLineCount] = useState(1);
   const { height: termHeight } = useTerminalDimensions();
+  const renderer = useRenderer();
+  const editorOpenRef = useRef(false);
 
   const destroyedRef = useRef(false);
   useEffect(() => () => { destroyedRef.current = true; }, []);
@@ -138,6 +141,24 @@ export function InterviewApp({ onSendMessage, onComplete, onQuit }: InterviewApp
       return;
     }
 
+    // Ctrl+G — open in $EDITOR
+    if (key.name === "g" && key.ctrl) {
+      key.preventDefault?.();
+      if (!textarea || isLoading || editorOpenRef.current) return;
+      editorOpenRef.current = true;
+      const currentText = textarea.plainText ?? "";
+      renderer.suspend();
+      openInEditor(currentText).then((result) => {
+        renderer.resume();
+        editorOpenRef.current = false;
+        if (result !== null && !destroyedRef.current) {
+          textarea.editBuffer.setText(result);
+          syncLineCount();
+        }
+      });
+      return;
+    }
+
     // Text editing shortcuts (only when textarea is available and not loading)
     if (!textarea || isLoading) return;
 
@@ -216,7 +237,7 @@ export function InterviewApp({ onSendMessage, onComplete, onQuit }: InterviewApp
         return;
       }
     }
-  }, [handleSubmit, onQuit, isLoading, syncLineCount]));
+  }, [handleSubmit, onQuit, isLoading, syncLineCount, renderer]));
 
   // Sync line count after every key event (runs after textarea processes the key)
   useKeyboard(useCallback(() => {
@@ -354,7 +375,7 @@ export function InterviewApp({ onSendMessage, onComplete, onQuit }: InterviewApp
           ) : pendingConfirmation ? (
             <text fg={colors.status.info}>Enter:confirm & generate  Type feedback to refine  Esc:quit</text>
           ) : (
-            <text fg={colors.fg.muted}>Enter:send  Shift+Enter:newline  Ctrl+W:del word  Esc:quit</text>
+            <text fg={colors.fg.muted}>Enter:send  Shift+Enter:newline  Ctrl+G:editor  Ctrl+W:del word  Esc:quit</text>
           )}
         </box>
       </box>
