@@ -21,15 +21,16 @@ jobs:
       - run: bun install --frozen-lockfile
 
       # Cross-compilation needs native modules for all target platforms.
-      # bun install skips optional deps that don't match the host OS/arch,
-      # so we manually fetch the ones the host is missing.
+      # bun skips optional deps whose os/cpu don't match the host, so
+      # darwin packages are missing on the Linux runner. npm --force
+      # bypasses os/cpu constraints.
       - name: Install cross-platform native deps
         run: |
-          OPENTUI_VER=$(bun pm ls | grep '@opentui/core@' | sed -E 's/.*@opentui\/core@([0-9.]+).*/\1/')
+          OPENTUI_VER=$(grep '"version"' node_modules/@opentui/core/package.json | sed -E 's/.*"([0-9.]+)".*/\1/')
           for pkg in core-darwin-arm64 core-darwin-x64 core-linux-arm64 core-linux-x64; do
             if [ ! -d "node_modules/@opentui/$pkg" ]; then
               echo "Installing @opentui/$pkg@$OPENTUI_VER"
-              bun add --no-save "@opentui/$pkg@$OPENTUI_VER"
+              npm install --no-save --force "@opentui/$pkg@$OPENTUI_VER"
             fi
           done
 
