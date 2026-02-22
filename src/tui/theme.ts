@@ -89,6 +89,20 @@ export const PRIORITY_COLORS_HEX: Record<number, string> = {
   5: colors.fg.muted,
 };
 
+export const fullKeyboardShortcuts = [
+  { key: "q", description: "Quit synth", category: "General" },
+  { key: "Esc", description: "Go back / Cancel", category: "General" },
+  { key: "?", description: "Show keyboard shortcuts", category: "General" },
+  { key: "p", description: "Pause / Resume execution", category: "Execution" },
+  { key: "d", description: "Toggle dashboard view", category: "Views" },
+  { key: "Enter", description: "Send message (interview)", category: "Input" },
+  { key: "Shift+Enter", description: "New line (interview)", category: "Input" },
+  { key: "Ctrl+J", description: "New line (interview)", category: "Input" },
+  { key: "Ctrl+W", description: "Delete word backward", category: "Input" },
+  { key: "Ctrl+U", description: "Delete to line start", category: "Input" },
+  { key: "Ctrl+K", description: "Delete to line end", category: "Input" },
+] as const;
+
 // ANSI escape codes for non-TUI (CLI-only) paths
 export const ansi = {
   primary: "\x1b[36m",
