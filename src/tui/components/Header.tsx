@@ -1,5 +1,8 @@
 import type { ReactNode } from "react";
+import { createTextAttributes } from "@opentui/core";
 import { colors } from "../theme.js";
+
+const boldAttr = createTextAttributes({ bold: true });
 
 interface HeaderProps {
   projectName: string;
@@ -8,6 +11,8 @@ interface HeaderProps {
   maxIterations: number;
   agentName: string;
   elapsedMs: number;
+  done: number;
+  total: number;
   width: number;
 }
 
@@ -20,6 +25,13 @@ function formatElapsed(ms: number): string {
   return `${secs}s`;
 }
 
+function miniProgressBar(done: number, total: number, width: number): string {
+  if (total === 0) return "";
+  const barWidth = Math.min(width, 10);
+  const filled = Math.round((done / total) * barWidth);
+  return "\u2593".repeat(filled) + "\u2591".repeat(barWidth - filled);
+}
+
 export function Header({
   projectName,
   planId,
@@ -27,16 +39,35 @@ export function Header({
   maxIterations,
   agentName,
   elapsedMs,
+  done,
+  total,
   width,
 }: HeaderProps): ReactNode {
-  const left = ` ${colors.bold}synth${colors.reset} ${colors.muted}│${colors.reset} ${projectName} ${colors.muted}(${planId})${colors.reset}`;
-  const right = `${colors.primary}${agentName}${colors.reset} ${colors.muted}│${colors.reset} iter ${iteration}/${maxIterations} ${colors.muted}│${colors.reset} ${formatElapsed(elapsedMs)}`;
+  const pct = total > 0 ? Math.round((done / total) * 100) : 0;
 
   return (
-    <box width={width} height={1} flexDirection="row">
-      <text>{left}</text>
+    <box
+      width={width}
+      height={1}
+      flexDirection="row"
+      style={{ backgroundColor: colors.bg.secondary, paddingLeft: 1, paddingRight: 1 }}
+    >
+      <text>
+        <span fg={colors.accent.primary} attributes={boldAttr}>synth</span>
+        <span fg={colors.fg.muted}>{" │ "}</span>
+        <span fg={colors.fg.primary}>{projectName}</span>
+        <span fg={colors.fg.muted}> ({planId})</span>
+      </text>
       <box flexGrow={1} />
-      <text>{right} </text>
+      <text>
+        <span fg={colors.status.success}>{miniProgressBar(done, total, 10)}</span>
+        <span fg={colors.fg.muted}>{` ${pct}% │ `}</span>
+        <span fg={colors.accent.primary}>{agentName}</span>
+        <span fg={colors.fg.muted}>{" │ "}</span>
+        <span fg={colors.fg.secondary}>iter {iteration}/{maxIterations}</span>
+        <span fg={colors.fg.muted}>{" │ "}</span>
+        <span fg={colors.fg.secondary}>{formatElapsed(elapsedMs)}</span>
+      </text>
     </box>
   );
 }

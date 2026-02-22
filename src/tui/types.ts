@@ -12,9 +12,11 @@ export interface TuiEngineData {
   currentTaskId: string | null;
   output: string;
   agentName: string;
+  projectName: string;
   planId: string;
   startTime: number;
   interviewMessages: InterviewMessage[];
+  isThinking: boolean;
 }
 
 export interface TuiState extends TuiEngineData {

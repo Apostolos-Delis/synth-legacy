@@ -3,7 +3,6 @@ import { useKeyboard } from "@opentui/react";
 import type { TuiState, TuiEngineData, ViewMode } from "./types.js";
 import { ExecutionView } from "./ExecutionView.js";
 import { DashboardView } from "./DashboardView.js";
-import { InterviewView } from "./InterviewView.js";
 
 interface AppProps extends TuiEngineData {
   defaultView?: ViewMode;
@@ -55,8 +54,6 @@ export function App({
   useKeyboard(handleKeyboard);
 
   switch (view) {
-    case "interview":
-      return <InterviewView state={state} />;
     case "dashboard":
       return <DashboardView state={state} />;
     case "execution":
