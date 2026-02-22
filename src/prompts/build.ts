@@ -1,9 +1,32 @@
 import { join } from "node:path";
+import { stat } from "node:fs/promises";
 import type { Task } from "../tasks/types.js";
 import type { PlanPaths } from "../plans/types.js";
 import { ITERATION_INSTRUCTIONS } from "./instructions.js";
 import { fileExists, readText } from "../utils/fs.js";
 import { globalTrace } from "../utils/perf.js";
+
+interface CacheEntry {
+  content: string;
+  mtimeMs: number;
+}
+
+const fileCache = new Map<string, CacheEntry>();
+
+async function cachedReadText(path: string): Promise<string | null> {
+  try {
+    const st = await stat(path);
+    const cached = fileCache.get(path);
+    if (cached && cached.mtimeMs === st.mtimeMs) {
+      return cached.content;
+    }
+    const content = await readText(path);
+    fileCache.set(path, { content, mtimeMs: st.mtimeMs });
+    return content;
+  } catch {
+    return null;
+  }
+}
 
 async function safeReadText(path: string): Promise<string | null> {
   if (await fileExists(path)) {
@@ -28,7 +51,7 @@ export async function buildPrompt(
   trace.startPhase("build:read-files");
   const agentsPath = join(cwd, "AGENTS.md");
   const [agents, progress] = await Promise.all([
-    safeReadText(agentsPath),
+    cachedReadText(agentsPath),
     safeReadText(planPaths.progress),
   ]);
   trace.endPhase("build:read-files");
