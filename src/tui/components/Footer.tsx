@@ -13,6 +13,7 @@ const SHORTCUTS: Record<ViewMode, string> = {
   interview: "Enter:send  q:quit",
   generating: "Please wait...",
   review: "Enter:start execution  Esc/q:save and quit",
+  completion: "q:quit",
 };
 
 export const Footer = memo(function Footer({ view, width }: FooterProps): ReactNode {

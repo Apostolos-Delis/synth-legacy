@@ -22,7 +22,8 @@ import { listBuiltinThemes, discoverCustomThemes } from "./tui/themes/registry.j
 import { listSpinnerPresets } from "./tui/spinners.js";
 import { createSpinner, withSpinner } from "./tui/spinner.js";
 import { stripAnsi } from "./tui/utils.js";
-import type { TuiEngineData, TuiContext } from "./tui/types.js";
+import type { TuiEngineData, TuiContext, CompletionSummary } from "./tui/types.js";
+import { formatDuration } from "./utils/format.js";
 
 // Heavy modules are lazy-loaded on first use to keep startup fast.
 // Follows the same pattern as loadTui() below.
@@ -420,14 +421,27 @@ async function cmdRun(planId?: string, startIteration = 0, tuiContext?: TuiConte
       isThinking: false,
       currentPhase: null,
       phaseStartTime: null,
+      completionSummary: null,
     };
   }
 
   let firstTokenRendered = false;
+  let completionResolve: (() => void) | null = null;
 
   const renderTui = () => {
     if (root && tuiData && App) {
-      root.render(<App {...tuiData} onQuit={() => cleanup().then(() => process.exit(0))} />);
+      root.render(
+        <App
+          {...tuiData}
+          onQuit={() => {
+            if (completionResolve) {
+              completionResolve();
+            } else {
+              cleanup().then(() => process.exit(0));
+            }
+          }}
+        />,
+      );
     }
   };
 
@@ -531,9 +545,6 @@ async function cmdRun(planId?: string, startIteration = 0, tuiContext?: TuiConte
         case "rate-limit:detected":
           log(`  ${fmt.warn(event.message ?? "Rate limited")}`);
           break;
-        case "complete":
-          log(`\n${fmt.success("All tasks complete!")}`);
-          break;
         case "agent:stdout":
           if (event.message) process.stdout.write(event.message);
           break;
@@ -550,6 +561,8 @@ async function cmdRun(planId?: string, startIteration = 0, tuiContext?: TuiConte
       if (root) root.unmount();
       if (renderer) renderer.destroy();
     }
+    // Don't overwrite completed status if SIGINT arrives during completion view
+    if (engine.getState() === "completed") return;
     await sessionMod.endSession(plan!.paths, "interrupted");
     await updatePlanMetadata(cwd, plan!.metadata.id, { status: "paused" });
     if (!tuiEnabled) {
@@ -574,10 +587,49 @@ async function cmdRun(planId?: string, startIteration = 0, tuiContext?: TuiConte
       status: finalState === "completed" ? "completed" : finalState === "blocked" ? "blocked" : "paused",
     });
 
+    const durationMs = Date.now() - engineStartTime;
+    const currentTasks = await loadTasks(plan.paths.tasks);
+    const progress = getProgress(currentTasks);
+
+    // Show completion summary when engine finishes successfully
+    if (finalState === "completed") {
+      // Gather git commits made during this run
+      const sinceDate = new Date(engineStartTime).toISOString();
+      const gitResult = spawn({ cmd: ["git", "log", "--oneline", `--since=${sinceDate}`], cwd });
+      const { stdout: commitLog } = await gitResult.promise;
+      const commits = commitLog.trim() ? commitLog.trim().split("\n") : [];
+
+      const summaryData: CompletionSummary = {
+        projectName: config.project.name,
+        planId: plan.metadata.id,
+        agentName: config.agent.name,
+        totalDurationMs: durationMs,
+        totalIterations: engine.getIteration(),
+        tasks: currentTasks.tasks,
+        progress,
+        commits,
+        summaryFilePath: plan.paths.summary,
+      };
+
+      // Write summary.md
+      const markdown = buildSummaryMarkdown(summaryData);
+      await writeText(plan.paths.summary, markdown);
+
+      if (tuiEnabled && tuiData) {
+        // Set completion summary and re-render — App auto-switches to CompletionView
+        tuiData.completionSummary = summaryData;
+        renderTui();
+        // Wait for user to press q/Esc
+        await new Promise<void>((resolve) => {
+          completionResolve = resolve;
+        });
+        completionResolve = null;
+      } else {
+        printCompletionSummary(summaryData);
+      }
+    }
+
     if (notificationsEnabled) {
-      const durationMs = Date.now() - engineStartTime;
-      const currentTasks = await loadTasks(plan.paths.tasks);
-      const progress = getProgress(currentTasks);
       const notif = await import("./notifications.js");
 
       if (finalState === "completed") {
@@ -1149,6 +1201,66 @@ async function cmdUpdate(): Promise<void> {
     if (result.stdout) log(result.stdout);
     logSuccess(`Updated to v${latest}`);
   }
+}
+
+function buildSummaryMarkdown(data: Omit<CompletionSummary, "summaryFilePath">): string {
+  const dur = formatDuration(data.totalDurationMs);
+  const lines: string[] = [
+    `# Completion Summary`,
+    ``,
+    `| Field | Value |`,
+    `|-------|-------|`,
+    `| Project | ${data.projectName} |`,
+    `| Plan | ${data.planId} |`,
+    `| Agent | ${data.agentName} |`,
+    `| Duration | ${dur} |`,
+    `| Iterations | ${data.totalIterations} |`,
+    `| Tasks | ${data.progress.done}/${data.progress.total} done, ${data.progress.failed} failed, ${data.progress.open} open |`,
+    ``,
+    `## Tasks`,
+    ``,
+  ];
+
+  for (const task of data.tasks) {
+    const icon = task.status === "done" ? "[x]" : task.status === "failed" ? "[-]" : "[ ]";
+    lines.push(`- ${icon} **${task.id}** ${task.title} — \`${task.status}\``);
+  }
+
+  if (data.commits.length > 0) {
+    lines.push(``, `## Commits`, ``);
+    for (const c of data.commits) {
+      lines.push(`- ${c}`);
+    }
+  }
+
+  lines.push(``);
+  return lines.join("\n");
+}
+
+function printCompletionSummary(data: CompletionSummary): void {
+  const dur = formatDuration(data.totalDurationMs);
+  log("");
+  log(`${ansi.bold}${"─".repeat(60)}${ansi.reset}`);
+  log(`${ansi.bold}Completion Summary${ansi.reset}  ${ansi.muted}${data.projectName} (${data.planId})${ansi.reset}`);
+  log(`${ansi.bold}${"─".repeat(60)}${ansi.reset}`);
+  log(`${fmt.label("Duration:", dur)}  ${fmt.label("Iterations:", String(data.totalIterations))}  ${fmt.label("Agent:", data.agentName)}`);
+  log(`${ansi.success}✔ ${data.progress.done} done${ansi.reset}  ${ansi.error}✘ ${data.progress.failed} failed${ansi.reset}  ${ansi.muted}○ ${data.progress.open} open${ansi.reset}`);
+  log("");
+
+  for (const task of data.tasks) {
+    const icon = STATUS_ICONS[task.status] ?? "○";
+    const color = STATUS_COLORS[task.status] ?? ansi.muted;
+    log(`  ${color}${icon}${ansi.reset} ${task.id} ${task.title}`);
+  }
+
+  if (data.commits.length > 0) {
+    log(`\n${fmt.bold("Commits:")}`);
+    for (const c of data.commits) {
+      log(`  ${ansi.muted}${c}${ansi.reset}`);
+    }
+  }
+
+  log(`\n${fmt.dim(`Summary saved to: ${data.summaryFilePath}`)}`);
 }
 
 async function main(): Promise<void> {

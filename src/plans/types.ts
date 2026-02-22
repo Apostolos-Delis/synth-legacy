@@ -17,4 +17,5 @@ export interface PlanPaths {
   session: string;
   lock: string;
   logs: string;
+  summary: string;
 }

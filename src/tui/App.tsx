@@ -3,6 +3,7 @@ import { useKeyboard } from "@opentui/react";
 import type { TuiState, TuiEngineData, ViewMode } from "./types.js";
 import { ExecutionView } from "./ExecutionView.js";
 import { DashboardView } from "./DashboardView.js";
+import { CompletionView } from "./CompletionView.js";
 import { HelpOverlay } from "./components/HelpOverlay.js";
 import { ConfirmationDialog } from "./components/ConfirmationDialog.js";
 import { ToastContainer } from "./components/Toast.js";
@@ -44,10 +45,17 @@ export function App({
     if (prev === curr) return;
     prevEngineState.current = curr;
 
-    if (curr === "completed") showSuccess("All tasks complete!");
+    if (curr === "completed" && !engineData.completionSummary) showSuccess("All tasks complete!");
     else if (curr === "paused" && prev === "executing") showInfo("Execution paused");
     else if (curr === "blocked") showWarning("Execution blocked");
-  }, [engineData.engineState, showSuccess, showInfo, showWarning]);
+  }, [engineData.engineState, engineData.completionSummary, showSuccess, showInfo, showWarning]);
+
+  // Auto-switch to completion view when summary is ready
+  useEffect(() => {
+    if (engineData.completionSummary && engineData.engineState === "completed") {
+      setView("completion");
+    }
+  }, [engineData.completionSummary, engineData.engineState]);
 
   // Separate state objects per view so inactive view doesn't get new props
   const executionState: TuiState = useMemo(
@@ -76,6 +84,14 @@ export function App({
           onQuit?.();
         } else if (key.name === "n" || key.name === "escape") {
           setShowQuitConfirm(false);
+        }
+        return;
+      }
+
+      // Completion view only responds to q/Esc to quit
+      if (viewRef.current === "completion") {
+        if (key.name === "q" || key.name === "escape") {
+          onQuit?.();
         }
         return;
       }
@@ -114,6 +130,15 @@ export function App({
   );
 
   useKeyboard(handleKeyboard);
+
+  // Completion view replaces execution/dashboard when summary is ready
+  if (view === "completion" && engineData.completionSummary) {
+    return (
+      <box style={{ width: "100%", height: "100%", position: "relative" }}>
+        <CompletionView summary={engineData.completionSummary} />
+      </box>
+    );
+  }
 
   // Render both views — active view gets full size, inactive gets hidden.
   // This avoids mount/unmount cycles on view switch for single-frame transitions.

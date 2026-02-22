@@ -44,6 +44,7 @@ function planPaths(repoKey: string, planId: string): PlanPaths {
     session: join(root, "session.json"),
     lock: join(root, "synth.lock"),
     logs: join(root, "logs"),
+    summary: join(root, "summary.md"),
   };
 }
 
