@@ -64,25 +64,30 @@ git tag -a "$TAG" -m "v${NEXT}"
 
 info "Tagged $TAG"
 
-# Build all platform binaries
-info "Building binaries..."
-bun run build:darwin-arm64
-bun run build:darwin-x64
-bun run build:linux-arm64
-bun run build:linux-x64
+# Build host-native binary (cross-compilation requires platform-specific native deps)
+HOST_OS="$(uname -s | tr '[:upper:]' '[:lower:]')"
+HOST_ARCH="$(uname -m)"
+case "$HOST_ARCH" in
+  arm64|aarch64) HOST_ARCH="arm64" ;;
+  x86_64|amd64)  HOST_ARCH="x64" ;;
+esac
+
+BINARY="synth-${HOST_OS}-${HOST_ARCH}"
+info "Building ${BINARY}..."
+bun run "build:${HOST_OS}-${HOST_ARCH}"
 
 info "Pushing tag..."
 git push origin HEAD "$TAG"
 
-# Create GitHub release with binaries
+# Create GitHub release with host binary
 info "Creating GitHub release..."
 gh release create "$TAG" \
-  dist/synth-darwin-arm64 \
-  dist/synth-darwin-x64 \
-  dist/synth-linux-arm64 \
-  dist/synth-linux-x64 \
+  "dist/${BINARY}" \
   --title "v${NEXT}" \
   --generate-notes
+
+info "Attach other platform binaries via CI or manually with:"
+info "  gh release upload ${TAG} dist/synth-<os>-<arch>"
 
 info "Released v${NEXT} 🎉"
 info "https://github.com/Apostolos-Delis/synth/releases/tag/${TAG}"
