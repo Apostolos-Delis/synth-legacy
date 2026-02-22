@@ -27,6 +27,9 @@ export function ExecutionView({ state }: ExecutionViewProps): ReactNode {
   const contentWidth = width - sidebarWidth;
   const bodyHeight = height - layout.header.height - layout.footer.height - 1;
   const done = state.tasks.filter((t) => t.status === "done").length;
+  const currentTask = state.currentTaskId
+    ? state.tasks.find((t) => t.id === state.currentTaskId) ?? null
+    : null;
 
   return (
     <box width={width} height={height} flexDirection="column">
@@ -55,6 +58,7 @@ export function ExecutionView({ state }: ExecutionViewProps): ReactNode {
           isThinking={state.isThinking}
           currentPhase={state.currentPhase}
           phaseStartTime={state.phaseStartTime}
+          task={currentTask}
         />
       </box>
       <StatusBar
