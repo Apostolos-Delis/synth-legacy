@@ -1,8 +1,8 @@
 import { useState, useEffect, useCallback, useRef, type ReactNode } from "react";
-import { useTerminalDimensions, useKeyboard } from "@opentui/react";
+import { useKeyboard } from "@opentui/react";
 import { createTextAttributes } from "@opentui/core";
 import type { InterviewMessage } from "../interview/types.js";
-import { colors, layout, SPINNER_FRAMES } from "./theme.js";
+import { colors, SPINNER_FRAMES } from "./theme.js";
 
 const boldAttr = createTextAttributes({ bold: true });
 
@@ -31,9 +31,9 @@ function MessageBubble({ message }: { message: InterviewMessage }): ReactNode {
 
   return (
     <box style={{ width: "100%", flexDirection: "column", marginBottom: 1 }}>
-      <text>
-        <span fg={roleColor} attributes={boldAttr}>{roleLabel}</span>
-      </text>
+      <box style={{ flexDirection: "row", gap: 1 }}>
+        <text fg={roleColor} attributes={boldAttr}>{roleLabel}</text>
+      </box>
       <box style={{ paddingLeft: 2 }}>
         <text fg={colors.fg.primary}>{message.content}</text>
       </box>
@@ -42,7 +42,6 @@ function MessageBubble({ message }: { message: InterviewMessage }): ReactNode {
 }
 
 export function InterviewApp({ opening, onSendMessage, onComplete, onQuit }: InterviewAppProps): ReactNode {
-  const { width, height } = useTerminalDimensions();
   const [messages, setMessages] = useState<InterviewMessage[]>([
     { role: "assistant", content: opening },
   ]);
@@ -63,7 +62,6 @@ export function InterviewApp({ opening, onSendMessage, onComplete, onQuit }: Int
       return;
     }
 
-    // Clear input and add user message
     textarea.editBuffer.setText("");
     const userMsg: InterviewMessage = { role: "user", content: value };
     setMessages((prev) => [...prev, userMsg]);
@@ -92,31 +90,43 @@ export function InterviewApp({ opening, onSendMessage, onComplete, onQuit }: Int
     }
   }, [handleSubmit]));
 
-  // Layout: header(1) + chat(flex) + textarea(6) + footer(1)
-  const inputHeight = 6;
-  const chatHeight = height - layout.header.height - inputHeight - layout.footer.height;
-
   return (
-    <box width={width} height={height} flexDirection="column">
+    <box style={{ width: "100%", height: "100%", flexDirection: "column" }}>
       {/* Header */}
-      <box height={1} style={{ backgroundColor: colors.bg.secondary, paddingLeft: 1 }}>
-        <text>
-          <span fg={colors.accent.primary} attributes={boldAttr}>synth plan</span>
-          <span fg={colors.fg.muted}>{" │ "}</span>
-          <span fg={colors.fg.secondary}>PRD Interview</span>
-          <span fg={colors.fg.muted}>{" │ "}</span>
-          <span fg={colors.fg.muted}>{messages.length} messages</span>
+      <box
+        style={{
+          width: "100%",
+          height: 3,
+          flexDirection: "row",
+          justifyContent: "space-between",
+          alignItems: "center",
+          backgroundColor: colors.bg.secondary,
+          paddingLeft: 1,
+          paddingRight: 1,
+          border: true,
+          borderColor: colors.border.normal,
+        }}
+      >
+        <box style={{ flexDirection: "row", gap: 2 }}>
+          <text fg={colors.accent.primary} attributes={boldAttr}>synth plan</text>
+          <text fg={colors.fg.muted}>PRD Interview</text>
+        </box>
+        <text fg={colors.fg.muted}>
+          {messages.length} message{messages.length !== 1 ? "s" : ""}
         </text>
       </box>
 
-      {/* Chat area */}
-      <box height={chatHeight} border={true} borderColor={colors.border.normal}>
-        <scrollbox
-          flexGrow={1}
-          stickyScroll={true}
-          stickyStart="bottom"
-          style={{ flexDirection: "column", padding: 1 }}
-        >
+      {/* Message area */}
+      <box
+        style={{
+          flexGrow: 1,
+          flexDirection: "column",
+          paddingLeft: 1,
+          paddingRight: 1,
+          paddingTop: 1,
+        }}
+      >
+        <scrollbox style={{ flexGrow: 1 }} stickyScroll={true} stickyStart="bottom">
           {messages.map((msg, i) => (
             <MessageBubble key={i} message={msg} />
           ))}
@@ -131,26 +141,42 @@ export function InterviewApp({ opening, onSendMessage, onComplete, onQuit }: Int
       </box>
 
       {/* Input area */}
-      <box height={inputHeight} border={true} borderColor={isLoading ? colors.border.muted : colors.border.active}>
+      <box
+        style={{
+          width: "100%",
+          height: 8,
+          flexDirection: "column",
+          backgroundColor: colors.bg.secondary,
+          border: true,
+          borderColor: isLoading ? colors.border.normal : colors.border.active,
+          paddingLeft: 1,
+          paddingRight: 1,
+        }}
+      >
         <textarea
           ref={textareaRef}
-          style={{
-            flexGrow: 1,
-          }}
+          style={{ flexGrow: 1 }}
           placeholder={isLoading ? "Waiting for response..." : "Type your message... (Enter to send, q to quit)"}
           focused={!isLoading}
         />
       </box>
 
       {/* Footer */}
-      <box width={width} height={1} style={{ backgroundColor: colors.bg.secondary, paddingLeft: 1 }}>
+      <box
+        style={{
+          width: "100%",
+          height: 1,
+          backgroundColor: colors.bg.secondary,
+          paddingLeft: 1,
+        }}
+      >
         {isLoading ? (
           <box style={{ flexDirection: "row", gap: 1 }}>
             <AnimatedSpinner />
             <text fg={colors.status.info}>{loadingStatus}</text>
           </box>
         ) : (
-          <text fg={colors.fg.muted}>Enter:send  Shift+Enter:newline  q:quit</text>
+          <text fg={colors.fg.muted}>Enter:send  Shift+Enter:newline  Esc:quit</text>
         )}
       </box>
     </box>

@@ -26,12 +26,19 @@ import { writeText, readText, fileExists } from "./utils/fs.js";
 import { spawn } from "./utils/process.js";
 import { ansi, fmt, STATUS_ICONS, STATUS_COLORS, PRIORITY_COLORS } from "./tui/theme.js";
 import { createSpinner, withSpinner } from "./tui/spinner.js";
-import { createCliRenderer } from "@opentui/core";
-import { createRoot, type Root } from "@opentui/react";
-import type { CliRenderer } from "@opentui/core";
-import { App } from "./tui/App.js";
-import { InterviewApp } from "./tui/InterviewApp.js";
 import type { TuiEngineData } from "./tui/types.js";
+
+// TUI imports are loaded dynamically to keep non-TUI commands fast.
+// Use loadTui() to get createCliRenderer, createRoot, App, InterviewApp.
+async function loadTui() {
+  const [{ createCliRenderer }, { createRoot }, { App }, { InterviewApp }] = await Promise.all([
+    import("@opentui/core"),
+    import("@opentui/react"),
+    import("./tui/App.js"),
+    import("./tui/InterviewApp.js"),
+  ]);
+  return { createCliRenderer, createRoot, App, InterviewApp };
+}
 
 const VERSION = "0.1.2";
 const REPO = "Apostolos-Delis/synth";
@@ -263,13 +270,16 @@ async function cmdRun(planId?: string, startIteration = 0): Promise<void> {
 
   const engine = new Engine(config, agent, fallbackAgent, plan.paths, cwd);
 
-  let renderer: CliRenderer | null = null;
-  let root: Root | null = null;
+  let renderer: Awaited<ReturnType<typeof import("@opentui/core")["createCliRenderer"]>> | null = null;
+  let root: ReturnType<typeof import("@opentui/react")["createRoot"]> | null = null;
   let tuiData: TuiEngineData | null = null;
+  let App: Awaited<ReturnType<typeof loadTui>>["App"] | null = null;
 
   if (tuiEnabled) {
-    renderer = await createCliRenderer();
-    root = createRoot(renderer);
+    const tui = await loadTui();
+    App = tui.App;
+    renderer = await tui.createCliRenderer();
+    root = tui.createRoot(renderer);
     tuiData = {
       engineState: "executing",
       iteration: startIteration,
@@ -287,7 +297,7 @@ async function cmdRun(planId?: string, startIteration = 0): Promise<void> {
   }
 
   const renderTui = () => {
-    if (root && tuiData) {
+    if (root && tuiData && App) {
       root.render(<App {...tuiData} onQuit={() => cleanup().then(() => process.exit(0))} />);
     }
   };
@@ -497,12 +507,13 @@ async function cmdPlan(planIdOrFlag?: string): Promise<void> {
 
   if (tuiEnabled) {
     // Self-contained TUI interview — component manages all state internally
-    const planRenderer = await createCliRenderer({ exitOnCtrlC: false });
-    const planRoot = createRoot(planRenderer);
+    const tui = await loadTui();
+    const planRenderer = await tui.createCliRenderer({ exitOnCtrlC: false });
+    const planRoot = tui.createRoot(planRenderer);
 
     const interviewResult = await new Promise<boolean>((resolve) => {
       planRoot.render(
-        <InterviewApp
+        <tui.InterviewApp
           opening={opening}
           onSendMessage={async (msg) => {
             const response = await interviewer.respond(msg);
