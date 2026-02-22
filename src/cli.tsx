@@ -492,51 +492,135 @@ async function cmdPlan(planIdOrFlag?: string): Promise<void> {
 
   const opening = await interviewer.start();
 
-  // Interview uses plain console output — TUI renderer and readline
-  // conflict for terminal control, so we use styled console output here.
-  log(`\n${ansi.magenta}Synth:${ansi.reset}`);
-  log(opening);
+  // TUI interview: use <input> component inside the TUI for user input
+  // Non-TUI: use readline for plain text mode
+  let planRenderer: CliRenderer | null = null;
+  let planRoot: Root | null = null;
+  let planTuiData: TuiEngineData | null = null;
+  let inputResolver: ((value: string) => void) | null = null;
+  let quitRequested = false;
+
+  const waitForInput = (): Promise<string | null> =>
+    new Promise((resolve) => {
+      inputResolver = (value: string) => resolve(value);
+    });
+
+  const handleInterviewSubmit = (value: string) => {
+    if (inputResolver) {
+      const resolver = inputResolver;
+      inputResolver = null;
+      resolver(value);
+    }
+  };
+
+  const handleInterviewQuit = () => {
+    quitRequested = true;
+    if (inputResolver) {
+      const resolver = inputResolver;
+      inputResolver = null;
+      resolver("");
+    }
+  };
+
+  const renderPlanTui = () => {
+    if (planRoot && planTuiData) {
+      planRoot.render(
+        <App
+          {...planTuiData}
+          defaultView="interview"
+          onInterviewSubmit={handleInterviewSubmit}
+          onQuit={handleInterviewQuit}
+        />,
+      );
+    }
+  };
+
+  if (tuiEnabled) {
+    planRenderer = await createCliRenderer();
+    planRoot = createRoot(planRenderer);
+    planTuiData = {
+      engineState: "idle",
+      iteration: 0,
+      maxIterations: 0,
+      tasks: [],
+      currentTaskId: null,
+      output: "",
+      agentName: config.agent.name,
+      projectName: config.project.name,
+      planId: id,
+      startTime: Date.now(),
+      interviewMessages: [{ role: "assistant", content: opening }],
+      isThinking: false,
+    };
+    renderPlanTui();
+  } else {
+    log(`\n${ansi.magenta}Synth:${ansi.reset}`);
+    log(opening);
+  }
 
   const readline = await import("node:readline");
-  const rl = readline.createInterface({
-    input: process.stdin,
-    output: process.stdout,
-  });
 
-  const askQuestion = (): Promise<string> =>
-    new Promise((resolve) => {
-      rl.question(`\n${ansi.primary}You:${ansi.reset} `, resolve);
+  const askQuestionPlain = (): Promise<string | null> => {
+    const rl = readline.createInterface({
+      input: process.stdin,
+      output: process.stdout,
     });
+    return new Promise((resolve) => {
+      rl.question(`\n${ansi.primary}You:${ansi.reset} `, (answer) => {
+        rl.close();
+        if (answer.toLowerCase() === "q" || answer.toLowerCase() === "quit") {
+          resolve(null);
+        } else {
+          resolve(answer);
+        }
+      });
+    });
+  };
 
   let prd = null;
   while (!prd) {
-    const userInput = await askQuestion();
-    if (userInput.toLowerCase() === "q" || userInput.toLowerCase() === "quit") {
-      rl.close();
+    const userInput = tuiEnabled ? await waitForInput() : await askQuestionPlain();
+
+    if (userInput === null || quitRequested || !userInput) {
+      if (planRoot) planRoot.unmount();
+      if (planRenderer) planRenderer.destroy();
       agent.dispose();
       return;
     }
 
-    let response: string;
-    if (tuiEnabled) {
-      const spinner = createSpinner("Thinking");
-      response = await interviewer.respond(userInput);
-      spinner.stop("");
-    } else {
-      response = await interviewer.respond(userInput);
+    if (planTuiData) {
+      planTuiData.interviewMessages = [
+        ...planTuiData.interviewMessages,
+        { role: "user", content: userInput },
+      ];
+      planTuiData.isThinking = true;
+      renderPlanTui();
     }
 
-    log(`\n${ansi.magenta}Synth:${ansi.reset}`);
-    log(response);
+    const response = await interviewer.respond(userInput);
+
+    if (planTuiData) {
+      planTuiData.isThinking = false;
+      planTuiData.interviewMessages = [
+        ...planTuiData.interviewMessages,
+        { role: "assistant", content: response },
+      ];
+      renderPlanTui();
+    } else {
+      log(`\n${ansi.magenta}Synth:${ansi.reset}`);
+      log(response);
+    }
 
     prd = interviewer.extractPrd(response);
   }
 
-  rl.close();
-
   const prdMarkdown = prdToMarkdown(prd);
   await writeText(paths.prd, prdMarkdown);
   await updatePlanMetadata(cwd, id, { description: prd.title });
+
+  // Clean up TUI before task generation output
+  if (planRoot) planRoot.unmount();
+  if (planRenderer) planRenderer.destroy();
 
   logSuccess(`PRD saved to ${paths.prd}`);
 

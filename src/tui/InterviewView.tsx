@@ -1,17 +1,31 @@
-import type { ReactNode } from "react";
+import { useState, useCallback, type ReactNode } from "react";
 import { useTerminalDimensions } from "@opentui/react";
 import type { TuiState } from "./types.js";
 import { colors, layout } from "./theme.js";
 import { ChatPane } from "./components/ChatPane.js";
-import { Footer } from "./components/Footer.js";
 
 interface InterviewViewProps {
   state: TuiState;
+  onSubmit?: (value: string) => void;
+  onQuit?: () => void;
 }
 
-export function InterviewView({ state }: InterviewViewProps): ReactNode {
+export function InterviewView({ state, onSubmit, onQuit }: InterviewViewProps): ReactNode {
   const { width, height } = useTerminalDimensions();
-  const chatHeight = height - layout.header.height - layout.footer.height;
+  const [inputValue, setInputValue] = useState("");
+  // header(1) + chat + input(1) + footer(1)
+  const chatHeight = height - layout.header.height - layout.footer.height - 1;
+
+  const handleSubmit = useCallback(() => {
+    const value = inputValue.trim();
+    if (!value) return;
+    if (value.toLowerCase() === "q" || value.toLowerCase() === "quit") {
+      onQuit?.();
+      return;
+    }
+    setInputValue("");
+    onSubmit?.(value);
+  }, [inputValue, onSubmit, onQuit]);
 
   return (
     <box width={width} height={height} flexDirection="column">
@@ -30,7 +44,20 @@ export function InterviewView({ state }: InterviewViewProps): ReactNode {
         height={chatHeight}
         isThinking={state.isThinking}
       />
-      <Footer view="interview" width={width} />
+      <input
+        focused={true}
+        placeholder="Type your response... (q to quit)"
+        value={inputValue}
+        onInput={setInputValue}
+        onSubmit={handleSubmit}
+        width={width}
+        style={{ backgroundColor: colors.bg.highlight }}
+      />
+      <box width={width} height={1} style={{ backgroundColor: colors.bg.secondary, paddingLeft: 1 }}>
+        <text>
+          <span fg={colors.fg.muted}>Enter:send  q:quit</span>
+        </text>
+      </box>
     </box>
   );
 }

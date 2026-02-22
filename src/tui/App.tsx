@@ -10,6 +10,7 @@ interface AppProps extends TuiEngineData {
   onQuit?: () => void;
   onPause?: () => void;
   onResume?: () => void;
+  onInterviewSubmit?: (value: string) => void;
 }
 
 export function App({
@@ -17,6 +18,7 @@ export function App({
   onQuit,
   onPause,
   onResume,
+  onInterviewSubmit,
   ...engineData
 }: AppProps): ReactNode {
   const [view, setView] = useState<ViewMode>(defaultView);
@@ -28,6 +30,9 @@ export function App({
 
   const handleKeyboard = useCallback(
     (key: { name: string }) => {
+      // In interview mode, let the <input> component handle all keys
+      if (view === "interview") return;
+
       switch (key.name) {
         case "q":
         case "escape":
@@ -56,7 +61,13 @@ export function App({
 
   switch (view) {
     case "interview":
-      return <InterviewView state={state} />;
+      return (
+        <InterviewView
+          state={state}
+          onSubmit={onInterviewSubmit}
+          onQuit={onQuit}
+        />
+      );
     case "dashboard":
       return <DashboardView state={state} />;
     case "execution":
