@@ -1,6 +1,6 @@
 import { join } from "node:path";
 import { homedir } from "node:os";
-import { readdir } from "node:fs/promises";
+import { readdir, rm } from "node:fs/promises";
 import type { PlanMetadata, PlanPaths } from "./types.js";
 import { generatePlanId } from "./id.js";
 import { ensureDir, fileExists, dirExists, readJson, writeJson } from "../utils/fs.js";
@@ -137,6 +137,14 @@ export async function getMostRecentPlan(
   const plans = await listPlans(cwd);
   if (plans.length === 0) return null;
   return getPlan(cwd, plans[0].id);
+}
+
+export async function deletePlan(cwd: string, planId: string): Promise<boolean> {
+  const repoKey = await getRepoKey(cwd);
+  const paths = planPaths(repoKey, planId);
+  if (!(await dirExists(paths.root))) return false;
+  await rm(paths.root, { recursive: true, force: true });
+  return true;
 }
 
 export function getPlanPaths(repoKey: string, planId: string): PlanPaths {

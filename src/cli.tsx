@@ -8,6 +8,7 @@ import {
   listPlans,
   getMostRecentPlan,
   updatePlanMetadata,
+  deletePlan,
 } from "./plans/registry.js";
 import { loadTasks, saveTasks, getProgress, resetOrphanedTasks } from "./tasks/store.js";
 import { generateTasks } from "./tasks/planner.js";
@@ -107,13 +108,25 @@ create_pr = true
 }
 
 async function cmdLs(): Promise<void> {
-  const plans = await listPlans(cwd);
+  const showAll = args.includes("--all") || args.includes("-a");
+  const allPlans = await listPlans(cwd);
+  const plans = showAll
+    ? allPlans
+    : allPlans.filter((p) => p.status !== "completed" && p.status !== "finalized");
+
   if (plans.length === 0) {
-    log(fmt.dim("No plans found. Run 'synth plan' to create one."));
+    if (allPlans.length > 0) {
+      log(fmt.dim(`All ${allPlans.length} plan(s) are completed. Use 'synth ls --all' to show them.`));
+    } else {
+      log(fmt.dim("No plans found. Run 'synth plan' to create one."));
+    }
     return;
   }
 
-  log(`${fmt.bold("Plans")}\n`);
+  const label = showAll ? "Plans (all)" : "Plans";
+  const hidden = allPlans.length - plans.length;
+  const suffix = hidden > 0 ? ` ${ansi.muted}(${hidden} completed hidden, use --all)${ansi.reset}` : "";
+  log(`${fmt.bold(label)}${suffix}\n`);
   log(
     `  ${ansi.muted}${"ID".padEnd(25)} ${"Status".padEnd(12)} ${"Tasks".padEnd(10)} Created${ansi.reset}`,
   );
@@ -121,7 +134,7 @@ async function cmdLs(): Promise<void> {
 
   for (const plan of plans) {
     const statusColor =
-      plan.status === "completed"
+      plan.status === "completed" || plan.status === "finalized"
         ? ansi.success
         : plan.status === "executing"
           ? ansi.primary
@@ -827,6 +840,29 @@ async function cmdPs(): Promise<void> {
   }
 }
 
+async function cmdClean(): Promise<void> {
+  const plans = await listPlans(cwd);
+  const stale = plans.filter(
+    (p) => p.status === "interviewing" && p.taskCount === 0,
+  );
+
+  if (stale.length === 0) {
+    log(fmt.dim("Nothing to clean."));
+    return;
+  }
+
+  log(fmt.bold(`Removing ${stale.length} abandoned plan(s):\n`));
+  for (const plan of stale) {
+    const date = fmt.dim(new Date(plan.createdAt).toLocaleDateString());
+    const deleted = await deletePlan(cwd, plan.id);
+    if (deleted) {
+      logSuccess(`${plan.id} ${ansi.muted}(interviewing, ${date})${ansi.reset}`);
+    } else {
+      logError(`${plan.id} — not found on disk`);
+    }
+  }
+}
+
 async function cmdUpdate(): Promise<void> {
   let release: { tag_name: string };
 
@@ -930,6 +966,9 @@ async function main(): Promise<void> {
     case "ps":
       await cmdPs();
       break;
+    case "clean":
+      await cmdClean();
+      break;
     case "update":
       await cmdUpdate();
       break;
@@ -953,7 +992,7 @@ async function main(): Promise<void> {
       log(`  ${ansi.primary}spawn${ansi.reset} ${ansi.muted}[<plan-id>]${ansi.reset}      Run plan in background worktree`);
 
       log(`\n${ansi.bold}Inspect:${ansi.reset}`);
-      log(`  ${ansi.primary}ls${ansi.reset}                       List all plans`);
+      log(`  ${ansi.primary}ls${ansi.reset} ${ansi.muted}[--all]${ansi.reset}              List plans (hides completed)`);
       log(`  ${ansi.primary}show${ansi.reset} ${ansi.muted}<plan-id>${ansi.reset}          Show plan details`);
       log(`  ${ansi.primary}status${ansi.reset} ${ansi.muted}[<plan-id>]${ansi.reset}      Plan/session status`);
       log(`  ${ansi.primary}ps${ansi.reset}                       List running instances`);
@@ -961,6 +1000,7 @@ async function main(): Promise<void> {
 
       log(`\n${ansi.bold}System:${ansi.reset}`);
       log(`  ${ansi.primary}init${ansi.reset}                     Create synth.toml`);
+      log(`  ${ansi.primary}clean${ansi.reset}                    Remove abandoned plans`);
       log(`  ${ansi.primary}update${ansi.reset}                   Update to latest version`);
       log(`  ${ansi.primary}version${ansi.reset}                  Show version`);
 
