@@ -5,6 +5,7 @@ import { boldAttr, statusIndicators, colors, STATUS_COLORS_HEX, PRIORITY_COLORS_
 interface TaskSidebarProps {
   tasks: Task[];
   currentTaskId: string | null;
+  selectedTaskIndex: number;
   width: number;
   height: number;
 }
@@ -12,6 +13,7 @@ interface TaskSidebarProps {
 export const TaskSidebar = memo(function TaskSidebar({
   tasks,
   currentTaskId,
+  selectedTaskIndex,
   width,
   height,
 }: TaskSidebarProps): ReactNode {
@@ -22,29 +24,35 @@ export const TaskSidebar = memo(function TaskSidebar({
   const innerHeight = height - 2;
   const needsScroll = tasks.length > innerHeight;
 
-  const taskRows = tasks.map((task) => {
+  const taskRows = tasks.map((task, index) => {
     const icon = statusIndicators[task.status] ?? "?";
     const statusColor = STATUS_COLORS_HEX[task.status] ?? colors.fg.muted;
     const priorityColor = PRIORITY_COLORS_HEX[task.priority] ?? colors.fg.muted;
     const active = isCurrent(task.id);
+    const selected = index === selectedTaskIndex;
+    const highlighted = active || selected;
     const titleMaxLen = width - 14;
     const title =
       task.title.length > titleMaxLen
         ? task.title.slice(0, titleMaxLen - 3) + "..."
         : task.title;
 
+    // Selected indicator: ▸ for selected, › for executing (not selected), space otherwise
+    const indicator = selected ? "\u25B8" : active ? "\u203A" : " ";
+    const indicatorColor = selected ? colors.accent.secondary : active ? colors.accent.primary : colors.fg.dim;
+
     return (
       <text key={task.id}>
-        <span fg={active ? colors.accent.primary : colors.fg.dim}>{active ? "\u25B8" : " "}</span>
+        <span fg={indicatorColor}>{indicator}</span>
         <span fg={statusColor}>{icon}</span>
         {" "}
         <span fg={priorityColor}>P{task.priority}</span>
         {" "}
-        <span fg={active ? colors.fg.primary : colors.fg.secondary} attributes={active ? boldAttr() : undefined}>
+        <span fg={highlighted ? colors.fg.primary : colors.fg.secondary} attributes={highlighted ? boldAttr() : undefined}>
           {task.id}
         </span>
         {" "}
-        <span fg={active ? colors.fg.primary : colors.fg.muted}>{title}</span>
+        <span fg={highlighted ? colors.fg.primary : colors.fg.muted}>{title}</span>
       </text>
     );
   });
@@ -75,7 +83,7 @@ export const TaskSidebar = memo(function TaskSidebar({
     </box>
   );
 }, (prev, next) => {
-  if (prev.width !== next.width || prev.height !== next.height || prev.currentTaskId !== next.currentTaskId) return false;
+  if (prev.width !== next.width || prev.height !== next.height || prev.currentTaskId !== next.currentTaskId || prev.selectedTaskIndex !== next.selectedTaskIndex) return false;
   if (prev.tasks === next.tasks) return true;
   if (prev.tasks.length !== next.tasks.length) return false;
   return prev.tasks.every((t, i) =>

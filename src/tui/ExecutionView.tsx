@@ -1,6 +1,6 @@
 import { useState, useEffect, type ReactNode } from "react";
 import { useTerminalDimensions } from "@opentui/react";
-import type { TuiState } from "./types.js";
+import type { TuiState, NavMode } from "./types.js";
 import { layout } from "./theme.js";
 import { Header } from "./components/Header.js";
 import { TaskSidebar } from "./components/TaskSidebar.js";
@@ -9,9 +9,11 @@ import { StatusBar } from "./components/StatusBar.js";
 
 interface ExecutionViewProps {
   state: TuiState;
+  selectedTaskIndex: number;
+  navMode: NavMode;
 }
 
-export function ExecutionView({ state }: ExecutionViewProps): ReactNode {
+export function ExecutionView({ state, selectedTaskIndex, navMode }: ExecutionViewProps): ReactNode {
   const [, tick] = useState(0);
   useEffect(() => {
     if (state.engineState !== "executing") return;
@@ -27,9 +29,23 @@ export function ExecutionView({ state }: ExecutionViewProps): ReactNode {
   const contentWidth = width - sidebarWidth;
   const bodyHeight = height - layout.header.height - layout.footer.height - 1;
   const done = state.tasks.filter((t) => t.status === "done").length;
-  const currentTask = state.currentTaskId
-    ? state.tasks.find((t) => t.id === state.currentTaskId) ?? null
-    : null;
+
+  // Clamp selectedTaskIndex to valid range
+  const clampedIndex = Math.min(selectedTaskIndex, Math.max(0, state.tasks.length - 1));
+  const selectedTask = state.tasks[clampedIndex] ?? null;
+
+  // Determine if the selected task is the currently executing one
+  const isSelectedTaskActive = selectedTask?.id === state.currentTaskId;
+
+  // Show live output for active task, stored output for others
+  const displayOutput = isSelectedTaskActive
+    ? state.output
+    : (selectedTask ? (state.taskOutputMap[selectedTask.id] ?? "") : "");
+
+  // Only show thinking indicator for the active task
+  const showThinking = isSelectedTaskActive && state.isThinking;
+  const showPhase = isSelectedTaskActive ? state.currentPhase : null;
+  const showPhaseStartTime = isSelectedTaskActive ? state.phaseStartTime : null;
 
   return (
     <box width={width} height={height} flexDirection="column">
@@ -48,17 +64,20 @@ export function ExecutionView({ state }: ExecutionViewProps): ReactNode {
         <TaskSidebar
           tasks={state.tasks}
           currentTaskId={state.currentTaskId}
+          selectedTaskIndex={clampedIndex}
           width={sidebarWidth}
           height={bodyHeight}
         />
         <OutputPane
-          output={state.output}
+          output={displayOutput}
           width={contentWidth}
           height={bodyHeight}
-          isThinking={state.isThinking}
-          currentPhase={state.currentPhase}
-          phaseStartTime={state.phaseStartTime}
-          task={currentTask}
+          isThinking={showThinking}
+          currentPhase={showPhase}
+          phaseStartTime={showPhaseStartTime}
+          task={selectedTask}
+          outputScrollFocused={navMode === "output-scroll"}
+          autoScroll={isSelectedTaskActive && navMode === "task-scroll"}
         />
       </box>
       <StatusBar
@@ -68,6 +87,7 @@ export function ExecutionView({ state }: ExecutionViewProps): ReactNode {
         elapsedMs={Date.now() - state.startTime}
         width={width}
         currentPhase={state.currentPhase}
+        navMode={navMode}
       />
     </box>
   );

@@ -1,6 +1,6 @@
 import { useState, useCallback, useMemo, useRef, useEffect, type ReactNode } from "react";
 import { useKeyboard } from "@opentui/react";
-import type { TuiState, TuiEngineData, ViewMode } from "./types.js";
+import type { TuiState, TuiEngineData, ViewMode, NavMode } from "./types.js";
 import { ExecutionView } from "./ExecutionView.js";
 import { DashboardView } from "./DashboardView.js";
 import { CompletionView } from "./CompletionView.js";
@@ -26,6 +26,8 @@ export function App({
   const [view, setView] = useState<ViewMode>(defaultView);
   const [showHelp, setShowHelp] = useState(false);
   const [showQuitConfirm, setShowQuitConfirm] = useState(false);
+  const [selectedTaskIndex, setSelectedTaskIndex] = useState(0);
+  const [navMode, setNavMode] = useState<NavMode>("task-scroll");
   const { toasts, showSuccess, showInfo, showWarning } = useToast();
 
   // Use refs for modal states and view so the key handler callback stays stable
@@ -37,6 +39,12 @@ export function App({
   viewRef.current = view;
   const engineStateRef = useRef(engineData.engineState);
   engineStateRef.current = engineData.engineState;
+  const navModeRef = useRef(navMode);
+  navModeRef.current = navMode;
+  const selectedTaskIndexRef = useRef(selectedTaskIndex);
+  selectedTaskIndexRef.current = selectedTaskIndex;
+  const tasksRef = useRef(engineData.tasks);
+  tasksRef.current = engineData.tasks;
 
   const prevEngineState = useRef(engineData.engineState);
   useEffect(() => {
@@ -49,6 +57,19 @@ export function App({
     else if (curr === "paused" && prev === "executing") showInfo("Execution paused");
     else if (curr === "blocked") showWarning("Execution blocked");
   }, [engineData.engineState, engineData.completionSummary, showSuccess, showInfo, showWarning]);
+
+  // Reset selection to active task when a new task starts executing
+  const prevTaskId = useRef(engineData.currentTaskId);
+  useEffect(() => {
+    if (engineData.currentTaskId && engineData.currentTaskId !== prevTaskId.current) {
+      const idx = engineData.tasks.findIndex((t) => t.id === engineData.currentTaskId);
+      if (idx >= 0) {
+        setSelectedTaskIndex(idx);
+        setNavMode("task-scroll");
+      }
+    }
+    prevTaskId.current = engineData.currentTaskId;
+  }, [engineData.currentTaskId, engineData.tasks]);
 
   // Auto-switch to completion view when summary is ready
   useEffect(() => {
@@ -102,11 +123,48 @@ export function App({
         return;
       }
 
+      // Execution view navigation (j/k/arrows/enter/escape)
+      if (viewRef.current === "execution") {
+        const taskCount = tasksRef.current.length;
+
+        if (navModeRef.current === "output-scroll") {
+          if (key.name === "escape") {
+            setNavMode("task-scroll");
+            return;
+          }
+          // In output-scroll, don't intercept j/k/arrows — scrollbox handles them
+          if (key.name === "j" || key.name === "k" || key.name === "up" || key.name === "down") {
+            return;
+          }
+        }
+
+        if (navModeRef.current === "task-scroll" && taskCount > 0) {
+          if (key.name === "j" || key.name === "down") {
+            setSelectedTaskIndex((i) => Math.min(i + 1, taskCount - 1));
+            return;
+          }
+          if (key.name === "k" || key.name === "up") {
+            setSelectedTaskIndex((i) => Math.max(i - 1, 0));
+            return;
+          }
+          if (key.name === "return") {
+            setNavMode("output-scroll");
+            return;
+          }
+        }
+      }
+
       switch (key.name) {
         case "?":
           setShowHelp(true);
           break;
         case "q":
+          if (viewRef.current === "dashboard") {
+            setView("execution");
+          } else {
+            onQuit?.();
+          }
+          break;
         case "escape":
           if (viewRef.current === "dashboard") {
             setView("execution");
@@ -147,7 +205,7 @@ export function App({
   return (
     <box style={{ width: "100%", height: "100%", position: "relative" }}>
       <box style={isDashboard ? hiddenStyle : visibleStyle}>
-        <ExecutionView state={executionState} />
+        <ExecutionView state={executionState} selectedTaskIndex={selectedTaskIndex} navMode={navMode} />
       </box>
       <box style={isDashboard ? visibleStyle : hiddenStyle}>
         <DashboardView state={dashboardState} />

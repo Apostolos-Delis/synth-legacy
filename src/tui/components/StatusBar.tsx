@@ -1,5 +1,6 @@
 import { memo, type ReactNode } from "react";
 import type { EngineState } from "../../engine/types.js";
+import type { NavMode } from "../types.js";
 import { colors, statusIndicators } from "../theme.js";
 
 interface StatusBarProps {
@@ -9,6 +10,7 @@ interface StatusBarProps {
   elapsedMs: number;
   width: number;
   currentPhase?: string | null;
+  navMode?: NavMode;
 }
 
 const STATE_DISPLAY: Record<EngineState, { label: string; color: string; indicator: string }> = {
@@ -27,9 +29,14 @@ export const StatusBar = memo(function StatusBar({
   elapsedMs,
   width,
   currentPhase,
+  navMode,
 }: StatusBarProps): ReactNode {
   const display = STATE_DISPLAY[state];
   const elapsed = Math.round(elapsedMs / 1000);
+
+  const navHints = navMode === "output-scroll"
+    ? "j/k:scroll  esc:back  q:quit"
+    : "j/k:tasks  enter:scroll  p:pause  d:dashboard  q:quit";
 
   return (
     <box
@@ -53,7 +60,7 @@ export const StatusBar = memo(function StatusBar({
           </>
         )}
         <span fg={colors.fg.muted}>{" │ "}</span>
-        <span fg={colors.fg.muted}>q:quit  p:pause  d:dashboard</span>
+        <span fg={colors.fg.muted}>{navHints}</span>
       </text>
     </box>
   );
@@ -63,5 +70,6 @@ export const StatusBar = memo(function StatusBar({
   prev.agentName === next.agentName &&
   prev.width === next.width &&
   prev.currentPhase === next.currentPhase &&
+  prev.navMode === next.navMode &&
   Math.floor(prev.elapsedMs / 1000) === Math.floor(next.elapsedMs / 1000),
 );
