@@ -46,6 +46,7 @@ export function InterviewApp({ onSendMessage, onComplete, onQuit }: InterviewApp
   ]);
   const [isLoading, setIsLoading] = useState(false);
   const [streamingText, setStreamingText] = useState("");
+  const [pendingConfirmation, setPendingConfirmation] = useState(false);
   const textareaRef = useRef<TextareaRenderable>(null);
   const [inputLineCount, setInputLineCount] = useState(1);
   const { height: termHeight } = useTerminalDimensions();
@@ -69,12 +70,23 @@ export function InterviewApp({ onSendMessage, onComplete, onQuit }: InterviewApp
     if (!textarea) return;
 
     const value = (textarea.plainText ?? "").trim();
-    if (!value) return;
 
     if (value.toLowerCase() === "q" || value.toLowerCase() === "quit") {
       onQuit();
       return;
     }
+
+    // Confirmation state: empty input = confirm, non-empty = continue refining
+    if (pendingConfirmation) {
+      if (!value) {
+        onComplete();
+        return;
+      }
+      // User typed feedback — continue the interview
+      setPendingConfirmation(false);
+    }
+
+    if (!value) return;
 
     textarea.editBuffer.setText("");
     setInputLineCount(1);
@@ -93,13 +105,13 @@ export function InterviewApp({ onSendMessage, onComplete, onQuit }: InterviewApp
       setIsLoading(false);
 
       if (done) {
-        onComplete();
+        setPendingConfirmation(true);
       }
     } catch {
       setStreamingText("");
       setIsLoading(false);
     }
-  }, [isLoading, onSendMessage, onComplete, onQuit]);
+  }, [isLoading, pendingConfirmation, onSendMessage, onComplete, onQuit]);
 
   useKeyboard(useCallback((key: { name: string; shift?: boolean; ctrl?: boolean; meta?: boolean; option?: boolean; preventDefault?: () => void }) => {
     const textarea = textareaRef.current;
@@ -276,16 +288,18 @@ export function InterviewApp({ onSendMessage, onComplete, onQuit }: InterviewApp
               <box style={{ flexDirection: "row", gap: 1 }}>
                 <text fg={colors.accent.secondary} attributes={boldAttr()}>Synth</text>
                 {!streamingText && <AnimatedSpinner />}
+                {!streamingText && <text fg={colors.fg.muted}>Thinking...</text>}
               </box>
-              {streamingText ? (
+              {streamingText && (
                 <box style={{ paddingLeft: 2 }}>
                   <text fg={colors.fg.primary}>{streamingText}</text>
                 </box>
-              ) : (
-                <box style={{ paddingLeft: 2 }}>
-                  <text fg={colors.fg.muted}>Thinking...</text>
-                </box>
               )}
+            </box>
+          )}
+          {pendingConfirmation && !isLoading && (
+            <box style={{ width: "100%", flexDirection: "column", marginBottom: 1, paddingLeft: 1 }}>
+              <text fg={colors.status.info}>Does this all look good? Press Enter to generate the PRD and tasks, or type feedback to refine.</text>
             </box>
           )}
         </scrollbox>
@@ -317,7 +331,7 @@ export function InterviewApp({ onSendMessage, onComplete, onQuit }: InterviewApp
           <textarea
             ref={textareaRef}
             style={{ flexGrow: 1, height: textareaHeight }}
-            placeholder={isLoading ? "Waiting for response..." : "Type your message..."}
+            placeholder={isLoading ? "Waiting for response..." : pendingConfirmation ? "Press Enter to confirm, or type feedback..." : "Type your message..."}
             focused={!isLoading}
           />
         </box>
@@ -342,6 +356,8 @@ export function InterviewApp({ onSendMessage, onComplete, onQuit }: InterviewApp
               <AnimatedSpinner />
               <text fg={colors.status.info}>{streamingText ? "Streaming..." : "Waiting for response..."}</text>
             </>
+          ) : pendingConfirmation ? (
+            <text fg={colors.status.info}>Enter:confirm & generate  Type feedback to refine  Esc:quit</text>
           ) : (
             <text fg={colors.fg.muted}>Enter:send  Shift+Enter:newline  Ctrl+W:del word  Esc:quit</text>
           )}

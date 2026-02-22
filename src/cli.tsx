@@ -766,6 +766,22 @@ async function cmdPlan(planIdOrFlag?: string): Promise<void> {
       log(`\n${ansi.magenta}Synth:${ansi.reset}`);
       log(response);
       prd = interviewer.extractPrd(response);
+
+      if (prd) {
+        log(`\n${ansi.primary}Does this all look good? Press Enter to generate the PRD and tasks, or type feedback to refine.${ansi.reset}`);
+        const confirmation = await askQuestion();
+        if (confirmation === null) {
+          agent.dispose();
+          return;
+        }
+        if (confirmation.trim()) {
+          prd = null;
+          const refinement = await interviewer.respond(confirmation);
+          log(`\n${ansi.magenta}Synth:${ansi.reset}`);
+          log(refinement);
+          prd = interviewer.extractPrd(refinement);
+        }
+      }
     }
   }
 
