@@ -24,7 +24,8 @@ import { Interviewer, prdToMarkdown } from "./interview/interviewer.js";
 import { finalize } from "./finalize/finalize.js";
 import { writeText, readText, fileExists } from "./utils/fs.js";
 import { spawn } from "./utils/process.js";
-import { colors, STATUS_ICONS, STATUS_COLORS, PRIORITY_COLORS } from "./tui/theme.js";
+import { ansi, fmt, STATUS_ICONS, STATUS_COLORS, PRIORITY_COLORS } from "./tui/theme.js";
+import { createSpinner, withSpinner } from "./tui/spinner.js";
 import { createCliRenderer } from "@opentui/core";
 import { createRoot, type Root } from "@opentui/react";
 import type { CliRenderer } from "@opentui/core";
@@ -45,17 +46,17 @@ function log(msg: string): void {
 }
 
 function logError(msg: string): void {
-  console.error(`${colors.error}error:${colors.reset} ${msg}`);
+  console.error(fmt.error(msg));
 }
 
 function logSuccess(msg: string): void {
-  console.log(`${colors.success}${msg}${colors.reset}`);
+  console.log(fmt.success(msg));
 }
 
 async function cmdInit(): Promise<void> {
   const configPath = join(cwd, "synth.toml");
   if (await fileExists(configPath)) {
-    log("synth.toml already exists");
+    log(fmt.warn("synth.toml already exists"));
     return;
   }
 
@@ -98,28 +99,29 @@ create_pr = true
 async function cmdLs(): Promise<void> {
   const plans = await listPlans(cwd);
   if (plans.length === 0) {
-    log("No plans found for this repo. Run 'synth plan' to create one.");
+    log(fmt.dim("No plans found. Run 'synth plan' to create one."));
     return;
   }
 
-  log(`${colors.bold}Plans for this repo:${colors.reset}\n`);
+  log(`${fmt.bold("Plans")}\n`);
   log(
-    `  ${"ID".padEnd(25)} ${"Status".padEnd(12)} ${"Tasks".padEnd(10)} Created`,
+    `  ${ansi.muted}${"ID".padEnd(25)} ${"Status".padEnd(12)} ${"Tasks".padEnd(10)} Created${ansi.reset}`,
   );
-  log(`  ${"-".repeat(70)}`);
+  log(`  ${ansi.muted}${"─".repeat(70)}${ansi.reset}`);
 
   for (const plan of plans) {
     const statusColor =
       plan.status === "completed"
-        ? colors.success
+        ? ansi.success
         : plan.status === "executing"
-          ? colors.primary
+          ? ansi.primary
           : plan.status === "failed" || plan.status === "blocked"
-            ? colors.error
-            : colors.muted;
-    const date = new Date(plan.createdAt).toLocaleDateString();
+            ? ansi.error
+            : ansi.muted;
+    const icon = STATUS_ICONS[plan.status] ?? "○";
+    const date = fmt.dim(new Date(plan.createdAt).toLocaleDateString());
     log(
-      `  ${plan.id.padEnd(25)} ${statusColor}${plan.status.padEnd(12)}${colors.reset} ${`${plan.tasksCompleted}/${plan.taskCount}`.padEnd(10)} ${date}`,
+      `  ${plan.id.padEnd(25)} ${statusColor}${icon} ${plan.status.padEnd(10)}${ansi.reset} ${`${plan.tasksCompleted}/${plan.taskCount}`.padEnd(10)} ${date}`,
     );
   }
 }
@@ -131,29 +133,29 @@ async function cmdShow(planId: string): Promise<void> {
     process.exit(1);
   }
 
-  log(`${colors.bold}Plan: ${plan.metadata.id}${colors.reset}`);
-  log(`Status: ${plan.metadata.status}`);
-  log(`Created: ${plan.metadata.createdAt}`);
-  log(`Updated: ${plan.metadata.updatedAt}`);
-  log(`Description: ${plan.metadata.description}`);
+  log(fmt.bold(`Plan: ${plan.metadata.id}`));
+  log(fmt.label("  Status:", plan.metadata.status));
+  log(fmt.label("  Created:", plan.metadata.createdAt));
+  log(fmt.label("  Updated:", plan.metadata.updatedAt));
+  log(fmt.label("  Description:", plan.metadata.description));
   log("");
 
   if (await fileExists(plan.paths.tasks)) {
     const taskFile = await loadTasks(plan.paths.tasks);
     const progress = getProgress(taskFile);
     log(
-      `${colors.bold}Tasks:${colors.reset} ${progress.done}/${progress.total} done, ${progress.failed} failed, ${progress.open} open`,
+      fmt.bold("Tasks:") + ` ${progress.done}/${progress.total} done, ${progress.failed} failed, ${progress.open} open`,
     );
     log("");
     for (const task of taskFile.tasks) {
       const icon = STATUS_ICONS[task.status] ?? "?";
-      const color = STATUS_COLORS[task.status] ?? colors.muted;
-      log(`  ${color}${icon}${colors.reset} ${task.id} ${task.title}`);
+      const color = STATUS_COLORS[task.status] ?? ansi.muted;
+      log(`  ${color}${icon}${ansi.reset} ${task.id} ${task.title}`);
     }
   }
 
   if (await fileExists(plan.paths.prd)) {
-    log(`\n${colors.bold}PRD:${colors.reset} ${plan.paths.prd}`);
+    log(`\n${fmt.label("PRD:", plan.paths.prd)}`);
   }
 }
 
@@ -166,35 +168,42 @@ async function cmdStatus(planId?: string): Promise<void> {
   }
 
   if (!plan) {
-    log("No active plan. Run 'synth plan' to create one.");
+    log(fmt.dim("No active plan. Run 'synth plan' to create one."));
     return;
   }
 
-  log(`${colors.bold}${plan.metadata.id}${colors.reset} — ${plan.metadata.status}`);
+  log(`${fmt.bold(plan.metadata.id)} ${ansi.muted}─${ansi.reset} ${plan.metadata.status}`);
 
   if (await fileExists(plan.paths.tasks)) {
     const taskFile = await loadTasks(plan.paths.tasks);
     const progress = getProgress(taskFile);
     const pct = progress.total > 0 ? Math.round((progress.done / progress.total) * 100) : 0;
-    const bar = "█".repeat(Math.floor(pct / 5)) + "░".repeat(20 - Math.floor(pct / 5));
-    log(`Progress: [${bar}] ${pct}% (${progress.done}/${progress.total})`);
+    const barWidth = 20;
+    const filled = Math.floor(pct / (100 / barWidth));
+    const bar = `${ansi.success}${"▓".repeat(filled)}${ansi.muted}${"░".repeat(barWidth - filled)}${ansi.reset}`;
+    log(`Progress: [${bar}] ${ansi.bold}${pct}%${ansi.reset} (${progress.done}/${progress.total})`);
   }
 
   const session = await loadSession(plan.paths);
   if (session) {
-    log(`Session: ${session.status} (iteration ${session.currentIteration})`);
+    log(fmt.label("Session:", `${session.status} (iteration ${session.currentIteration})`));
   }
 }
 
 async function cmdConfig(): Promise<void> {
   const config = await loadConfig(cwd);
-  log(JSON.stringify(config, null, 2));
+  const json = JSON.stringify(config, null, 2);
+  const colorized = json
+    .replace(/"([^"]+)":/g, `${ansi.primary}"$1"${ansi.reset}:`)
+    .replace(/: "([^"]+)"/g, `: ${ansi.success}"$1"${ansi.reset}`)
+    .replace(/: (\d+)/g, `: ${ansi.warning}$1${ansi.reset}`)
+    .replace(/: (true|false)/g, `: ${ansi.magenta}$1${ansi.reset}`);
+  log(colorized);
 }
 
 async function cmdRun(planId?: string, startIteration = 0): Promise<void> {
   const config = await loadConfig(cwd);
 
-  // Resolve plan
   let plan;
   if (planId) {
     plan = await getPlan(cwd, planId);
@@ -212,12 +221,11 @@ async function cmdRun(planId?: string, startIteration = 0): Promise<void> {
     process.exit(1);
   }
 
-  // Reset orphaned in_progress tasks from crashed sessions
   const taskFile = await loadTasks(plan.paths.tasks);
   const cleaned = resetOrphanedTasks(taskFile);
   if (cleaned !== taskFile) {
     await saveTasks(plan.paths.tasks, cleaned);
-    log(`${colors.warning}Reset orphaned in_progress tasks from previous session${colors.reset}`);
+    log(fmt.warn("Reset orphaned in_progress tasks from previous session"));
   }
 
   const agent = getAgent(config.agent.name);
@@ -242,7 +250,7 @@ async function cmdRun(planId?: string, startIteration = 0): Promise<void> {
   }
 
   log(
-    `${colors.bold}synth run${colors.reset} ${colors.muted}│${colors.reset} plan: ${plan.metadata.id} ${colors.muted}│${colors.reset} agent: ${config.agent.name} ${colors.muted}│${colors.reset} max: ${config.execution.max_iterations} iterations`,
+    `${fmt.bold("synth run")} ${ansi.muted}│${ansi.reset} ${fmt.label("plan:", plan.metadata.id)} ${ansi.muted}│${ansi.reset} ${fmt.label("agent:", config.agent.name)} ${ansi.muted}│${ansi.reset} ${fmt.label("max:", `${config.execution.max_iterations} iterations`)}`,
   );
   log("");
 
@@ -254,7 +262,6 @@ async function cmdRun(planId?: string, startIteration = 0): Promise<void> {
 
   const engine = new Engine(config, agent, fallbackAgent, plan.paths, cwd);
 
-  // TUI renderer setup
   let renderer: CliRenderer | null = null;
   let root: Root | null = null;
   let tuiData: TuiEngineData | null = null;
@@ -273,6 +280,7 @@ async function cmdRun(planId?: string, startIteration = 0): Promise<void> {
       planId: plan.metadata.id,
       startTime: Date.now(),
       interviewMessages: [],
+      isThinking: false,
     };
   }
 
@@ -283,7 +291,6 @@ async function cmdRun(planId?: string, startIteration = 0): Promise<void> {
   };
 
   if (tuiEnabled) {
-    // TUI-aware event listener
     engine.on((event) => {
       if (!tuiData) return;
       switch (event.type) {
@@ -312,34 +319,33 @@ async function cmdRun(planId?: string, startIteration = 0): Promise<void> {
     });
     renderTui();
   } else {
-    // Plain text event listener
     engine.on((event) => {
       switch (event.type) {
         case "iteration:start":
           log(
-            `\n${colors.bold}━━━ Iteration ${event.iteration} ━━━${colors.reset} task: ${event.taskId}`,
+            `\n${fmt.bold(`━━━ Iteration ${event.iteration} ━━━`)} ${fmt.label("task:", event.taskId ?? "")}`,
           );
           break;
         case "task:complete":
-          logSuccess(`  ✓ ${event.taskId}: ${event.message}`);
+          logSuccess(`  ${event.taskId}: ${event.message}`);
           break;
         case "task:failed":
-          logError(`  ✗ ${event.taskId}: ${event.message}`);
+          logError(`  ${event.taskId}: ${event.message}`);
           break;
         case "backpressure:pass":
-          log(`  ${colors.success}✓ backpressure passed${colors.reset}`);
+          logSuccess("  backpressure passed");
           break;
         case "backpressure:fail":
-          log(`  ${colors.error}✗ backpressure failed: ${event.message}${colors.reset}`);
+          logError(`  backpressure failed: ${event.message}`);
           break;
         case "circuit:trip":
           logError(`Circuit breaker: ${event.message}`);
           break;
         case "rate-limit:detected":
-          log(`  ${colors.warning}⏳ ${event.message}${colors.reset}`);
+          log(`  ${fmt.warn(event.message ?? "Rate limited")}`);
           break;
         case "complete":
-          logSuccess("\nAll tasks complete!");
+          log(`\n${fmt.success("All tasks complete!")}`);
           break;
         case "agent:stdout":
           if (event.message) process.stdout.write(event.message);
@@ -348,10 +354,9 @@ async function cmdRun(planId?: string, startIteration = 0): Promise<void> {
     });
   }
 
-  // Handle Ctrl+C — await cleanup before exiting to prevent stale locks
   let cleaningUp = false;
   const cleanup = async () => {
-    if (cleaningUp) return; // Prevent double-cleanup on rapid signals
+    if (cleaningUp) return;
     cleaningUp = true;
     engine.stop();
     if (root) root.unmount();
@@ -359,7 +364,7 @@ async function cmdRun(planId?: string, startIteration = 0): Promise<void> {
     await endSession(plan!.paths, "interrupted");
     await updatePlanMetadata(cwd, plan!.metadata.id, { status: "paused" });
     if (!tuiEnabled) {
-      log(`\n${colors.warning}Session interrupted. Resume with: synth resume ${plan!.metadata.id}${colors.reset}`);
+      log(`\n${fmt.warn(`Session interrupted. Resume with: synth resume ${plan!.metadata.id}`)}`);
     }
   };
 
@@ -406,18 +411,17 @@ async function cmdResume(planId?: string): Promise<void> {
   }
 
   if (session.status === "completed") {
-    log("This plan is already completed.");
+    log(fmt.info("This plan is already completed."));
     return;
   }
 
-  log(`Resuming plan ${plan.metadata.id} from iteration ${session.currentIteration}`);
+  log(fmt.info(`Resuming plan ${plan.metadata.id} from iteration ${session.currentIteration}`));
   await cmdRun(plan.metadata.id, session.currentIteration);
 }
 
 async function cmdPlan(planIdOrFlag?: string): Promise<void> {
   const config = await loadConfig(cwd);
 
-  // Check if --prd flag is used
   const prdIndex = args.indexOf("--prd");
   if (prdIndex !== -1) {
     const prdPath = args[prdIndex + 1];
@@ -434,19 +438,20 @@ async function cmdPlan(planIdOrFlag?: string): Promise<void> {
     const { id, paths } = await createPlan(cwd, "Generated from PRD");
 
     await writeText(paths.prd, prdContent);
-    log(`Created plan: ${id}`);
+    log(fmt.info(`Created plan: ${id}`));
 
-    // Generate tasks
-    log("Generating tasks from PRD...");
     const agent = getAgent(config.agent.name);
-    const taskFile = await generateTasks(
-      agent,
-      prdContent,
-      config.project.name,
-      config.project.branch,
-      cwd,
-      config.agent.model,
-    );
+
+    const taskFile = tuiEnabled
+      ? await withSpinner("Generating tasks from PRD", () =>
+          generateTasks(agent, prdContent, config.project.name, config.project.branch, cwd, config.agent.model),
+          { successMessage: fmt.success("Tasks generated") },
+        )
+      : await (async () => {
+          log("Generating tasks from PRD...");
+          return generateTasks(agent, prdContent, config.project.name, config.project.branch, cwd, config.agent.model);
+        })();
+
     await saveTasks(paths.tasks, taskFile);
     await writeText(paths.progress, "## Codebase Patterns\n\n---\n\n");
     await updatePlanMetadata(cwd, id, {
@@ -454,26 +459,24 @@ async function cmdPlan(planIdOrFlag?: string): Promise<void> {
       taskCount: taskFile.tasks.length,
     });
 
-    log(
+    logSuccess(
       `Generated ${taskFile.tasks.length} tasks. Run 'synth run ${id}' to start.`,
     );
     agent.dispose();
     return;
   }
 
-  // Show existing plan details
   if (planIdOrFlag && planIdOrFlag !== "plan") {
     const plan = await getPlan(cwd, planIdOrFlag);
     if (plan) {
       await cmdShow(planIdOrFlag);
-      log(`\nTo execute: ${colors.bold}synth run ${planIdOrFlag}${colors.reset}`);
+      log(`\nTo execute: ${fmt.bold(`synth run ${planIdOrFlag}`)}`);
       return;
     }
   }
 
-  // Fresh interview
   log(
-    `${colors.bold}synth plan${colors.reset} — starting PRD interview\n`,
+    `${fmt.bold("synth plan")} ${ansi.muted}─${ansi.reset} starting PRD interview\n`,
   );
 
   const agent = getAgent(config.agent.name);
@@ -486,10 +489,8 @@ async function cmdPlan(planIdOrFlag?: string): Promise<void> {
   const { id, paths } = await createPlan(cwd, "");
   const interviewer = new Interviewer(agent, cwd, config.agent.model);
 
-  // Start interview
   const opening = await interviewer.start();
 
-  // TUI renderer for interview
   let planRenderer: CliRenderer | null = null;
   let planRoot: Root | null = null;
   let planTuiData: TuiEngineData | null = null;
@@ -508,14 +509,14 @@ async function cmdPlan(planIdOrFlag?: string): Promise<void> {
       planId: id,
       startTime: Date.now(),
       interviewMessages: [{ role: "assistant", content: opening }],
+      isThinking: false,
     };
     planRoot.render(<App {...planTuiData} defaultView="interview" />);
   } else {
-    log(`${colors.magenta}Synth:${colors.reset}`);
+    log(`${ansi.magenta}Synth:${ansi.reset}`);
     log(opening);
   }
 
-  // Interactive loop
   const readline = await import("node:readline");
   const rl = readline.createInterface({
     input: process.stdin,
@@ -524,7 +525,7 @@ async function cmdPlan(planIdOrFlag?: string): Promise<void> {
 
   const askQuestion = (): Promise<string> =>
     new Promise((resolve) => {
-      rl.question(`\n${colors.primary}You:${colors.reset} `, resolve);
+      rl.question(`\n${ansi.primary}You:${ansi.reset} `, resolve);
     });
 
   let prd = null;
@@ -543,19 +544,21 @@ async function cmdPlan(planIdOrFlag?: string): Promise<void> {
         ...planTuiData.interviewMessages,
         { role: "user", content: userInput },
       ];
+      planTuiData.isThinking = true;
       planRoot.render(<App {...planTuiData} defaultView="interview" />);
     }
 
     const response = await interviewer.respond(userInput);
 
     if (planTuiData && planRoot) {
+      planTuiData.isThinking = false;
       planTuiData.interviewMessages = [
         ...planTuiData.interviewMessages,
         { role: "assistant", content: response },
       ];
       planRoot.render(<App {...planTuiData} defaultView="interview" />);
     } else {
-      log(`\n${colors.magenta}Synth:${colors.reset}`);
+      log(`\n${ansi.magenta}Synth:${ansi.reset}`);
       log(response);
     }
 
@@ -564,17 +567,15 @@ async function cmdPlan(planIdOrFlag?: string): Promise<void> {
 
   rl.close();
 
-  // Save PRD
   const prdMarkdown = prdToMarkdown(prd);
   await writeText(paths.prd, prdMarkdown);
   await updatePlanMetadata(cwd, id, { description: prd.title });
 
   if (!tuiEnabled) {
-    log(`\n${colors.success}PRD saved to ${paths.prd}${colors.reset}`);
+    logSuccess(`PRD saved to ${paths.prd}`);
     log("Generating tasks...\n");
   }
 
-  // Generate tasks
   const taskFile = await generateTasks(
     agent,
     prdMarkdown,
@@ -591,22 +592,19 @@ async function cmdPlan(planIdOrFlag?: string): Promise<void> {
   });
 
   if (planTuiData && planRoot) {
-    // Update TUI to show generated tasks
     planTuiData.tasks = [...taskFile.tasks];
     planRoot.render(<App {...planTuiData} defaultView="interview" />);
   } else {
-    log(`${colors.bold}Generated ${taskFile.tasks.length} tasks:${colors.reset}\n`);
+    log(fmt.bold(`Generated ${taskFile.tasks.length} tasks:`) + "\n");
     for (const task of taskFile.tasks) {
-      const priorityColor = PRIORITY_COLORS[task.priority] ?? colors.muted;
-      log(`  ${priorityColor}P${task.priority}${colors.reset} ${task.id} ${task.title}`);
+      const priorityColor = PRIORITY_COLORS[task.priority] ?? ansi.muted;
+      log(`  ${priorityColor}P${task.priority}${ansi.reset} ${task.id} ${task.title}`);
     }
   }
 
-  // Clean up TUI before prompting
   if (planRoot) planRoot.unmount();
   if (planRenderer) planRenderer.destroy();
 
-  // Prompt to start
   const rl2 = readline.createInterface({
     input: process.stdin,
     output: process.stdout,
@@ -623,7 +621,7 @@ async function cmdPlan(planIdOrFlag?: string): Promise<void> {
     await cmdRun(id);
   } else {
     log(
-      `\nPlan saved. Run later with: ${colors.bold}synth run ${id}${colors.reset}`,
+      `\nPlan saved. Run later with: ${fmt.bold(`synth run ${id}`)}`,
     );
   }
 }
@@ -643,10 +641,14 @@ async function cmdFinalize(planId?: string): Promise<void> {
     process.exit(1);
   }
 
-  log(`${colors.bold}synth finalize${colors.reset} — ${plan.metadata.id}\n`);
+  log(`${fmt.bold("synth finalize")} ${ansi.muted}─${ansi.reset} ${plan.metadata.id}\n`);
 
   const agent = getAgent(config.agent.name);
-  const result = await finalize(config, agent, plan.paths, cwd);
+
+  const result = tuiEnabled
+    ? await withSpinner("Finalizing", () => finalize(config, agent, plan!.paths, cwd))
+    : await finalize(config, agent, plan.paths, cwd);
+
   agent.dispose();
 
   if (result.blocked) {
@@ -655,20 +657,20 @@ async function cmdFinalize(planId?: string): Promise<void> {
   }
 
   if (result.findings.length > 0) {
-    log(`\n${colors.bold}Review findings:${colors.reset}`);
+    log(`\n${fmt.bold("Review findings:")}`);
+    const severityIcon: Record<string, string> = {
+      critical: `${ansi.error}✗${ansi.reset}`,
+      warning: `${ansi.warning}▲${ansi.reset}`,
+      info: `${ansi.muted}●${ansi.reset}`,
+    };
     for (const f of result.findings) {
-      const color =
-        f.severity === "critical"
-          ? colors.error
-          : f.severity === "warning"
-            ? colors.warning
-            : colors.muted;
-      log(`  ${color}[${f.severity}]${colors.reset} [${f.perspective}] ${f.message}`);
+      const icon = severityIcon[f.severity] ?? severityIcon.info;
+      log(`  ${icon} ${ansi.muted}[${f.perspective}]${ansi.reset} ${f.message}`);
     }
   }
 
   if (result.prUrl) {
-    logSuccess(`\nPR created: ${result.prUrl}`);
+    logSuccess(`PR created: ${result.prUrl}`);
     await updatePlanMetadata(cwd, plan.metadata.id, { status: "finalized" });
   }
 }
@@ -696,29 +698,42 @@ async function cmdSpawn(planIdOrFlag?: string): Promise<void> {
   const wtPath = join(cwd, ".worktrees", wtName);
   const branchName = `synth/${wtName}`;
 
-  log(`Creating worktree: ${wtPath}`);
-
-  const addHandle = spawn({
-    cmd: ["git", "worktree", "add", wtPath, "-b", branchName],
-    cwd,
-  });
-  const addResult = await addHandle.promise;
-  if (addResult.exitCode !== 0) {
-    logError(`Failed to create worktree: ${addResult.stderr}`);
-    process.exit(1);
+  if (tuiEnabled) {
+    const spinner = createSpinner("Creating worktree");
+    const addHandle = spawn({
+      cmd: ["git", "worktree", "add", wtPath, "-b", branchName],
+      cwd,
+    });
+    const addResult = await addHandle.promise;
+    if (addResult.exitCode !== 0) {
+      spinner.stop(fmt.error(`Failed to create worktree: ${addResult.stderr}`));
+      process.exit(1);
+    }
+    spinner.stop(fmt.success("Worktree created"));
+  } else {
+    log("Creating worktree...");
+    const addHandle = spawn({
+      cmd: ["git", "worktree", "add", wtPath, "-b", branchName],
+      cwd,
+    });
+    const addResult = await addHandle.promise;
+    if (addResult.exitCode !== 0) {
+      logError(`Failed to create worktree: ${addResult.stderr}`);
+      process.exit(1);
+    }
   }
 
   const cmd = doPlan ? "synth plan" : `synth run ${planId}`;
-  log(`Starting: cd ${wtPath} && ${cmd}`);
+  log(fmt.info(`Starting: cd ${wtPath} && ${cmd}`));
 
   const runHandle = spawn({
     cmd: ["bash", "-c", `cd "${wtPath}" && ${cmd}`],
     cwd: wtPath,
   });
 
-  log(`PID: ${runHandle.pid}`);
-  log(`Worktree: ${wtPath}`);
-  log(`Branch: ${branchName}`);
+  log(fmt.label("  PID:", String(runHandle.pid)));
+  log(fmt.label("  Worktree:", wtPath));
+  log(fmt.label("  Branch:", branchName));
 }
 
 async function cmdPs(): Promise<void> {
@@ -726,50 +741,80 @@ async function cmdPs(): Promise<void> {
   const running = plans.filter((p) => p.status === "executing");
 
   if (running.length === 0) {
-    log("No running synth instances.");
+    log(fmt.dim("No running synth instances."));
     return;
   }
 
-  log(`${colors.bold}Running instances:${colors.reset}\n`);
+  log(fmt.bold("Running instances:") + "\n");
   for (const plan of running) {
-    log(`  ${plan.id} — ${plan.description}`);
+    log(`  ${ansi.success}●${ansi.reset} ${plan.id} ${ansi.muted}─${ansi.reset} ${plan.description}`);
   }
 }
 
 async function cmdUpdate(): Promise<void> {
-  log("Checking for updates...");
+  let release: { tag_name: string };
 
-  const res = await fetch(`https://api.github.com/repos/${REPO}/releases/latest`);
-  if (!res.ok) {
-    logError("Failed to check for updates");
-    process.exit(1);
+  if (tuiEnabled) {
+    const spinner = createSpinner("Checking for updates");
+    const res = await fetch(`https://api.github.com/repos/${REPO}/releases/latest`);
+    if (!res.ok) {
+      spinner.stop(fmt.error("Failed to check for updates"));
+      process.exit(1);
+    }
+    release = (await res.json()) as { tag_name: string };
+    const latest = release.tag_name.replace(/^v/, "");
+
+    if (latest === VERSION) {
+      spinner.stop(fmt.success(`Already on latest version (${VERSION})`));
+      return;
+    }
+
+    spinner.stop(fmt.info(`New version available: ${VERSION} → ${latest}`));
+
+    const updateSpinner = createSpinner("Installing update");
+    const handle = spawn({
+      cmd: ["bash", "-c", `curl -fsSL https://raw.githubusercontent.com/${REPO}/main/install.sh | bash`],
+      cwd,
+    });
+    const result = await handle.promise;
+    if (result.exitCode !== 0) {
+      updateSpinner.stop(fmt.error(`Update failed: ${result.stderr}`));
+      process.exit(1);
+    }
+    if (result.stdout) log(result.stdout);
+    updateSpinner.stop(fmt.success(`Updated to v${latest}`));
+  } else {
+    log("Checking for updates...");
+    const res = await fetch(`https://api.github.com/repos/${REPO}/releases/latest`);
+    if (!res.ok) {
+      logError("Failed to check for updates");
+      process.exit(1);
+    }
+    release = (await res.json()) as { tag_name: string };
+    const latest = release.tag_name.replace(/^v/, "");
+
+    if (latest === VERSION) {
+      log(`Already on latest version (${VERSION})`);
+      return;
+    }
+
+    log(`New version available: ${VERSION} → ${latest}`);
+    log("Updating...\n");
+
+    const handle = spawn({
+      cmd: ["bash", "-c", `curl -fsSL https://raw.githubusercontent.com/${REPO}/main/install.sh | bash`],
+      cwd,
+    });
+    const result = await handle.promise;
+    if (result.exitCode !== 0) {
+      logError(`Update failed: ${result.stderr}`);
+      process.exit(1);
+    }
+    if (result.stdout) log(result.stdout);
+    logSuccess(`Updated to v${latest}`);
   }
-
-  const release = (await res.json()) as { tag_name: string };
-  const latest = release.tag_name.replace(/^v/, "");
-
-  if (latest === VERSION) {
-    log(`Already on latest version (${VERSION})`);
-    return;
-  }
-
-  log(`New version available: ${VERSION} → ${latest}`);
-  log("Updating...\n");
-
-  const handle = spawn({
-    cmd: ["bash", "-c", `curl -fsSL https://raw.githubusercontent.com/${REPO}/main/install.sh | bash`],
-    cwd,
-  });
-  const result = await handle.promise;
-  if (result.exitCode !== 0) {
-    logError(`Update failed: ${result.stderr}`);
-    process.exit(1);
-  }
-  if (result.stdout) log(result.stdout);
-  logSuccess(`Updated to v${latest}`);
 }
 
-// Route commands
 async function main(): Promise<void> {
   switch (command) {
     case "init":
@@ -815,32 +860,41 @@ async function main(): Promise<void> {
     case "version":
     case "--version":
     case "-v":
-      log(`synth ${VERSION}`);
+      log(`${ansi.bold}synth${ansi.reset} ${ansi.muted}v${VERSION}${ansi.reset}`);
       break;
     case "help":
     case "--help":
     case "-h":
-    case undefined:
-      log(`${colors.bold}synth${colors.reset} — AI Agent Loop Orchestrator\n`);
+    case undefined: {
+      log(`${ansi.bold}synth${ansi.reset} ${ansi.muted}v${VERSION}${ansi.reset} — AI Agent Loop Orchestrator\n`);
       log("Usage: synth <command> [options]\n");
-      log("Commands:");
-      log("  plan [--prd <path>]    Interview → generate tasks → execute");
-      log("  run [<plan-id>]        Execute the task loop (--no-tui for plain text)");
-      log("  resume [<plan-id>]     Resume paused session");
-      log("  finalize [<plan-id>]   Self-review → format → split → PR");
-      log("  ls                     List all plans for current repo");
-      log("  show <plan-id>         Show plan details");
-      log("  status [<plan-id>]     Show plan/session status");
-      log("  spawn [<plan-id>]      Run plan in background worktree");
-      log("  ps                     List running instances");
-      log("  init                   Create synth.toml");
-      log("  config                 Display configuration");
-      log("  update                 Update synth to latest version");
-      log("  version                Show version");
+
+      log(`${ansi.bold}Workflow:${ansi.reset}`);
+      log(`  ${ansi.primary}plan${ansi.reset} ${ansi.muted}[--prd <path>]${ansi.reset}    Interview → generate tasks → execute`);
+      log(`  ${ansi.primary}run${ansi.reset} ${ansi.muted}[<plan-id>]${ansi.reset}        Execute the task loop`);
+      log(`  ${ansi.primary}resume${ansi.reset} ${ansi.muted}[<plan-id>]${ansi.reset}     Resume paused session`);
+      log(`  ${ansi.primary}finalize${ansi.reset} ${ansi.muted}[<plan-id>]${ansi.reset}   Self-review → format → split → PR`);
+      log(`  ${ansi.primary}spawn${ansi.reset} ${ansi.muted}[<plan-id>]${ansi.reset}      Run plan in background worktree`);
+
+      log(`\n${ansi.bold}Inspect:${ansi.reset}`);
+      log(`  ${ansi.primary}ls${ansi.reset}                       List all plans`);
+      log(`  ${ansi.primary}show${ansi.reset} ${ansi.muted}<plan-id>${ansi.reset}          Show plan details`);
+      log(`  ${ansi.primary}status${ansi.reset} ${ansi.muted}[<plan-id>]${ansi.reset}      Plan/session status`);
+      log(`  ${ansi.primary}ps${ansi.reset}                       List running instances`);
+      log(`  ${ansi.primary}config${ansi.reset}                   Display configuration`);
+
+      log(`\n${ansi.bold}System:${ansi.reset}`);
+      log(`  ${ansi.primary}init${ansi.reset}                     Create synth.toml`);
+      log(`  ${ansi.primary}update${ansi.reset}                   Update to latest version`);
+      log(`  ${ansi.primary}version${ansi.reset}                  Show version`);
+
+      log(`\n${ansi.bold}Options:${ansi.reset}`);
+      log(`  ${ansi.muted}--no-tui${ansi.reset}                 Disable TUI (plain text output)`);
       break;
+    }
     default:
       logError(`Unknown command: ${command}`);
-      log("Run 'synth help' for usage.");
+      log(`Run '${ansi.primary}synth help${ansi.reset}' for usage.`);
       process.exit(1);
   }
 }
