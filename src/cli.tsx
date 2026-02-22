@@ -107,6 +107,21 @@ create_pr = true
   logSuccess("Created synth.toml");
 }
 
+async function resolvePlanId(input?: string): Promise<string | undefined> {
+  if (!input) return undefined;
+  if (/^\d+$/.test(input)) {
+    const allPlans = await listPlans(cwd);
+    const plans = allPlans.filter((p) => p.status !== "completed" && p.status !== "finalized");
+    const idx = parseInt(input, 10) - 1;
+    if (idx < 0 || idx >= plans.length) {
+      logError(`Plan #${input} not found. Run 'synth ls' to see available plans.`);
+      process.exit(1);
+    }
+    return plans[idx].id;
+  }
+  return input;
+}
+
 async function cmdLs(): Promise<void> {
   const showAll = args.includes("--all") || args.includes("-a");
   const allPlans = await listPlans(cwd);
@@ -128,11 +143,12 @@ async function cmdLs(): Promise<void> {
   const suffix = hidden > 0 ? ` ${ansi.muted}(${hidden} completed hidden, use --all)${ansi.reset}` : "";
   log(`${fmt.bold(label)}${suffix}\n`);
   log(
-    `  ${ansi.muted}${"ID".padEnd(25)} ${"Status".padEnd(12)} ${"Tasks".padEnd(10)} Created${ansi.reset}`,
+    `  ${ansi.muted}${"#".padEnd(4)} ${"ID".padEnd(25)} ${"Status".padEnd(12)} ${"Tasks".padEnd(10)} Created${ansi.reset}`,
   );
-  log(`  ${ansi.muted}${"─".repeat(70)}${ansi.reset}`);
+  log(`  ${ansi.muted}${"─".repeat(74)}${ansi.reset}`);
 
-  for (const plan of plans) {
+  for (let i = 0; i < plans.length; i++) {
+    const plan = plans[i];
     const statusColor =
       plan.status === "completed" || plan.status === "finalized"
         ? ansi.success
@@ -144,7 +160,7 @@ async function cmdLs(): Promise<void> {
     const icon = STATUS_ICONS[plan.status] ?? "○";
     const date = fmt.dim(new Date(plan.createdAt).toLocaleDateString());
     log(
-      `  ${plan.id.padEnd(25)} ${statusColor}${icon} ${plan.status.padEnd(10)}${ansi.reset} ${`${plan.tasksCompleted}/${plan.taskCount}`.padEnd(10)} ${date}`,
+      `  ${ansi.primary}${String(i + 1).padEnd(4)}${ansi.reset}${plan.id.padEnd(25)} ${statusColor}${icon} ${plan.status.padEnd(10)}${ansi.reset} ${`${plan.tasksCompleted}/${plan.taskCount}`.padEnd(10)} ${date}`,
     );
   }
 }
@@ -933,35 +949,37 @@ async function main(): Promise<void> {
       await cmdInit();
       break;
     case "plan":
-      await cmdPlan(args[1]);
+      await cmdPlan(await resolvePlanId(args[1]));
       break;
     case "run":
-      await cmdRun(args[1]);
+      await cmdRun(await resolvePlanId(args[1]));
       break;
     case "resume":
-      await cmdResume(args[1]);
+      await cmdResume(await resolvePlanId(args[1]));
       break;
     case "finalize":
-      await cmdFinalize(args[1]);
+      await cmdFinalize(await resolvePlanId(args[1]));
       break;
     case "ls":
       await cmdLs();
       break;
-    case "show":
-      if (!args[1]) {
+    case "show": {
+      const showId = await resolvePlanId(args[1]);
+      if (!showId) {
         logError("Usage: synth show <plan-id>");
         process.exit(1);
       }
-      await cmdShow(args[1]);
+      await cmdShow(showId);
       break;
+    }
     case "status":
-      await cmdStatus(args[1]);
+      await cmdStatus(await resolvePlanId(args[1]));
       break;
     case "config":
       await cmdConfig();
       break;
     case "spawn":
-      await cmdSpawn(args[1]);
+      await cmdSpawn(await resolvePlanId(args[1]));
       break;
     case "ps":
       await cmdPs();
