@@ -20,7 +20,7 @@ import {
   releaseLock,
   endSession,
 } from "./session/session.js";
-import { Interviewer, prdToMarkdown } from "./interview/interviewer.js";
+import { Interviewer, prdToMarkdown, WELCOME_MESSAGE } from "./interview/interviewer.js";
 import { finalize } from "./finalize/finalize.js";
 import { writeText, readText, fileExists } from "./utils/fs.js";
 import { spawn } from "./utils/process.js";
@@ -487,34 +487,31 @@ async function cmdPlan(planIdOrFlag?: string): Promise<void> {
     }
   }
 
-  log(
-    `${fmt.bold("synth plan")} ${ansi.muted}─${ansi.reset} starting PRD interview\n`,
-  );
-
   const agent = getAgent(config.agent.name);
-  const detection = await agent.detect();
-  if (!detection.available) {
-    logError(`Agent '${config.agent.name}' not available: ${detection.error}`);
-    process.exit(1);
-  }
-
-  const { id, paths } = await createPlan(cwd, "");
   const interviewer = new Interviewer(agent, cwd, config.agent.model);
-
-  const opening = await interviewer.start();
 
   let prd: ReturnType<typeof interviewer.extractPrd> = null;
 
   if (tuiEnabled) {
-    // Self-contained TUI interview — component manages all state internally
     const tui = await loadTui();
     const planRenderer = await tui.createCliRenderer({ exitOnCtrlC: false });
     const planRoot = tui.createRoot(planRenderer);
 
+    const cleanup = () => {
+      planRoot.unmount();
+      planRenderer.destroy();
+    };
+
+    const sigintHandler = () => {
+      cleanup();
+      agent.dispose();
+      process.exit(0);
+    };
+    process.on("SIGINT", sigintHandler);
+
     const interviewResult = await new Promise<boolean>((resolve) => {
       planRoot.render(
         <tui.InterviewApp
-          opening={opening}
           onSendMessage={async (msg) => {
             const response = await interviewer.respond(msg);
             const extracted = interviewer.extractPrd(response);
@@ -527,17 +524,16 @@ async function cmdPlan(planIdOrFlag?: string): Promise<void> {
       );
     });
 
-    planRoot.unmount();
-    planRenderer.destroy();
+    process.off("SIGINT", sigintHandler);
+    cleanup();
 
     if (!interviewResult) {
       agent.dispose();
       return;
     }
   } else {
-    // Plain text mode with readline
     log(`\n${ansi.magenta}Synth:${ansi.reset}`);
-    log(opening);
+    log(WELCOME_MESSAGE);
 
     const readline = await import("node:readline");
     const askQuestion = (): Promise<string | null> => {
@@ -573,6 +569,7 @@ async function cmdPlan(planIdOrFlag?: string): Promise<void> {
     return;
   }
 
+  const { id, paths } = await createPlan(cwd, "");
   const prdMarkdown = prdToMarkdown(prd);
   await writeText(paths.prd, prdMarkdown);
   await updatePlanMetadata(cwd, id, { description: prd.title });

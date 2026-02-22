@@ -2,12 +2,12 @@ import { useState, useEffect, useCallback, useRef, type ReactNode } from "react"
 import { useKeyboard } from "@opentui/react";
 import { createTextAttributes } from "@opentui/core";
 import type { InterviewMessage } from "../interview/types.js";
+import { WELCOME_MESSAGE } from "../interview/interviewer.js";
 import { colors, SPINNER_FRAMES } from "./theme.js";
 
 const boldAttr = createTextAttributes({ bold: true });
 
 interface InterviewAppProps {
-  opening: string;
   onSendMessage: (msg: string) => Promise<{ response: string; done: boolean }>;
   onComplete: () => void;
   onQuit: () => void;
@@ -41,9 +41,9 @@ function MessageBubble({ message }: { message: InterviewMessage }): ReactNode {
   );
 }
 
-export function InterviewApp({ opening, onSendMessage, onComplete, onQuit }: InterviewAppProps): ReactNode {
+export function InterviewApp({ onSendMessage, onComplete, onQuit }: InterviewAppProps): ReactNode {
   const [messages, setMessages] = useState<InterviewMessage[]>([
-    { role: "assistant", content: opening },
+    { role: "assistant", content: WELCOME_MESSAGE },
   ]);
   const [isLoading, setIsLoading] = useState(false);
   const [loadingStatus, setLoadingStatus] = useState("");
@@ -87,8 +87,12 @@ export function InterviewApp({ opening, onSendMessage, onComplete, onQuit }: Int
   useKeyboard(useCallback((key: { name: string; shift?: boolean; ctrl?: boolean; meta?: boolean }) => {
     if (key.name === "return" && !key.shift && !key.ctrl && !key.meta) {
       handleSubmit();
+    } else if (key.name === "escape") {
+      onQuit();
+    } else if (key.name === "c" && key.ctrl) {
+      onQuit();
     }
-  }, [handleSubmit]));
+  }, [handleSubmit, onQuit]));
 
   return (
     <box style={{ width: "100%", height: "100%", flexDirection: "column" }}>

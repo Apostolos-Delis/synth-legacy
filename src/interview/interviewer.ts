@@ -2,16 +2,14 @@ import type { AgentAdapter } from "../agents/types.js";
 import type { InterviewMessage, GeneratedPrd } from "./types.js";
 import { INTERVIEWER_SYSTEM_PROMPT } from "./prompts.js";
 
+export const WELCOME_MESSAGE =
+  "I'll help you create a PRD. What do you want to build? " +
+  "Describe it in a few sentences, and I'll ask clarifying questions.";
+
 export class Interviewer {
   private history: InterviewMessage[] = [];
 
   constructor(private agent: AgentAdapter, private cwd: string, private model?: string) {}
-
-  async start(): Promise<string> {
-    const response = await this.sendToAgent(INTERVIEWER_SYSTEM_PROMPT);
-    this.history.push({ role: "assistant", content: response });
-    return response;
-  }
 
   async respond(userMessage: string): Promise<string> {
     this.history.push({ role: "user", content: userMessage });
