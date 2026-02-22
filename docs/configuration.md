@@ -62,6 +62,13 @@ The loader performs a deep merge, so you only need to specify the fields you wan
 | `create_pr` | boolean | `true` | Create GitHub PR via `gh` CLI |
 | `pr_template` | string | _(none)_ | Path to a custom PR template file |
 
+### `[tui]`
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `theme` | string | `"tokyonight"` | Built-in theme name, custom theme name, or absolute path to a `.toml` theme file |
+| `spinner` | string | _(theme default)_ | Spinner preset: `dots`, `braille`, `line`, `moon`, `bounce`, `arc`, `box`, `arrows` |
+
 ## Example Configuration
 
 ```toml
@@ -93,6 +100,10 @@ auto_format = true
 split_commits = true
 self_review = true
 create_pr = true
+
+[tui]
+theme = "tokyonight"
+spinner = "braille"
 ```
 
 ## AGENTS.md

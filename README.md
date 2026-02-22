@@ -52,6 +52,7 @@ synth finalize
 | `spawn` | `synth spawn [<plan-id>] [--plan]` | Run synth in a git worktree (background) |
 | `ps` | `synth ps` | List currently executing plan instances |
 | `init` | `synth init` | Create `synth.toml` from template |
+| `themes` | `synth themes` | List available themes and spinners |
 | `config` | `synth config` | Dump resolved configuration as JSON |
 | `update` | `synth update` | Update synth to the latest release |
 | `version` | `synth --version` | Show installed version |
@@ -88,6 +89,10 @@ auto_format = true
 split_commits = true
 self_review = true
 create_pr = true
+
+[tui]
+theme = "tokyonight"              # See synth themes for options
+spinner = "braille"
 ```
 
 See [docs/configuration.md](docs/configuration.md) for a full field-by-field reference.
@@ -174,6 +179,11 @@ src/
     DashboardView.tsx       #   Task table view
     ExecutionView.tsx       #   Split-pane execution view
     InterviewView.tsx       #   Chat-style interview view
+    theme.ts                #   ThemeColors interface + runtime colors
+    spinners.ts             #   Spinner presets (dots, braille, etc.)
+    themes/                 #   Built-in theme definitions
+      registry.ts           #     Theme registry + custom discovery
+      resolve.ts            #     Theme/spinner resolution logic
     components/             #   Reusable UI components
   utils/                    # Shared utilities
     fs.ts                   #   File I/O wrappers
@@ -205,7 +215,7 @@ bun run build
 - [Tasks](docs/tasks.md) — Task lifecycle, dependencies, and generation
 - [Interview](docs/interview.md) — PRD interview system
 - [Finalize](docs/finalize.md) — Review, formatting, commit splitting, and PR creation
-- [TUI](docs/tui.md) — Terminal UI architecture and components
+- [TUI](docs/tui.md) — Terminal UI architecture, components, and [themes](docs/tui.md#themes)
 - [Configuration](docs/configuration.md) — Full configuration reference
 
 ## License

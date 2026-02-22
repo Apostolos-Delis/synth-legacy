@@ -16,6 +16,10 @@ auto_commit = true
 max_consecutive_failures = 3
 backpressure_commands = []
 
+[tui]
+theme = "onedark"
+spinner = "arc"
+
 [finalize]
 auto_format = true
 split_commits = true
