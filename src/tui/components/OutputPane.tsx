@@ -1,6 +1,5 @@
 import type { ReactNode } from "react";
 import { colors } from "../theme.js";
-import { stripAnsi } from "../utils.js";
 import { PhaseIndicator } from "./PhaseIndicator.js";
 
 interface OutputPaneProps {
@@ -13,9 +12,9 @@ interface OutputPaneProps {
 }
 
 export function OutputPane({ output, width, height, isThinking = false, currentPhase, phaseStartTime }: OutputPaneProps): ReactNode {
-  const clean = stripAnsi(output);
+  // Output is pre-stripped of ANSI codes in the event handler for minimal render-path latency.
 
-  if (isThinking && !clean) {
+  if (isThinking && !output) {
     return (
       <box
         width={width}
@@ -38,7 +37,7 @@ export function OutputPane({ output, width, height, isThinking = false, currentP
     );
   }
 
-  const lines = clean.split("\n");
+  const lines = output.split("\n");
 
   return (
     <box

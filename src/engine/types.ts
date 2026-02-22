@@ -34,6 +34,7 @@ export interface EngineEvent {
   message?: string;
   data?: unknown;
   timestamp?: number;
+  isFirstChunk?: boolean;
 }
 
 export interface IterationResult {

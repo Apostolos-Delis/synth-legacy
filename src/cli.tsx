@@ -391,6 +391,8 @@ async function cmdRun(planId?: string, startIteration = 0, tuiContext?: TuiConte
     };
   }
 
+  let firstTokenRendered = false;
+
   const renderTui = () => {
     if (root && tuiData && App) {
       root.render(<App {...tuiData} onQuit={() => cleanup().then(() => process.exit(0))} />);
@@ -405,6 +407,7 @@ async function cmdRun(planId?: string, startIteration = 0, tuiContext?: TuiConte
           tuiData.iteration = event.iteration ?? tuiData.iteration;
           tuiData.currentTaskId = event.taskId ?? null;
           tuiData.output = "";
+          firstTokenRendered = false;
           break;
         case "task:start":
           tuiData.isThinking = true;
@@ -440,9 +443,23 @@ async function cmdRun(planId?: string, startIteration = 0, tuiContext?: TuiConte
           tuiData.currentPhase = "Streaming response...";
           tuiData.phaseStartTime = event.timestamp ?? Date.now();
           break;
-        case "agent:stdout":
-          if (event.message) tuiData.output += event.message;
-          break;
+        case "agent:stdout": {
+          // On first chunk, update phase in the same pass to avoid a double render
+          const renderStart = event.isFirstChunk ? performance.now() : 0;
+          if (event.isFirstChunk) {
+            tuiData.currentPhase = "Streaming response...";
+            tuiData.phaseStartTime = renderStart;
+          }
+          if (event.message) tuiData.output += stripAnsi(event.message);
+          renderTui();
+          // Record first-token-to-render latency for --profile reporting
+          if (event.isFirstChunk && !firstTokenRendered) {
+            firstTokenRendered = true;
+            const renderMs = performance.now() - renderStart;
+            globalTrace().recordPhase("tui:first-token-render", renderMs);
+          }
+          return; // already rendered above
+        }
         case "agent:stderr":
           if (event.message) tuiData.output += stripAnsi(event.message);
           break;

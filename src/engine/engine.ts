@@ -158,12 +158,14 @@ export class Engine {
         model: this.config.agent.model,
         skipPermissions: this.config.agent.skip_permissions,
         onStdout: (chunk) => {
-          if (!firstChunkReceived) {
+          const isFirst = !firstChunkReceived;
+          if (isFirst) {
             firstChunkReceived = true;
-            this.emit({ type: "phase:streaming", timestamp: performance.now() });
           }
           output += chunk;
-          this.emit({ type: "agent:stdout", message: chunk, taskId: task.id });
+          // Carry isFirstChunk so the TUI can update phase and append output
+          // in a single render pass instead of emitting a separate phase event.
+          this.emit({ type: "agent:stdout", message: chunk, taskId: task.id, isFirstChunk: isFirst });
         },
         onStderr: (chunk) => {
           this.emit({ type: "agent:stderr", message: chunk, taskId: task.id });
