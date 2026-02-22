@@ -26,6 +26,9 @@ import { writeText, readText, fileExists } from "./utils/fs.js";
 import { spawn } from "./utils/process.js";
 import { colors, STATUS_ICONS, STATUS_COLORS, PRIORITY_COLORS } from "./tui/theme.js";
 
+const VERSION = "0.1.0";
+const REPO = "Apostolos-Delis/synth";
+
 const cwd = process.cwd();
 const args = process.argv.slice(2);
 const command = args[0];
@@ -604,6 +607,39 @@ async function cmdPs(): Promise<void> {
   }
 }
 
+async function cmdUpdate(): Promise<void> {
+  log("Checking for updates...");
+
+  const res = await fetch(`https://api.github.com/repos/${REPO}/releases/latest`);
+  if (!res.ok) {
+    logError("Failed to check for updates");
+    process.exit(1);
+  }
+
+  const release = (await res.json()) as { tag_name: string };
+  const latest = release.tag_name.replace(/^v/, "");
+
+  if (latest === VERSION) {
+    log(`Already on latest version (${VERSION})`);
+    return;
+  }
+
+  log(`New version available: ${VERSION} → ${latest}`);
+  log("Updating...\n");
+
+  const handle = spawn({
+    cmd: ["bash", "-c", `curl -fsSL https://raw.githubusercontent.com/${REPO}/main/install.sh | bash`],
+    cwd,
+  });
+  const result = await handle.promise;
+  if (result.exitCode !== 0) {
+    logError(`Update failed: ${result.stderr}`);
+    process.exit(1);
+  }
+  if (result.stdout) log(result.stdout);
+  logSuccess(`Updated to v${latest}`);
+}
+
 // Route commands
 async function main(): Promise<void> {
   switch (command) {
@@ -644,6 +680,14 @@ async function main(): Promise<void> {
     case "ps":
       await cmdPs();
       break;
+    case "update":
+      await cmdUpdate();
+      break;
+    case "version":
+    case "--version":
+    case "-v":
+      log(`synth ${VERSION}`);
+      break;
     case "help":
     case "--help":
     case "-h":
@@ -662,6 +706,8 @@ async function main(): Promise<void> {
       log("  ps                     List running instances");
       log("  init                   Create synth.toml");
       log("  config                 Display configuration");
+      log("  update                 Update synth to latest version");
+      log("  version                Show version");
       break;
     default:
       logError(`Unknown command: ${command}`);

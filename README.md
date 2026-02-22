@@ -16,12 +16,6 @@ curl -fsSL https://raw.githubusercontent.com/Apostolos-Delis/synth/main/install.
 
 Downloads the correct binary for your platform to `~/.local/bin/synth`.
 
-### Homebrew (coming soon)
-
-```bash
-brew install Apostolos-Delis/tap/synth
-```
-
 ### From source
 
 ```bash
@@ -59,6 +53,8 @@ synth finalize
 | `ps` | `synth ps` | List currently executing plan instances |
 | `init` | `synth init` | Create `synth.toml` from template |
 | `config` | `synth config` | Dump resolved configuration as JSON |
+| `update` | `synth update` | Update synth to the latest release |
+| `version` | `synth --version` | Show installed version |
 | `help` | `synth help` | Show usage and command list |
 
 ## Configuration
