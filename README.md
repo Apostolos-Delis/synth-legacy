@@ -6,12 +6,34 @@
 
 Synth orchestrates AI coding agents (Claude Code, OpenAI Codex) to execute multi-task development plans autonomously. It drives an interview to produce a PRD, breaks it into dependency-ordered tasks, then loops an agent through each task with built-in guardrails — circuit breakers, rate-limit backoff, and quality-gate validation. Memory lives in files on disk, so every iteration starts with a fresh context window and a clear objective.
 
+## Installation
+
+### Install script (recommended)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Apostolos-Delis/synth/main/install.sh | bash
+```
+
+Downloads the correct binary for your platform to `~/.local/bin/synth`.
+
+### Homebrew (coming soon)
+
+```bash
+brew install Apostolos-Delis/tap/synth
+```
+
+### From source
+
+```bash
+git clone https://github.com/Apostolos-Delis/synth.git
+cd synth
+bun install
+bun link
+```
+
 ## Quickstart
 
 ```bash
-# Install dependencies
-bun install
-
 # Create synth.toml in your project
 synth init
 
