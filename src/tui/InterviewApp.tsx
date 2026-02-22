@@ -8,7 +8,7 @@ import { colors, SPINNER_FRAMES } from "./theme.js";
 const boldAttr = createTextAttributes({ bold: true });
 
 interface InterviewAppProps {
-  onSendMessage: (msg: string) => Promise<{ response: string; done: boolean }>;
+  onSendMessage: (msg: string, onChunk: (chunk: string) => void) => Promise<{ response: string; done: boolean }>;
   onComplete: () => void;
   onQuit: () => void;
 }
@@ -46,7 +46,7 @@ export function InterviewApp({ onSendMessage, onComplete, onQuit }: InterviewApp
     { role: "assistant", content: WELCOME_MESSAGE },
   ]);
   const [isLoading, setIsLoading] = useState(false);
-  const [loadingStatus, setLoadingStatus] = useState("");
+  const [streamingText, setStreamingText] = useState("");
   const textareaRef = useRef<any>(null);
 
   const handleSubmit = useCallback(async () => {
@@ -66,27 +66,33 @@ export function InterviewApp({ onSendMessage, onComplete, onQuit }: InterviewApp
     const userMsg: InterviewMessage = { role: "user", content: value };
     setMessages((prev) => [...prev, userMsg]);
     setIsLoading(true);
-    setLoadingStatus("Thinking...");
+    setStreamingText("");
 
     try {
-      const { response, done } = await onSendMessage(value);
+      const { response, done } = await onSendMessage(value, (chunk) => {
+        setStreamingText((prev) => prev + chunk);
+      });
+      setStreamingText("");
       const assistantMsg: InterviewMessage = { role: "assistant", content: response };
       setMessages((prev) => [...prev, assistantMsg]);
       setIsLoading(false);
-      setLoadingStatus("");
 
       if (done) {
         onComplete();
       }
     } catch {
+      setStreamingText("");
       setIsLoading(false);
-      setLoadingStatus("");
     }
   }, [isLoading, onSendMessage, onComplete, onQuit]);
 
-  useKeyboard(useCallback((key: { name: string; shift?: boolean; ctrl?: boolean; meta?: boolean }) => {
+  useKeyboard(useCallback((key: { name: string; shift?: boolean; ctrl?: boolean; meta?: boolean; preventDefault?: () => void }) => {
     if (key.name === "return" && !key.shift && !key.ctrl && !key.meta) {
+      key.preventDefault?.();
       handleSubmit();
+    } else if ((key.name === "return" && key.shift) || (key.name === "j" && key.ctrl)) {
+      key.preventDefault?.();
+      textareaRef.current?.editBuffer?.newLine();
     } else if (key.name === "escape") {
       onQuit();
     } else if (key.name === "c" && key.ctrl) {
@@ -135,10 +141,20 @@ export function InterviewApp({ onSendMessage, onComplete, onQuit }: InterviewApp
             <MessageBubble key={i} message={msg} />
           ))}
           {isLoading && (
-            <box style={{ flexDirection: "row", gap: 1, marginBottom: 1 }}>
-              <text fg={colors.accent.secondary}>Synth</text>
-              <AnimatedSpinner />
-              <text fg={colors.fg.muted}>{loadingStatus}</text>
+            <box style={{ width: "100%", flexDirection: "column", marginBottom: 1 }}>
+              <box style={{ flexDirection: "row", gap: 1 }}>
+                <text fg={colors.accent.secondary} attributes={boldAttr}>Synth</text>
+                {!streamingText && <AnimatedSpinner />}
+              </box>
+              {streamingText ? (
+                <box style={{ paddingLeft: 2 }}>
+                  <text fg={colors.fg.primary}>{streamingText}</text>
+                </box>
+              ) : (
+                <box style={{ paddingLeft: 2 }}>
+                  <text fg={colors.fg.muted}>Thinking...</text>
+                </box>
+              )}
             </box>
           )}
         </scrollbox>
@@ -177,10 +193,10 @@ export function InterviewApp({ onSendMessage, onComplete, onQuit }: InterviewApp
         {isLoading ? (
           <box style={{ flexDirection: "row", gap: 1 }}>
             <AnimatedSpinner />
-            <text fg={colors.status.info}>{loadingStatus}</text>
+            <text fg={colors.status.info}>{streamingText ? "Streaming..." : "Waiting for response..."}</text>
           </box>
         ) : (
-          <text fg={colors.fg.muted}>Enter:send  Shift+Enter:newline  Esc:quit</text>
+          <text fg={colors.fg.muted}>Enter:send  Shift+Enter/Ctrl+J:newline  Esc:quit</text>
         )}
       </box>
     </box>

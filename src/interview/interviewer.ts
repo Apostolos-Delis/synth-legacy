@@ -11,11 +11,11 @@ export class Interviewer {
 
   constructor(private agent: AgentAdapter, private cwd: string, private model?: string) {}
 
-  async respond(userMessage: string): Promise<string> {
+  async respond(userMessage: string, onChunk?: (chunk: string) => void): Promise<string> {
     this.history.push({ role: "user", content: userMessage });
 
     const prompt = this.buildPromptWithHistory();
-    const response = await this.sendToAgent(prompt);
+    const response = await this.sendToAgent(prompt, onChunk);
     this.history.push({ role: "assistant", content: response });
 
     return response;
@@ -53,7 +53,7 @@ export class Interviewer {
     return `${prefix}${turns}\n\nContinue the interview. If you have enough information, output the PRD JSON.`;
   }
 
-  private async sendToAgent(prompt: string): Promise<string> {
+  private async sendToAgent(prompt: string, onChunk?: (chunk: string) => void): Promise<string> {
     let output = "";
     const handle = this.agent.execute(prompt, {
       cwd: this.cwd,
@@ -61,6 +61,7 @@ export class Interviewer {
       skipPermissions: false,
       onStdout: (chunk) => {
         output += chunk;
+        onChunk?.(chunk);
       },
     });
     await handle.promise;

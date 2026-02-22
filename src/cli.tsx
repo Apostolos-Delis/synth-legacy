@@ -512,8 +512,8 @@ async function cmdPlan(planIdOrFlag?: string): Promise<void> {
     const interviewResult = await new Promise<boolean>((resolve) => {
       planRoot.render(
         <tui.InterviewApp
-          onSendMessage={async (msg) => {
-            const response = await interviewer.respond(msg);
+          onSendMessage={async (msg, onChunk) => {
+            const response = await interviewer.respond(msg, onChunk);
             const extracted = interviewer.extractPrd(response);
             if (extracted) prd = extracted;
             return { response, done: !!extracted };
