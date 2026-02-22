@@ -15,6 +15,33 @@ export const colors: ThemeColors = {
   border: { normal: "#3b4261", active: "#7aa2f7", muted: "#292e42" },
 };
 
+function rebuildDerivedMaps(): void {
+  STATUS_COLORS_HEX.open = colors.fg.muted;
+  STATUS_COLORS_HEX.in_progress = colors.status.info;
+  STATUS_COLORS_HEX.done = colors.status.success;
+  STATUS_COLORS_HEX.failed = colors.status.error;
+  STATUS_COLORS_HEX.skipped = colors.fg.muted;
+
+  PRIORITY_COLORS_HEX[1] = colors.status.error;
+  PRIORITY_COLORS_HEX[2] = colors.status.warning;
+  PRIORITY_COLORS_HEX[3] = colors.status.info;
+  PRIORITY_COLORS_HEX[4] = colors.fg.muted;
+  PRIORITY_COLORS_HEX[5] = colors.fg.muted;
+}
+
+export function initTheme(theme: ThemeColors, spinnerFrames: string[]): void {
+  Object.assign(colors.bg, theme.bg);
+  Object.assign(colors.fg, theme.fg);
+  Object.assign(colors.status, theme.status);
+  Object.assign(colors.accent, theme.accent);
+  Object.assign(colors.border, theme.border);
+
+  SPINNER_FRAMES.length = 0;
+  SPINNER_FRAMES.push(...spinnerFrames);
+
+  rebuildDerivedMaps();
+}
+
 export const statusIndicators: Record<string, string> = {
   open: "\u25CB",
   in_progress: "\u25D0",
@@ -35,7 +62,7 @@ export const layout = {
   padding: { small: 1, medium: 2 },
 };
 
-export const SPINNER_FRAMES = ["\u280B","\u2819","\u2839","\u2838","\u283C","\u2834","\u2826","\u2827","\u2807","\u280F"];
+export const SPINNER_FRAMES: string[] = ["\u280B","\u2819","\u2839","\u2838","\u283C","\u2834","\u2826","\u2827","\u2807","\u280F"];
 
 // Status colors for TUI components (hex)
 export const STATUS_COLORS_HEX: Record<string, string> = {
