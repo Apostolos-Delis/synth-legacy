@@ -108,6 +108,86 @@ export function formatReport(report: PerfReport): string {
   return lines.join("\n");
 }
 
+export function formatProfileReport(report: PerfReport): string {
+  if (report.phases.length === 0) return "[profile] No phases recorded.";
+
+  const nameWidth = Math.max(
+    5,
+    ...report.phases.map((p) => p.name.length),
+  );
+  const lines: string[] = [];
+
+  lines.push("");
+  lines.push("┌─ Performance Profile ─────────────────────────────────────┐");
+  lines.push("");
+
+  const header = `  ${"Phase".padEnd(nameWidth)}  ${"Duration (ms)".padStart(13)}  ${"% Total".padStart(8)}`;
+  lines.push(header);
+  lines.push(`  ${"─".repeat(nameWidth + 25)}`);
+
+  const sorted = [...report.phases].sort(
+    (a, b) => b.durationMs - a.durationMs,
+  );
+
+  for (const phase of report.phases) {
+    const dur = phase.durationMs.toFixed(2).padStart(13);
+    const pct =
+      report.totalMs > 0
+        ? ((phase.durationMs / report.totalMs) * 100).toFixed(1).padStart(7) +
+          "%"
+        : "    N/A";
+    lines.push(`  ${phase.name.padEnd(nameWidth)}  ${dur}  ${pct}`);
+  }
+
+  lines.push(`  ${"─".repeat(nameWidth + 25)}`);
+  lines.push(
+    `  ${"Total".padEnd(nameWidth)}  ${report.totalMs.toFixed(2).padStart(13)}`,
+  );
+
+  // Top 3 bottlenecks
+  const top3 = sorted.slice(0, 3);
+  if (top3.length > 0) {
+    lines.push("");
+    lines.push("  Top bottlenecks:");
+    for (let i = 0; i < top3.length; i++) {
+      const p = top3[i];
+      const pct =
+        report.totalMs > 0
+          ? ((p.durationMs / report.totalMs) * 100).toFixed(1)
+          : "0.0";
+      lines.push(
+        `    ${i + 1}. ${p.name} — ${p.durationMs.toFixed(2)}ms (${pct}%)`,
+      );
+    }
+  }
+
+  lines.push("");
+  lines.push("└───────────────────────────────────────────────────────────┘");
+
+  return lines.join("\n");
+}
+
+export function formatProfileReportJson(report: PerfReport): string {
+  const phases = report.phases.map((p) => ({
+    name: p.name,
+    durationMs: Math.round(p.durationMs * 100) / 100,
+    pctOfTotal:
+      report.totalMs > 0
+        ? Math.round((p.durationMs / report.totalMs) * 1000) / 10
+        : 0,
+  }));
+  const sorted = [...phases].sort((a, b) => b.durationMs - a.durationMs);
+  return JSON.stringify(
+    {
+      totalMs: Math.round(report.totalMs * 100) / 100,
+      phases,
+      topBottlenecks: sorted.slice(0, 3).map((p) => p.name),
+    },
+    null,
+    2,
+  );
+}
+
 let _globalTrace: PerfTrace | null = null;
 
 export function globalTrace(): PerfTrace {

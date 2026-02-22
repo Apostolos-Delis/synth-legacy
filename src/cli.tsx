@@ -28,6 +28,7 @@ import { finalize } from "./finalize/finalize.js";
 import { writeText, readText, fileExists } from "./utils/fs.js";
 import { spawn } from "./utils/process.js";
 import { ansi, fmt, STATUS_ICONS, STATUS_COLORS, PRIORITY_COLORS, initTheme } from "./tui/theme.js";
+import { globalTrace, formatProfileReport, formatProfileReportJson } from "./utils/perf.js";
 
 import { resolveTheme } from "./tui/themes/resolve.js";
 import { listBuiltinThemes, discoverCustomThemes } from "./tui/themes/registry.js";
@@ -57,6 +58,12 @@ const args = process.argv.slice(2);
 const command = args[0];
 
 const tuiEnabled = process.stdout.isTTY === true && !args.includes("--no-tui");
+const profileEnabled = args.includes("--profile");
+const profileJson = args.includes("--profile-json");
+
+if (profileEnabled || profileJson) {
+  globalTrace().enabled = true;
+}
 
 async function applyTheme(): Promise<SynthConfig> {
   const config = await loadConfig(cwd);
@@ -1139,6 +1146,8 @@ async function main(): Promise<void> {
 
       log(`\n${ansi.bold}Options:${ansi.reset}`);
       log(`  ${ansi.muted}--no-tui${ansi.reset}                 Disable TUI (plain text output)`);
+      log(`  ${ansi.muted}--profile${ansi.reset}                Print timing report to stderr on exit`);
+      log(`  ${ansi.muted}--profile-json${ansi.reset}           Print timing report as JSON to stderr`);
       break;
     }
     default:
@@ -1148,7 +1157,25 @@ async function main(): Promise<void> {
   }
 }
 
-main().catch((err) => {
-  logError(String(err));
-  process.exit(1);
-});
+function printProfileReport(): void {
+  const trace = globalTrace();
+  if (!trace.enabled) return;
+  const report = trace.report();
+  if (report.phases.length === 0) return;
+
+  if (profileJson) {
+    process.stderr.write(formatProfileReportJson(report) + "\n");
+  } else {
+    process.stderr.write(formatProfileReport(report) + "\n");
+  }
+}
+
+main()
+  .then(() => {
+    printProfileReport();
+  })
+  .catch((err) => {
+    printProfileReport();
+    logError(String(err));
+    process.exit(1);
+  });
