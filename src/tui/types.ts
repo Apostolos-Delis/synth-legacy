@@ -15,6 +15,7 @@ export interface TuiEngineData {
   planId: string;
   startTime: number;
   interviewMessages: InterviewMessage[];
+  isThinking: boolean;
 }
 
 export interface TuiState extends TuiEngineData {
