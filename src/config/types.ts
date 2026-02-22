@@ -29,4 +29,8 @@ export interface SynthConfig {
     create_pr: boolean;
     pr_template?: string;
   };
+  tui?: {
+    theme?: string;
+    spinner?: string;
+  };
 }

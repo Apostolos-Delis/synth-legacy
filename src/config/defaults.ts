@@ -27,4 +27,7 @@ export const DEFAULT_CONFIG: SynthConfig = {
     self_review: true,
     create_pr: true,
   },
+  tui: {
+    theme: "tokyonight",
+  },
 };

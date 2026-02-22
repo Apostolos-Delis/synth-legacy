@@ -24,3 +24,7 @@ auto_format = true
 split_commits = true
 self_review = true
 create_pr = true
+
+# [tui]
+# theme = "tokyonight"            # Built-in: tokyonight, onedark, catppuccin, dracula, solarized, nord, gruvbox
+# spinner = "dots"                # Presets: dots, braille, line, moon, bounce, arc, box, arrows
