@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useState, useEffect, type ReactNode } from "react";
 import { useTerminalDimensions } from "@opentui/react";
 import type { TuiState } from "./types.js";
 import { layout } from "./theme.js";
@@ -12,6 +12,13 @@ interface ExecutionViewProps {
 }
 
 export function ExecutionView({ state }: ExecutionViewProps): ReactNode {
+  const [, tick] = useState(0);
+  useEffect(() => {
+    if (state.engineState !== "executing") return;
+    const id = setInterval(() => tick((n) => n + 1), 1000);
+    return () => clearInterval(id);
+  }, [state.engineState]);
+
   const { width, height } = useTerminalDimensions();
   const sidebarWidth = Math.max(
     layout.sidebar.minWidth,
