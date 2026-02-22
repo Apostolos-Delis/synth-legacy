@@ -16,7 +16,11 @@
     "typecheck": "tsc --noEmit",
     "lint": "eslint src/",
     "lint:fix": "eslint src/ --fix",
-    "test": "bun test src/__tests__/"
+    "test": "bun test src/__tests__/",
+    "prepare": "husky"
+  },
+  "lint-staged": {
+    "src/**/*.{ts,tsx}": ["eslint --fix"]
   },
   "engines": {
     "bun": ">=1.0.0"
@@ -29,9 +33,15 @@
     "smol-toml": "^1.6.0"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@types/node-notifier": "^8.0.5",
     "@types/react": "^19.2.0",
+    "@typescript-eslint/eslint-plugin": "^8.56.0",
+    "@typescript-eslint/parser": "^8.56.0",
     "bun-types": "^1.3.0",
+    "eslint": "^10.0.1",
+    "husky": "^9.1.7",
+    "lint-staged": "^16.2.7",
     "typescript": "^5.9.0"
   }
 }
