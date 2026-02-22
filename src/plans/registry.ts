@@ -3,7 +3,7 @@ import { homedir } from "node:os";
 import { readdir } from "node:fs/promises";
 import type { PlanMetadata, PlanPaths } from "./types.js";
 import { generatePlanId } from "./id.js";
-import { ensureDir, fileExists, readJson, writeJson } from "../utils/fs.js";
+import { ensureDir, fileExists, dirExists, readJson, writeJson } from "../utils/fs.js";
 import { spawn } from "../utils/process.js";
 
 const SYNTH_HOME = join(homedir(), ".synth");
@@ -111,7 +111,7 @@ export async function listPlans(cwd: string): Promise<PlanMetadata[]> {
   const repoKey = await getRepoKey(cwd);
   const repoDir = join(PLANS_DIR, repoKey);
 
-  if (!(await fileExists(repoDir))) return [];
+  if (!(await dirExists(repoDir))) return [];
 
   const entries = await readdir(repoDir, { withFileTypes: true });
   const plans: PlanMetadata[] = [];

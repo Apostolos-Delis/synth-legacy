@@ -1,4 +1,4 @@
-import { mkdir } from "node:fs/promises";
+import { mkdir, stat } from "node:fs/promises";
 import { dirname } from "node:path";
 
 export async function ensureDir(path: string): Promise<void> {
@@ -36,4 +36,12 @@ export async function appendText(
 
 export async function fileExists(path: string): Promise<boolean> {
   return await Bun.file(path).exists();
+}
+
+export async function dirExists(path: string): Promise<boolean> {
+  try {
+    return (await stat(path)).isDirectory();
+  } catch {
+    return false;
+  }
 }
