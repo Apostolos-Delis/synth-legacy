@@ -20,7 +20,12 @@ export type EngineEventType =
   | "circuit:trip"
   | "rate-limit:detected"
   | "state:change"
-  | "complete";
+  | "complete"
+  | "phase:scanning"
+  | "phase:building-prompt"
+  | "phase:spawning-agent"
+  | "phase:waiting-response"
+  | "phase:streaming";
 
 export interface EngineEvent {
   type: EngineEventType;
@@ -28,6 +33,7 @@ export interface EngineEvent {
   taskId?: string;
   message?: string;
   data?: unknown;
+  timestamp?: number;
 }
 
 export interface IterationResult {

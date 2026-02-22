@@ -94,6 +94,7 @@ export class Engine {
       }
 
       // Load tasks fresh each iteration
+      this.emit({ type: "phase:scanning", timestamp: performance.now() });
       const taskFile = await loadTasks(this.planPaths.tasks);
 
       // Check all done
@@ -130,6 +131,7 @@ export class Engine {
       await saveTasks(this.planPaths.tasks, updatedFile);
 
       // Build prompt
+      this.emit({ type: "phase:building-prompt", timestamp: performance.now() });
       trace.startPhase("engine:prompt-build");
       const prompt = await buildPrompt(
         task,
@@ -140,9 +142,11 @@ export class Engine {
       trace.endPhase("engine:prompt-build");
 
       // Execute agent
+      this.emit({ type: "phase:spawning-agent", timestamp: performance.now() });
       trace.startPhase("engine:agent-execution");
       const startTime = Date.now();
       let output = "";
+      let firstChunkReceived = false;
       const currentAgent =
         this.rateLimitAttempts > 0 && this.fallbackAgent
           ? this.fallbackAgent
@@ -154,6 +158,10 @@ export class Engine {
         model: this.config.agent.model,
         skipPermissions: this.config.agent.skip_permissions,
         onStdout: (chunk) => {
+          if (!firstChunkReceived) {
+            firstChunkReceived = true;
+            this.emit({ type: "phase:streaming", timestamp: performance.now() });
+          }
           output += chunk;
           this.emit({ type: "agent:stdout", message: chunk, taskId: task.id });
         },
@@ -163,6 +171,7 @@ export class Engine {
       });
 
       this.activeInterrupt = () => handle.interrupt();
+      this.emit({ type: "phase:waiting-response", timestamp: performance.now() });
       const result = await handle.promise;
       this.activeInterrupt = null;
       trace.endPhase("engine:agent-execution");
