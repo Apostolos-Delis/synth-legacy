@@ -1,0 +1,26 @@
+[project]
+name = "my-app"
+branch = "feature/my-feature"
+
+[agent]
+name = "claude"             # "claude" | "codex"
+model = "sonnet"
+timeout = 600000            # 10 min per iteration
+
+[agent.fallback]
+name = "codex"
+
+[execution]
+max_iterations = 20
+iteration_delay = 2000
+auto_commit = true
+
+[guardrails]
+max_consecutive_failures = 3
+backpressure_commands = ["bun run typecheck", "bun run lint"]
+
+[finalize]
+auto_format = true
+split_commits = true
+self_review = true
+create_pr = true
