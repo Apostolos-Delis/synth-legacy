@@ -32,9 +32,15 @@ fi
 command -v gh >/dev/null 2>&1 || error "gh CLI is required (brew install gh)"
 command -v bun >/dev/null 2>&1 || error "bun is required"
 
-# Parse current version from package.json
-CURRENT="$(grep '"version"' package.json | sed -E 's/.*"([0-9]+\.[0-9]+\.[0-9]+)".*/\1/')"
-[ -n "$CURRENT" ] || error "Could not parse version from package.json"
+# Derive current version from the latest git tag (not package.json) so we
+# always increment past any existing tag, even if package.json is stale.
+LATEST_TAG="$(git tag --list 'v[0-9]*' --sort=-v:refname | head -1)"
+if [ -n "$LATEST_TAG" ]; then
+  CURRENT="${LATEST_TAG#v}"
+else
+  CURRENT="$(grep '"version"' package.json | sed -E 's/.*"([0-9]+\.[0-9]+\.[0-9]+)".*/\1/')"
+fi
+[ -n "$CURRENT" ] || error "Could not determine current version from git tags or package.json"
 
 IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT"
 
@@ -54,8 +60,8 @@ fi
 info "Bumping $CURRENT → $NEXT ($BUMP)"
 
 # Update version in package.json and src/cli.tsx
-sed -i '' "s/\"version\": \"$CURRENT\"/\"version\": \"$NEXT\"/" package.json
-sed -i '' "s/const VERSION = \"$CURRENT\"/const VERSION = \"$NEXT\"/" src/cli.tsx
+sed -i '' -E "s/\"version\": \"[0-9]+\.[0-9]+\.[0-9]+\"/\"version\": \"$NEXT\"/" package.json
+sed -i '' -E "s/const VERSION = \"[0-9]+\.[0-9]+\.[0-9]+\"/const VERSION = \"$NEXT\"/" src/cli.tsx
 
 # Commit and tag
 git add package.json src/cli.tsx
