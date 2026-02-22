@@ -31,7 +31,7 @@ import type { CliRenderer } from "@opentui/core";
 import { App } from "./tui/App.js";
 import type { TuiEngineData } from "./tui/types.js";
 
-const VERSION = "0.1.1";
+const VERSION = "0.1.2";
 const REPO = "Apostolos-Delis/synth";
 
 const cwd = process.cwd();
