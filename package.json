@@ -17,6 +17,7 @@
     "lint": "eslint src/",
     "lint:fix": "eslint src/ --fix",
     "test": "bun test src/__tests__/",
+    "bench": "bun scripts/bench-startup.ts",
     "prepare": "husky"
   },
   "lint-staged": {
