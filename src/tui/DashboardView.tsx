@@ -1,8 +1,11 @@
 import type { ReactNode } from "react";
 import { useTerminalDimensions } from "@opentui/react";
+import { createTextAttributes } from "@opentui/core";
 import type { TuiState } from "./types.js";
 import { colors, statusIndicators, STATUS_COLORS_HEX, PRIORITY_COLORS_HEX } from "./theme.js";
 import { Footer } from "./components/Footer.js";
+
+const boldAttr = createTextAttributes({ bold: true });
 
 interface DashboardViewProps {
   state: TuiState;
@@ -26,12 +29,12 @@ export function DashboardView({ state }: DashboardViewProps): ReactNode {
     <box width={width} height={height} flexDirection="column">
       <box height={1} style={{ backgroundColor: colors.bg.secondary, paddingLeft: 1 }}>
         <text>
-          <span fg={colors.accent.primary} attributes={1}>Dashboard</span>
+          <span fg={colors.accent.primary} attributes={boldAttr}>Dashboard</span>
           <span fg={colors.fg.muted}>{" │ "}</span>
           <span fg={colors.fg.secondary}>{done}/{total} tasks</span>
           <span fg={colors.fg.muted}>{" │ "}</span>
           <span fg={colors.status.success}>{miniProgressBar(done, total)}</span>
-          <span fg={colors.fg.primary} attributes={1}> {pct}%</span>
+          <span fg={colors.fg.primary} attributes={boldAttr}> {pct}%</span>
           <span fg={colors.fg.muted}>{" │ "}</span>
           <span fg={colors.fg.secondary}>iter {state.iteration}/{state.maxIterations}</span>
         </text>
@@ -39,7 +42,7 @@ export function DashboardView({ state }: DashboardViewProps): ReactNode {
       <text>{""}</text>
       <box style={{ paddingLeft: 1 }}>
         <text>
-          <span fg={colors.fg.muted} attributes={1}>
+          <span fg={colors.fg.muted} attributes={boldAttr}>
             {"ID".padEnd(8)} {"Title".padEnd(40)} {"Status".padEnd(12)} {"Pri".padEnd(4)} Iters
           </span>
         </text>

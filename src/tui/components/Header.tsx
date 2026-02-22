@@ -1,5 +1,8 @@
 import type { ReactNode } from "react";
+import { createTextAttributes } from "@opentui/core";
 import { colors } from "../theme.js";
+
+const boldAttr = createTextAttributes({ bold: true });
 
 interface HeaderProps {
   projectName: string;
@@ -50,7 +53,7 @@ export function Header({
       style={{ backgroundColor: colors.bg.secondary, paddingLeft: 1, paddingRight: 1 }}
     >
       <text>
-        <span fg={colors.accent.primary} attributes={1}>synth</span>
+        <span fg={colors.accent.primary} attributes={boldAttr}>synth</span>
         <span fg={colors.fg.muted}>{" │ "}</span>
         <span fg={colors.fg.primary}>{projectName}</span>
         <span fg={colors.fg.muted}> ({planId})</span>

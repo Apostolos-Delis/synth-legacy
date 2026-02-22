@@ -1,7 +1,10 @@
 import { useState, useEffect, useCallback, useRef, type ReactNode } from "react";
 import { useTerminalDimensions, useKeyboard } from "@opentui/react";
+import { createTextAttributes } from "@opentui/core";
 import type { InterviewMessage } from "../interview/types.js";
 import { colors, layout, SPINNER_FRAMES } from "./theme.js";
+
+const boldAttr = createTextAttributes({ bold: true });
 
 interface InterviewAppProps {
   opening: string;
@@ -29,7 +32,7 @@ function MessageBubble({ message }: { message: InterviewMessage }): ReactNode {
   return (
     <box style={{ width: "100%", flexDirection: "column", marginBottom: 1 }}>
       <text>
-        <span fg={roleColor} attributes={1}>{roleLabel}</span>
+        <span fg={roleColor} attributes={boldAttr}>{roleLabel}</span>
       </text>
       <box style={{ paddingLeft: 2 }}>
         <text fg={colors.fg.primary}>{message.content}</text>
@@ -98,7 +101,7 @@ export function InterviewApp({ opening, onSendMessage, onComplete, onQuit }: Int
       {/* Header */}
       <box height={1} style={{ backgroundColor: colors.bg.secondary, paddingLeft: 1 }}>
         <text>
-          <span fg={colors.accent.primary} attributes={1}>synth plan</span>
+          <span fg={colors.accent.primary} attributes={boldAttr}>synth plan</span>
           <span fg={colors.fg.muted}>{" │ "}</span>
           <span fg={colors.fg.secondary}>PRD Interview</span>
           <span fg={colors.fg.muted}>{" │ "}</span>
@@ -141,16 +144,14 @@ export function InterviewApp({ opening, onSendMessage, onComplete, onQuit }: Int
 
       {/* Footer */}
       <box width={width} height={1} style={{ backgroundColor: colors.bg.secondary, paddingLeft: 1 }}>
-        <text>
-          {isLoading ? (
-            <>
-              <AnimatedSpinner />
-              <span fg={colors.status.info}>{` ${loadingStatus}`}</span>
-            </>
-          ) : (
-            <span fg={colors.fg.muted}>Enter:send  Shift+Enter:newline  q:quit</span>
-          )}
-        </text>
+        {isLoading ? (
+          <box style={{ flexDirection: "row", gap: 1 }}>
+            <AnimatedSpinner />
+            <text fg={colors.status.info}>{loadingStatus}</text>
+          </box>
+        ) : (
+          <text fg={colors.fg.muted}>Enter:send  Shift+Enter:newline  q:quit</text>
+        )}
       </box>
     </box>
   );
