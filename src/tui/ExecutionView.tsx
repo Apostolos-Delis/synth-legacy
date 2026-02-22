@@ -24,7 +24,7 @@ export function ExecutionView({ state }: ExecutionViewProps): ReactNode {
   return (
     <box width={width} height={height} flexDirection="column">
       <Header
-        projectName={state.planId}
+        projectName={state.projectName}
         planId={state.planId}
         iteration={state.iteration}
         maxIterations={state.maxIterations}

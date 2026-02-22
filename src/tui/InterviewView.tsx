@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { useTerminalDimensions } from "@opentui/react";
 import type { TuiState } from "./types.js";
-import { colors } from "./theme.js";
+import { colors, layout } from "./theme.js";
 import { ChatPane } from "./components/ChatPane.js";
 import { Footer } from "./components/Footer.js";
 
@@ -11,7 +11,7 @@ interface InterviewViewProps {
 
 export function InterviewView({ state }: InterviewViewProps): ReactNode {
   const { width, height } = useTerminalDimensions();
-  const chatHeight = height - 3;
+  const chatHeight = height - layout.header.height - layout.footer.height;
 
   return (
     <box width={width} height={height} flexDirection="column">

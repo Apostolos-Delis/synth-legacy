@@ -277,6 +277,7 @@ async function cmdRun(planId?: string, startIteration = 0): Promise<void> {
       currentTaskId: null,
       output: "",
       agentName: config.agent.name,
+      projectName: config.project.name,
       planId: plan.metadata.id,
       startTime: Date.now(),
       interviewMessages: [],
@@ -506,6 +507,7 @@ async function cmdPlan(planIdOrFlag?: string): Promise<void> {
       currentTaskId: null,
       output: "",
       agentName: config.agent.name,
+      projectName: config.project.name,
       planId: id,
       startTime: Date.now(),
       interviewMessages: [{ role: "assistant", content: opening }],
@@ -695,6 +697,10 @@ async function cmdSpawn(planIdOrFlag?: string): Promise<void> {
   }
 
   const wtName = planId ?? `synth-${Date.now().toString(36)}`;
+  if (!/^[\w./-]+$/.test(wtName)) {
+    logError(`Invalid plan ID: ${wtName}`);
+    process.exit(1);
+  }
   const wtPath = join(cwd, ".worktrees", wtName);
   const branchName = `synth/${wtName}`;
 
