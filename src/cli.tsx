@@ -2,6 +2,7 @@
 
 import { join } from "node:path";
 import { loadConfig } from "./config/loader.js";
+import type { SynthConfig } from "./config/types.js";
 import {
   createPlan,
   getPlan,
@@ -26,7 +27,8 @@ import type { GeneratedPrd } from "./interview/types.js";
 import { finalize } from "./finalize/finalize.js";
 import { writeText, readText, fileExists } from "./utils/fs.js";
 import { spawn } from "./utils/process.js";
-import { ansi, fmt, STATUS_ICONS, STATUS_COLORS, PRIORITY_COLORS } from "./tui/theme.js";
+import { ansi, fmt, STATUS_ICONS, STATUS_COLORS, PRIORITY_COLORS, initTheme } from "./tui/theme.js";
+import { resolveTheme } from "./tui/themes/resolve.js";
 import { createSpinner, withSpinner } from "./tui/spinner.js";
 import { stripAnsi } from "./tui/utils.js";
 import type { TuiEngineData, TuiContext } from "./tui/types.js";
@@ -52,6 +54,13 @@ const args = process.argv.slice(2);
 const command = args[0];
 
 const tuiEnabled = process.stdout.isTTY === true && !args.includes("--no-tui");
+
+async function applyTheme(): Promise<SynthConfig> {
+  const config = await loadConfig(cwd);
+  const { theme, spinnerFrames } = await resolveTheme(config);
+  initTheme(theme, spinnerFrames);
+  return config;
+}
 
 function log(msg: string): void {
   console.log(msg);
@@ -231,7 +240,7 @@ async function cmdStatus(planId?: string): Promise<void> {
 }
 
 async function cmdConfig(): Promise<void> {
-  const config = await loadConfig(cwd);
+  const config = await applyTheme();
   const json = JSON.stringify(config, null, 2);
   const colorized = json
     .replace(/"([^"]+)":/g, `${ansi.primary}"$1"${ansi.reset}:`)
@@ -242,7 +251,7 @@ async function cmdConfig(): Promise<void> {
 }
 
 async function cmdRun(planId?: string, startIteration = 0, tuiContext?: TuiContext): Promise<void> {
-  const config = await loadConfig(cwd);
+  const config = await applyTheme();
 
   let plan;
   if (planId) {
@@ -485,7 +494,7 @@ async function cmdResume(planId?: string): Promise<void> {
 }
 
 async function cmdPlan(planIdOrFlag?: string): Promise<void> {
-  const config = await loadConfig(cwd);
+  const config = await applyTheme();
 
   const prdIndex = args.indexOf("--prd");
   if (prdIndex !== -1) {
@@ -736,7 +745,7 @@ async function cmdPlan(planIdOrFlag?: string): Promise<void> {
 }
 
 async function cmdFinalize(planId?: string): Promise<void> {
-  const config = await loadConfig(cwd);
+  const config = await applyTheme();
 
   let plan;
   if (planId) {
@@ -785,6 +794,7 @@ async function cmdFinalize(planId?: string): Promise<void> {
 }
 
 async function cmdSpawn(planIdOrFlag?: string): Promise<void> {
+  await applyTheme();
   let planId: string | undefined;
   let doPlan = false;
 
@@ -888,6 +898,7 @@ async function cmdClean(): Promise<void> {
 }
 
 async function cmdUpdate(): Promise<void> {
+  await applyTheme();
   let release: { tag_name: string };
 
   if (tuiEnabled) {
