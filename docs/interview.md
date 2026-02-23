@@ -192,10 +192,10 @@ When `synth start --prd <path>` is used, the interview is skipped entirely. The 
 After the PRD is finalized (either via interview or `--prd` flag):
 
 1. PRD markdown is written to the session directory
-2. Session status is updated to `planning`
-3. `generateTasks(agent, prd, projectName, branchName, cwd)` sends the PRD to the agent with task generation instructions
-4. The agent returns a JSON `TaskFile` with dependency-ordered tasks
-5. Tasks are written to `tasks.json`
-6. Session status is updated to `executing`
+2. `generateTasks(agent, prd, projectName, branchName, cwd)` sends the PRD to the agent with task generation instructions
+3. The agent returns a JSON `TaskFile` with dependency-ordered tasks
+4. Tasks are written to `tasks.json`
+5. Session status is updated to `planning`
+6. User confirms tasks, then execution begins (status transitions to `executing`)
 
 See [tasks.md](tasks.md) for details on task generation, the `TaskFile` format, and dependency resolution.

@@ -11,9 +11,10 @@ Synth is a CLI tool that orchestrates AI coding agents through a structured inte
                                   |
                     +-------------+-------------+
                     |                           |
-               synth start                synth resume
-                    |                           |
-                    v                           v
+               synth start              synth resume
+             (full lifecycle)          (any phase)
+                    |                      |
+                    v                      v
              +-----------+  +---------+  +-----------+
              | Interview |->| Engine  |->| Finalize  |
              +-----------+  +---------+  +-----------+
