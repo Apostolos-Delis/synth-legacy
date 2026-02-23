@@ -94,7 +94,8 @@ export function InterviewApp({ onSendMessage, onComplete, onQuit }: InterviewApp
         setStreamingText((prev) => prev + chunk);
       });
       setStreamingText("");
-      const assistantMsg: InterviewMessage = { role: "assistant", content: response };
+      const elapsedSecs = Math.floor((Date.now() - loadingStartTime) / 1000);
+      const assistantMsg: InterviewMessage = { role: "assistant", content: `${response}\n\n_Generated in ${elapsedSecs}s_` };
       setMessages((prev) => [...prev, assistantMsg]);
       setIsLoading(false);
 

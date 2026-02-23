@@ -463,6 +463,8 @@ async function cmdRun(planId?: string, startIteration = 0, tuiContext?: TuiConte
     }
   };
 
+  const taskStartTimes = new Map<string, number>();
+
   if (tuiEnabled) {
     engine.on((event) => {
       if (!tuiData) return;
@@ -477,7 +479,10 @@ async function cmdRun(planId?: string, startIteration = 0, tuiContext?: TuiConte
           tuiData.isThinking = true;
           tuiData.currentPhase = "Starting task...";
           tuiData.phaseStartTime = event.timestamp ?? Date.now();
-          if (event.taskId) tuiData.taskOutputMap[event.taskId] = "";
+          if (event.taskId) {
+            tuiData.taskOutputMap[event.taskId] = "";
+            taskStartTimes.set(event.taskId, Date.now());
+          }
           break;
         case "task:complete":
         case "task:failed": {
@@ -486,6 +491,19 @@ async function cmdRun(planId?: string, startIteration = 0, tuiContext?: TuiConte
           tuiData.phaseStartTime = null;
           const task = tuiData.tasks.find((t) => t.id === event.taskId);
           if (task) task.status = event.type === "task:complete" ? "done" : "failed";
+          if (event.taskId) {
+            const startTime = taskStartTimes.get(event.taskId);
+            if (startTime) {
+              const elapsedSecs = Math.floor((Date.now() - startTime) / 1000);
+              const label = event.type === "task:complete" ? "Completed" : "Failed";
+              const suffix = `\n${label} in ${elapsedSecs}s`;
+              tuiData.taskOutputMap[event.taskId] = (tuiData.taskOutputMap[event.taskId] ?? "") + suffix;
+              if (tuiData.currentTaskId === event.taskId) {
+                tuiData.output += suffix;
+              }
+              taskStartTimes.delete(event.taskId);
+            }
+          }
           break;
         }
         case "phase:scanning":
