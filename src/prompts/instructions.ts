@@ -20,12 +20,12 @@ Before implementing anything, search and explore the relevant code:
 - **Conform to codebase patterns**: Match the naming conventions, file structure, error handling style, and test patterns already established in the project. When unsure, find a similar existing feature and mirror its approach.
 - **Tight error handling**: No broad \`catch (e) {}\` blocks, no silent failures, no swallowed errors. Catch specific error types, propagate meaningful messages, and fail loudly when something unexpected happens.
 - **DRY / search-first**: Before creating a new utility, helper, or pattern, search the codebase for an existing one. Duplication is a last resort, not a default.
-- **Validate after implementing**: Run the project's typecheck, linter, and tests after making changes — never commit without passing validation. If a check fails, fix the issue before moving on.
+- **Validate after implementing (hard gate)**: After making changes, run the project's typecheck, linter, and tests — look in AGENTS.md for the project-specific commands. Validation is not optional: if any check fails, you must fix the issue before proceeding or committing. Do not skip checks, do not commit with known failures, do not mark work complete without green validation.
 
 Steps:
 1. Read the task and acceptance criteria carefully
 2. Implement the changes needed
-3. Run quality checks (typecheck, lint, test)
+3. Run quality checks — typecheck, lint, test (see AGENTS.md for commands). Fix all failures before continuing.
 4. If checks pass, commit with: feat: [Task ID] - [Task Title]
 5. Update tasks.json to set status "done" for the completed task
 
