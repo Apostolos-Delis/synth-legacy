@@ -160,9 +160,10 @@ export async function createPr(
   branch: string,
   title: string,
   body: string,
+  spawnFn: typeof spawn = spawn,
 ): Promise<{ url: string; number: number }> {
   // Push
-  const pushHandle = spawn({
+  const pushHandle = spawnFn({
     cmd: ["git", "push", "--set-upstream", "origin", branch],
     cwd,
   });
@@ -172,7 +173,7 @@ export async function createPr(
   }
 
   // Create PR
-  const prHandle = spawn({
+  const prHandle = spawnFn({
     cmd: [
       "gh",
       "pr",
@@ -197,8 +198,12 @@ export async function createPr(
   };
 }
 
-export async function getDiffStats(cwd: string, base: string): Promise<string> {
-  const handle = spawn({
+export async function getDiffStats(
+  cwd: string,
+  base: string,
+  spawnFn: typeof spawn = spawn,
+): Promise<string> {
+  const handle = spawnFn({
     cmd: ["git", "diff", "--stat", `${base}...HEAD`],
     cwd,
   });

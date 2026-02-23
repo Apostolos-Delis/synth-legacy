@@ -18,10 +18,11 @@ import {
   buildInitialAuditPrompt,
 } from "./audit-chat.js";
 import { writeJson, readJson, ensureDir, fileExists, readText } from "../utils/fs.js";
-import { spawn } from "../utils/process.js";
+import { spawn as defaultSpawn } from "../utils/process.js";
+import type { SpawnHandle, SpawnOptions } from "../utils/process.js";
 import { createPr, classifyPrError, classifyPrErrorDetail, generatePrBody, getDiffStats } from "./pr.js";
 import { getCurrentBranch as defaultGetCurrentBranch } from "../utils/git.js";
-import { loadTasks } from "../tasks/store.js";
+import { loadTasks as defaultLoadTasks } from "../tasks/store.js";
 import { ConversationEngine } from "../conversation/engine.js";
 import type { ConversationMessage } from "../conversation/types.js";
 
@@ -154,6 +155,9 @@ export interface OrchestratorResponse {
   message: FinalizeMessage;
 }
 
+export type SpawnFn = (options: SpawnOptions) => SpawnHandle;
+export type LoadTasksFn = (path: string) => Promise<TaskFile>;
+
 export class FinalizeOrchestrator {
   private phase: FinalizePhase = "auditing";
   private messages: FinalizeMessage[] = [];
@@ -169,9 +173,13 @@ export class FinalizeOrchestrator {
   private baseBranch = "";
   private sessionPaths: SessionPaths | null = null;
   private gitOps: GitOps;
+  private _spawn: SpawnFn;
+  private _loadTasks: LoadTasksFn;
 
-  constructor(options?: { gitOps?: GitOps }) {
+  constructor(options?: { gitOps?: GitOps; spawn?: SpawnFn; loadTasks?: LoadTasksFn }) {
     this.gitOps = options?.gitOps ?? { getCurrentBranch: defaultGetCurrentBranch };
+    this._spawn = options?.spawn ?? defaultSpawn;
+    this._loadTasks = options?.loadTasks ?? defaultLoadTasks;
   }
 
   getCurrentPhase(): FinalizePhase {
@@ -192,7 +200,7 @@ export class FinalizeOrchestrator {
 
     if (this.sessionPaths) {
       try {
-        const taskFile = await loadTasks(this.sessionPaths.tasks);
+        const taskFile = await this._loadTasks(this.sessionPaths.tasks);
         totalTasks = taskFile.tasks.length;
         tasksCompleted = taskFile.tasks.filter((t) => t.status === "done").length;
       } catch {
@@ -203,7 +211,7 @@ export class FinalizeOrchestrator {
     let commitCount = 0;
     if (this.baseBranch && this.cwd) {
       try {
-        const handle = spawn({
+        const handle = this._spawn({
           cmd: ["git", "rev-list", "--count", `${this.baseBranch}..HEAD`],
           cwd: this.cwd,
         });
@@ -818,7 +826,7 @@ export class FinalizeOrchestrator {
     onMessage(recheckMsg);
 
     // Get the current diff to re-check
-    const diffHandle = spawn({
+    const diffHandle = this._spawn({
       cmd: ["git", "diff", `${config.project.base_branch}...HEAD`],
       cwd: this.cwd,
     });
@@ -826,7 +834,7 @@ export class FinalizeOrchestrator {
     const diff = diffResult.exitCode === 0 ? diffResult.stdout : "";
 
     // Also get unstaged changes from fix execution
-    const unstagedHandle = spawn({
+    const unstagedHandle = this._spawn({
       cmd: ["git", "diff"],
       cwd: this.cwd,
     });
@@ -913,10 +921,10 @@ export class FinalizeOrchestrator {
     }
 
     // AC #1: Stage any uncommitted changes and commit
-    const addHandle = spawn({ cmd: ["git", "add", "-A"], cwd: this.cwd });
+    const addHandle = this._spawn({ cmd: ["git", "add", "-A"], cwd: this.cwd });
     await addHandle.promise;
 
-    const hasStagedHandle = spawn({
+    const hasStagedHandle = this._spawn({
       cmd: ["git", "diff", "--cached", "--quiet"],
       cwd: this.cwd,
     });
@@ -924,9 +932,9 @@ export class FinalizeOrchestrator {
 
     if (hasStagedResult.exitCode !== 0) {
       // There are staged changes — commit them
-      const taskFile = await loadTasks(sessionPaths.tasks);
+      const taskFile = await this._loadTasks(sessionPaths.tasks);
       const commitMsg = `feat: ${taskFile.description || config.project.name}`;
-      const commitHandle = spawn({
+      const commitHandle = this._spawn({
         cmd: ["git", "commit", "-m", commitMsg],
         cwd: this.cwd,
       });
@@ -955,7 +963,7 @@ export class FinalizeOrchestrator {
     // AC #3 & #4: Generate PR body and create the PR
     let taskFile;
     try {
-      taskFile = await loadTasks(sessionPaths.tasks);
+      taskFile = await this._loadTasks(sessionPaths.tasks);
     } catch (err) {
       const raw = `Failed to load tasks: ${err instanceof Error ? err.message : String(err)}`;
       return this.prError(raw, onMessage);
@@ -963,13 +971,13 @@ export class FinalizeOrchestrator {
 
     const prdExists = await fileExists(sessionPaths.prd);
     const prdContent = prdExists ? await readText(sessionPaths.prd) : null;
-    const diffStats = await getDiffStats(this.cwd, baseBranch);
+    const diffStats = await getDiffStats(this.cwd, baseBranch, this._spawn);
 
     const body = generatePrBody(taskFile, prdContent, [], diffStats);
     const title = taskFile.description || config.project.name;
 
     try {
-      const result = await createPr(this.cwd, branch, title, body);
+      const result = await createPr(this.cwd, branch, title, body, this._spawn);
 
       // AC #5: Store PR URL in state and transition to complete
       this.prUrl = result.url;

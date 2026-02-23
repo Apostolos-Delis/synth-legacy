@@ -1,9 +1,12 @@
-import { describe, test, expect, mock, beforeEach, afterAll } from "bun:test";
+import { describe, test, expect, beforeEach } from "bun:test";
 import type { SpawnResult, SpawnHandle } from "../utils/process.js";
 import type { FinalizeMessage, ChatOption } from "../finalize/chat-types.js";
+import { FinalizeOrchestrator } from "../finalize/orchestrator.js";
+import type { SynthConfig } from "../config/types.js";
+import { makeSessionPaths } from "./helpers.js";
 
 // ---------------------------------------------------------------------------
-// Mock setup — must happen before importing modules that use spawn/git/fs/store
+// Helpers — spawn mock via dependency injection (no mock.module needed)
 // ---------------------------------------------------------------------------
 
 const defaultTimings = { spawnMs: 0, firstStdoutMs: null, firstStderrMs: null, totalMs: 0 };
@@ -32,10 +35,6 @@ function makeSpawnHandle(result: SpawnResult): SpawnHandle {
 let spawnImpl: (opts: { cmd: string[] }) => SpawnHandle = () =>
   makeSpawnHandle(makeSpawnResult());
 
-mock.module("../utils/process.js", () => ({
-  spawn: (opts: { cmd: string[] }) => spawnImpl(opts),
-}));
-
 const mockTaskFile = {
   project: "test",
   branchName: "feature-branch",
@@ -46,38 +45,12 @@ const mockTaskFile = {
       title: "Task one",
       description: "First task",
       acceptanceCriteria: [],
-      priority: 3,
-      status: "done",
+      priority: 3 as const,
+      status: "done" as const,
       iterationCount: 1,
     },
   ],
 };
-
-mock.module("../tasks/store.js", () => ({
-  loadTasks: async () => ({ ...mockTaskFile }),
-}));
-
-mock.module("../utils/fs.js", () => ({
-  readJson: async () => ({}),
-  writeJson: async () => {},
-  ensureDir: async () => {},
-  fileExists: async () => false,
-  readText: async () => "",
-}));
-
-// Restore all module mocks after this file's tests complete so they don't
-// leak into other test files that share the same Bun process.
-afterAll(() => {
-  mock.restore();
-});
-
-// ---------------------------------------------------------------------------
-// Imports (after mocks)
-// ---------------------------------------------------------------------------
-
-import { FinalizeOrchestrator } from "../finalize/orchestrator.js";
-import type { SynthConfig } from "../config/types.js";
-import { makeSessionPaths } from "./helpers.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -97,6 +70,8 @@ function makeMockAgent() {
 function makeOrchestrator(branch = "feature-branch") {
   return new FinalizeOrchestrator({
     gitOps: { getCurrentBranch: async () => branch },
+    spawn: (opts: any) => spawnImpl(opts),
+    loadTasks: async () => ({ ...mockTaskFile }),
   });
 }
 
