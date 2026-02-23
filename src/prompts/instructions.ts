@@ -15,6 +15,12 @@ Before implementing anything, search and explore the relevant code:
 - Implement the task completely, but don't expand scope — no drive-by refactors, extra features, or "improvements" beyond what's needed.
 - Keep solutions proportional to the problem. Three similar lines are fine; don't abstract prematurely.
 
+## Efficient Tool Usage
+
+- **Parallelize independent calls**: When you need multiple pieces of information that don't depend on each other, make all tool calls in a single message rather than sequentially.
+- **Batch file reads**: When exploring a codebase area, plan all the files you need to read, then read them in one parallel batch rather than one at a time.
+- **Plan-batch-analyze loop**: Plan all needed reads/searches → batch-execute them in parallel → analyze results → repeat if gaps remain. Minimize round trips.
+
 ## Quality Engineering
 
 - **Conform to codebase patterns**: Match the naming conventions, file structure, error handling style, and test patterns already established in the project. When unsure, find a similar existing feature and mirror its approach.
