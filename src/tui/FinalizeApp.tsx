@@ -167,9 +167,15 @@ export function FinalizeApp({ orchestrator, agent, config, planPaths, cwd, onQui
         setMessages([...orchestrator.getMessages()]);
         setIsLoading(false);
       }
-    }).catch(() => {
+    }).catch((err) => {
       activeExecRef.current = null;
-      if (!destroyedRef.current) setIsLoading(false);
+      if (!destroyedRef.current) {
+        setMessages((prev) => [
+          ...prev,
+          { role: "system", content: `PR creation error: ${err instanceof Error ? err.message : String(err)}` },
+        ]);
+        setIsLoading(false);
+      }
     });
   }, [orchestrator, config, planPaths]);
   useEffect(() => {
@@ -260,6 +266,14 @@ export function FinalizeApp({ orchestrator, agent, config, planPaths, cwd, onQui
       if (!destroyedRef.current) {
         setStreamingText("");
         setMessages(orchestrator.getMessages());
+
+        // If phase is creating-pr after option select, the user chose "retry" —
+        // trigger PR creation since the useEffect only fires on phase *changes*
+        if (orchestrator.getCurrentPhase() === "creating-pr") {
+          runPrCreation();
+          return;
+        }
+
         setIsLoading(false);
       }
     } catch (err) {
@@ -272,7 +286,7 @@ export function FinalizeApp({ orchestrator, agent, config, planPaths, cwd, onQui
         setIsLoading(false);
       }
     }
-  }, [isLoading, orchestrator, agent]);
+  }, [isLoading, orchestrator, agent, runPrCreation]);
 
   const handleSubmit = useCallback(async () => {
     if (isLoading || showOptions) return;

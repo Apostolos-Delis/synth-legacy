@@ -417,6 +417,80 @@ describe("Error handling: push rejection, gh auth failure, network error", () =>
   });
 });
 
+describe("Retry-pr flow: failure then success", () => {
+  test("retry-pr option triggers second executePrCreation that succeeds", async () => {
+    let pushCallCount = 0;
+
+    spawnImpl = (opts) => {
+      const cmd = opts.cmd.join(" ");
+      if (cmd.includes("git add")) return makeSpawnHandle(makeSpawnResult());
+      if (cmd.includes("--cached --quiet")) return makeSpawnHandle(makeSpawnResult({ exitCode: 0 }));
+      if (cmd.includes("--stat")) return makeSpawnHandle(makeSpawnResult({ stdout: "2 files" }));
+      if (cmd.includes("rev-list")) return makeSpawnHandle(makeSpawnResult({ stdout: "3" }));
+      if (cmd.includes("git push")) {
+        pushCallCount++;
+        if (pushCallCount === 1) {
+          // First push fails
+          return makeSpawnHandle(
+            makeSpawnResult({
+              exitCode: 1,
+              stderr: "remote: error: GH006: Protected branch update failed",
+            }),
+          );
+        }
+        // Second push succeeds
+        return makeSpawnHandle(makeSpawnResult());
+      }
+      if (cmd.includes("gh pr create")) {
+        return makeSpawnHandle(
+          makeSpawnResult({ stdout: "https://github.com/org/repo/pull/77\n" }),
+        );
+      }
+      return makeSpawnHandle(makeSpawnResult());
+    };
+
+    const orch = makeOrchestrator();
+    const config = makeConfig();
+    const planPaths = makePlanPaths("/tmp/test-plan");
+    const { onMessage } = collectMessages();
+
+    // Walk the orchestrator into creating-pr phase via the discussion → skip-fixes path.
+    // handleOptionSelect with "collect-fixes" in discussing phase triggers
+    // transitionToCollectingFixes, which auto-skips to creating-pr when no fixes exist.
+    // But we need to be in "discussing" first — use internal state since start() needs a real agent.
+    (orch as any).phase = "discussing";
+
+    await orch.handleOptionSelect(
+      { label: "Collect fixes", description: "", value: "collect-fixes" },
+      makeMockAgent(),
+    );
+    expect(orch.getCurrentPhase()).toBe("creating-pr");
+
+    // First attempt: should fail with retry option
+    const firstResult = await orch.executePrCreation(config, planPaths, onMessage);
+    expect(firstResult.message.content).toContain("**Finalize failed**");
+    expect(orch.getCurrentPhase()).toBe("creating-pr");
+    expect(firstResult.message.questionGroups).toBeDefined();
+
+    const retryOption = firstResult.message.questionGroups![0].options.find(
+      (o: ChatOption) => o.value === "retry-pr",
+    );
+    expect(retryOption).toBeDefined();
+
+    // User selects "Retry" — orchestrator stays in creating-pr phase
+    const retryResult = await orch.handleOptionSelect(retryOption!, makeMockAgent());
+    expect(retryResult.message.content).toContain("Retrying PR creation");
+    expect(orch.getCurrentPhase()).toBe("creating-pr");
+
+    // Second attempt: should succeed
+    const secondResult = await orch.executePrCreation(config, planPaths, onMessage);
+    expect(secondResult.message.content).toContain("PR created successfully");
+    expect(secondResult.message.content).toContain("https://github.com/org/repo/pull/77");
+    expect(orch.getCurrentPhase()).toBe("complete");
+    expect(orch.getPrUrl()).toBe("https://github.com/org/repo/pull/77");
+  });
+});
+
 describe("PR URL surfaced on success", () => {
   beforeEach(() => {
     spawnImpl = (opts) => {
