@@ -210,7 +210,17 @@ export function FinalizeApp({ orchestrator, agent, config, planPaths, cwd, onQui
     : [];
   const showOptions = !isComplete && optionGroups.length > 0 && !isLoading;
   const optionSelectorHeight = showOptions
-    ? optionGroups.reduce((sum, g) => sum + g.options.length + 1, 0) * 2 + (optionGroups.length > 1 ? 2 : 0) + 2 + 4
+    ? Math.min(
+        optionGroups.reduce((sum, g) => {
+          const optionCount = g.options.length + 1; // +1 for "Other..."
+          return sum + optionCount * 3; // name + description + spacing per option
+        }, 0)
+        + (optionGroups[0]?.question ? 2 : 0) // question header
+        + (optionGroups.length > 1 ? 2 : 0)   // tab bar
+        + 1                                     // hint bar
+        + 4,                                    // border + padding
+        Math.floor(termHeight * 0.5),
+      )
     : 0;
 
   const handleOptionSelect = useCallback(async (selectedAnswers: ChatOption[]) => {

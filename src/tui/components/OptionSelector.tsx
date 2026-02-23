@@ -1,26 +1,8 @@
 import { useState, useCallback, useRef, type ReactNode } from "react";
-import { useKeyboard, useTerminalDimensions } from "@opentui/react";
-import type { TextareaRenderable } from "@opentui/core";
+import { useKeyboard } from "@opentui/react";
+import type { SelectRenderable, SelectOption, TextareaRenderable } from "@opentui/core";
 import type { ChatOption, QuestionGroup } from "../../finalize/chat-types.js";
 import { boldAttr, colors } from "../theme.js";
-
-function wordWrap(text: string, maxWidth: number): string[] {
-  if (maxWidth <= 0) return [text];
-  if (text.length <= maxWidth) return [text];
-  const lines: string[] = [];
-  let remaining = text;
-  while (remaining.length > 0) {
-    if (remaining.length <= maxWidth) {
-      lines.push(remaining);
-      break;
-    }
-    let breakAt = remaining.lastIndexOf(" ", maxWidth);
-    if (breakAt <= 0) breakAt = maxWidth;
-    lines.push(remaining.slice(0, breakAt));
-    remaining = remaining.slice(breakAt).trimStart();
-  }
-  return lines;
-}
 
 export interface OptionSelectorProps {
   groups: QuestionGroup[];
@@ -36,17 +18,30 @@ const OTHER_OPTION: ChatOption = {
   value: "__other__",
 };
 
+function toSelectOptions(options: ChatOption[], showOther: boolean): SelectOption[] {
+  const mapped: SelectOption[] = options.map((o) => ({
+    name: o.label + (o.recommended ? " (Recommended)" : ""),
+    description: o.description,
+    value: o.value,
+  }));
+  if (showOther) {
+    mapped.push({ name: OTHER_OPTION.label, description: OTHER_OPTION.description, value: OTHER_OPTION.value });
+  }
+  return mapped;
+}
+
 export function OptionSelector({ groups, onSelect, showOther = true }: OptionSelectorProps): ReactNode {
   const [activeTab, setActiveTab] = useState(0);
-  const [selectedIndices, setSelectedIndices] = useState<(number | null)[]>(() =>
+  const [selectedIndices, setSelectedIndices] = useState<number[]>(() =>
     groups.map((g) => {
       const rec = g.options.findIndex((o) => o.recommended);
-      return rec >= 0 ? rec : null;
+      return rec >= 0 ? rec : 0;
     }),
   );
   const [mode, setMode] = useState<Mode>("selecting");
   const [answers, setAnswers] = useState<(ChatOption | null)[]>(() => groups.map(() => null));
 
+  const selectRef = useRef<SelectRenderable>(null);
   const textareaRef = useRef<TextareaRenderable>(null);
 
   const groupsRef = useRef(groups);
@@ -64,25 +59,53 @@ export function OptionSelector({ groups, onSelect, showOther = true }: OptionSel
   const showOtherRef = useRef(showOther);
   showOtherRef.current = showOther;
 
-  const { width: termWidth } = useTerminalDimensions();
-
   const currentGroup = groups[activeTab];
-  const optionsWithOther = showOther
-    ? [...currentGroup.options, OTHER_OPTION]
-    : currentGroup.options;
-  const selectedIndex = selectedIndices[activeTab] ?? 0;
+  const allOptions = showOther ? [...currentGroup.options, OTHER_OPTION] : currentGroup.options;
+  const selectOptions = toSelectOptions(currentGroup.options, showOther);
   const isMultiQuestion = groups.length > 1;
 
-  // Prefix is: paddingLeft(1) + radio(1) + space(1) + num(1-2) + "." + space = ~6-7 chars
-  const labelPrefixWidth = 6;
-  const labelAvail = Math.max(20, termWidth - 1 - labelPrefixWidth);
-  const descAvail = Math.max(20, termWidth - 1 - 5); // paddingLeft(1) + inner paddingLeft(5)
+  // Each option = 1 (name) + 1 (description) + 1 (itemSpacing) = 3 lines, minus trailing spacing
+  const selectHeight = selectOptions.length * 3 - 1;
 
   const trySubmit = useCallback((updatedAnswers: (ChatOption | null)[]) => {
     const allAnswered = updatedAnswers.every((a) => a !== null);
     if (allAnswered) {
       onSelectRef.current(updatedAnswers as ChatOption[]);
     }
+  }, []);
+
+  const handleSelect = useCallback((_index: number, option: SelectOption | null) => {
+    if (!option) return;
+    const tab = activeTabRef.current;
+    const g = groupsRef.current;
+
+    if (option.value === "__other__") {
+      setMode("typing-other");
+      return;
+    }
+
+    // Find the matching ChatOption
+    const chatOption = g[tab].options.find((o) => o.value === option.value);
+    if (!chatOption) return;
+
+    const newAnswers = [...answersRef.current];
+    newAnswers[tab] = chatOption;
+    setAnswers(newAnswers);
+
+    if (g.length > 1 && tab < g.length - 1) {
+      setActiveTab(tab + 1);
+    } else {
+      trySubmit(newAnswers);
+    }
+  }, [trySubmit]);
+
+  const handleChange = useCallback((index: number, _option: SelectOption | null) => {
+    const tab = activeTabRef.current;
+    setSelectedIndices((prev) => {
+      const next = [...prev];
+      next[tab] = index;
+      return next;
+    });
   }, []);
 
   useKeyboard(
@@ -100,6 +123,7 @@ export function OptionSelector({ groups, onSelect, showOther = true }: OptionSel
       // -- typing-other mode --
       if (modeRef.current === "typing-other") {
         if (key.name === "escape") {
+          key.preventDefault?.();
           setMode("selecting");
           return;
         }
@@ -123,34 +147,22 @@ export function OptionSelector({ groups, onSelect, showOther = true }: OptionSel
           }
           return;
         }
-        // Let the textarea handle all other keys
         return;
       }
 
-      // -- selecting mode --
-      if (key.name === "j" || key.name === "down") {
-        setSelectedIndices((prev) => {
-          const next = [...prev];
-          next[tab] = Math.min((next[tab] ?? 0) + 1, count - 1);
-          return next;
-        });
-        return;
-      }
-      if (key.name === "k" || key.name === "up") {
-        setSelectedIndices((prev) => {
-          const next = [...prev];
-          next[tab] = Math.max((next[tab] ?? 0) - 1, 0);
-          return next;
-        });
-        return;
-      }
+      // -- selecting mode: supplementary keys --
+      // Note: arrow keys (up/down/j/k) are handled by the native <select> via
+      // handleKeyPress — do NOT intercept them here or the select won't navigate.
 
       // Number keys 1-9 to jump to option
       const numKey = parseInt(key.name, 10);
       if (!isNaN(numKey) && numKey >= 1 && numKey <= count) {
+        key.preventDefault?.();
+        const idx = numKey - 1;
+        selectRef.current?.setSelectedIndex(idx);
         setSelectedIndices((prev) => {
           const next = [...prev];
-          next[tab] = numKey - 1;
+          next[tab] = idx;
           return next;
         });
         return;
@@ -165,29 +177,6 @@ export function OptionSelector({ groups, onSelect, showOther = true }: OptionSel
           setActiveTab((prev) => (prev < g.length - 1 ? prev + 1 : 0));
         }
         return;
-      }
-
-      // Enter to select
-      if (key.name === "return") {
-        const idx = selectedIndicesRef.current[tab] ?? 0;
-        const selected = opts[idx];
-        if (!selected) return;
-
-        if (selected.value === "__other__") {
-          setMode("typing-other");
-          return;
-        }
-
-        const newAnswers = [...answersRef.current];
-        newAnswers[tab] = selected;
-        setAnswers(newAnswers);
-
-        if (g.length > 1 && tab < g.length - 1) {
-          // Move to next unanswered tab
-          setActiveTab(tab + 1);
-        } else {
-          trySubmit(newAnswers);
-        }
       }
     }, [trySubmit]),
   );
@@ -222,50 +211,26 @@ export function OptionSelector({ groups, onSelect, showOther = true }: OptionSel
         </box>
       )}
 
-      {/* Options list */}
-      {mode === "selecting" && optionsWithOther.map((option, i) => {
-        const isSelected = i === selectedIndex;
-        const isOther = option.value === "__other__";
-        const num = `${i + 1}`;
-        const radio = isSelected ? "\u25CF" : "\u25CB";
-        const recommendedBadge = option.recommended ? " (Recommended)" : "";
-        const fullLabel = option.label + recommendedBadge;
-        const labelLines = wordWrap(fullLabel, labelAvail);
-        const descLines = option.description ? wordWrap(option.description, descAvail) : [];
-
-        return (
-          <box key={option.value + i} style={{ flexDirection: "column", paddingLeft: 1, marginBottom: 0 }}>
-            <box style={{ flexDirection: "row" }}>
-              <text fg={isSelected ? colors.accent.primary : colors.fg.dim}>
-                {radio} {num}.{" "}
-              </text>
-              <text
-                fg={isSelected ? colors.accent.primary : colors.fg.primary}
-                attributes={isSelected ? boldAttr() : undefined}
-              >
-                {labelLines[0]}
-              </text>
-            </box>
-            {labelLines.slice(1).map((line, li) => (
-              <box key={`label-${li}`} style={{ paddingLeft: labelPrefixWidth }}>
-                <text
-                  fg={isSelected ? colors.accent.primary : colors.fg.primary}
-                  attributes={isSelected ? boldAttr() : undefined}
-                >
-                  {line}
-                </text>
-              </box>
-            ))}
-            {descLines.map((line, di) => (
-              <box key={`desc-${di}`} style={{ paddingLeft: 5 }}>
-                <text fg={isOther ? colors.fg.muted : isSelected ? colors.fg.secondary : colors.fg.muted}>
-                  {line}
-                </text>
-              </box>
-            ))}
-          </box>
-        );
-      })}
+      {/* Native select for options */}
+      {mode === "selecting" && (
+        <select
+          ref={selectRef}
+          options={selectOptions}
+          selectedIndex={selectedIndices[activeTab] ?? 0}
+          focused={true}
+          showDescription={true}
+          itemSpacing={1}
+          wrapSelection={true}
+          focusedBackgroundColor={colors.bg.highlight}
+          focusedTextColor={colors.accent.primary}
+          textColor={colors.fg.primary}
+          descriptionColor={colors.fg.muted}
+          selectedDescriptionColor={colors.fg.secondary}
+          onSelect={handleSelect}
+          onChange={handleChange}
+          style={{ height: selectHeight }}
+        />
+      )}
 
       {/* Other text input mode */}
       {mode === "typing-other" && (
@@ -292,7 +257,7 @@ export function OptionSelector({ groups, onSelect, showOther = true }: OptionSel
       {mode === "selecting" && (
         <box style={{ marginTop: 1 }}>
           <text fg={colors.fg.muted}>
-            {"j/k:navigate  Enter:select"}
+            {"\u2191/\u2193:navigate  Enter:select  1-" + allOptions.length + ":jump"}
             {isMultiQuestion ? "  Tab:next question" : ""}
           </text>
         </box>
