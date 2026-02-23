@@ -1,24 +1,24 @@
 import { hostname } from "node:os";
 import { open, unlink } from "node:fs/promises";
 import { dirname } from "node:path";
-import type { LockFile, SessionMetadata, SessionState } from "./types.js";
+import type { LockFile, RunMetadata, RunState } from "./types.js";
 import type { SessionPaths } from "../sessions/types.js";
 import { ensureDir, fileExists, readJson, writeJson } from "../utils/fs.js";
 import { isProcessRunning } from "../utils/process.js";
 
-function generateSessionId(): string {
-  return `sess-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+function generateRunId(): string {
+  return `run-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
-export async function createSession(
+export async function createRun(
   sessionPaths: SessionPaths,
   planId: string,
   agent: string,
   maxIterations: number,
   cwd: string,
-): Promise<SessionMetadata> {
-  const session: SessionMetadata = {
-    id: generateSessionId(),
+): Promise<RunMetadata> {
+  const run: RunMetadata = {
+    id: generateRunId(),
     planId,
     status: "running",
     startedAt: new Date().toISOString(),
@@ -29,26 +29,26 @@ export async function createSession(
     cwd,
   };
 
-  await writeJson(sessionPaths.session, session);
-  return session;
+  await writeJson(sessionPaths.session, run);
+  return run;
 }
 
-export async function loadSession(
+export async function loadRun(
   sessionPaths: SessionPaths,
-): Promise<SessionMetadata | null> {
+): Promise<RunMetadata | null> {
   if (!(await fileExists(sessionPaths.session))) return null;
-  return readJson<SessionMetadata>(sessionPaths.session);
+  return readJson<RunMetadata>(sessionPaths.session);
 }
 
-export async function updateSession(
+export async function updateRun(
   sessionPaths: SessionPaths,
-  updates: Partial<SessionMetadata>,
-): Promise<SessionMetadata> {
-  const session = await loadSession(sessionPaths);
-  if (!session) throw new Error("No active session");
+  updates: Partial<RunMetadata>,
+): Promise<RunMetadata> {
+  const run = await loadRun(sessionPaths);
+  if (!run) throw new Error("No active run");
 
-  const updated: SessionMetadata = {
-    ...session,
+  const updated: RunMetadata = {
+    ...run,
     ...updates,
     updatedAt: new Date().toISOString(),
   };
@@ -56,13 +56,13 @@ export async function updateSession(
   return updated;
 }
 
-export async function endSession(
+export async function endRun(
   sessionPaths: SessionPaths,
-  status: SessionState = "completed",
+  status: RunState = "completed",
 ): Promise<void> {
-  const session = await loadSession(sessionPaths);
-  if (session) {
-    await updateSession(sessionPaths, {
+  const run = await loadRun(sessionPaths);
+  if (run) {
+    await updateRun(sessionPaths, {
       status,
       endedAt: new Date().toISOString(),
     });
@@ -72,7 +72,7 @@ export async function endSession(
 
 export async function acquireLock(
   sessionPaths: SessionPaths,
-  sessionId: string,
+  runId: string,
 ): Promise<boolean> {
   await ensureDir(dirname(sessionPaths.lock));
 
@@ -92,7 +92,7 @@ export async function acquireLock(
 
   const lock: LockFile = {
     pid: process.pid,
-    sessionId,
+    runId,
     acquiredAt: new Date().toISOString(),
     hostname: hostname(),
   };

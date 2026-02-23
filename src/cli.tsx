@@ -38,14 +38,14 @@ async function loadEngine() {
   return { Engine };
 }
 
-async function loadSessionModule() {
-  const mod = await import("./session/session.js");
+async function loadRunModule() {
+  const mod = await import("./run/run.js");
   return {
-    createSession: mod.createSession,
-    loadSession: mod.loadSession,
+    createRun: mod.createRun,
+    loadRun: mod.loadRun,
     acquireLock: mod.acquireLock,
     releaseLock: mod.releaseLock,
-    endSession: mod.endSession,
+    endRun: mod.endRun,
   };
 }
 
@@ -272,10 +272,10 @@ async function cmdStatus(planId?: string): Promise<void> {
     log(`Progress: [${bar}] ${ansi.bold}${pct}%${ansi.reset} (${progress.done}/${progress.total})`);
   }
 
-  const { loadSession: loadSess } = await loadSessionModule();
-  const session = await loadSess(plan.paths);
-  if (session) {
-    log(fmt.label("Session:", `${session.status} (iteration ${session.currentIteration})`));
+  const { loadRun } = await loadRunModule();
+  const run = await loadRun(plan.paths);
+  if (run) {
+    log(fmt.label("Session:", `${run.status} (iteration ${run.currentIteration})`));
   }
 }
 
@@ -351,10 +351,10 @@ async function cmdRun(planId?: string, startIteration = 0, tuiContext?: TuiConte
     log(fmt.warn("Reset orphaned in_progress tasks from previous session"));
   }
 
-  const [{ getAgent }, { Engine: EngineClass }, sessionMod] = await Promise.all([
+  const [{ getAgent }, { Engine: EngineClass }, runMod] = await Promise.all([
     loadAgentRegistry(),
     loadEngine(),
-    loadSessionModule(),
+    loadRunModule(),
   ]);
 
   const agent = getAgent(config.agent.name);
@@ -364,7 +364,7 @@ async function cmdRun(planId?: string, startIteration = 0, tuiContext?: TuiConte
     process.exit(1);
   }
 
-  const session = await sessionMod.createSession(
+  const run = await runMod.createRun(
     plan.paths,
     plan.metadata.id,
     config.agent.name,
@@ -372,7 +372,7 @@ async function cmdRun(planId?: string, startIteration = 0, tuiContext?: TuiConte
     cwd,
   );
 
-  const locked = await sessionMod.acquireLock(plan.paths, session.id);
+  const locked = await runMod.acquireLock(plan.paths, run.id);
   if (!locked) {
     logError("Another synth session is already running for this plan.");
     process.exit(1);
@@ -613,7 +613,7 @@ async function cmdRun(planId?: string, startIteration = 0, tuiContext?: TuiConte
     }
     // Don't overwrite completed status if SIGINT arrives during completion view
     if (engine.getState() === "completed") return;
-    await sessionMod.endSession(plan!.paths, "interrupted");
+    await runMod.endRun(plan!.paths, "interrupted");
     await updateSessionMetadata(cwd, plan!.metadata.id, { status: "paused" });
     if (!tuiEnabled) {
       log(`\n${fmt.warn(`Session interrupted. Resume with: synth resume ${plan!.metadata.id}`)}`);
@@ -632,7 +632,7 @@ async function cmdRun(planId?: string, startIteration = 0, tuiContext?: TuiConte
   try {
     await engine.run(startIteration);
     const finalState = engine.getState();
-    await sessionMod.endSession(plan.paths, finalState === "completed" ? "completed" : "paused");
+    await runMod.endRun(plan.paths, finalState === "completed" ? "completed" : "paused");
     await updateSessionMetadata(cwd, plan.metadata.id, {
       status: finalState === "completed" ? "completed" : finalState === "blocked" ? "blocked" : "paused",
     });
@@ -716,7 +716,7 @@ async function cmdRun(planId?: string, startIteration = 0, tuiContext?: TuiConte
       }
     }
   } catch (err) {
-    await sessionMod.endSession(plan.paths, "failed");
+    await runMod.endRun(plan.paths, "failed");
     await updateSessionMetadata(cwd, plan.metadata.id, { status: "failed" });
     if (!tuiEnabled) logError(`Engine error: ${err}`);
 
@@ -738,7 +738,7 @@ async function cmdRun(planId?: string, startIteration = 0, tuiContext?: TuiConte
       if (root) root.unmount();
       if (renderer) renderer.destroy();
     }
-    await sessionMod.releaseLock(plan.paths);
+    await runMod.releaseLock(plan.paths);
     agent.dispose();
     fallbackAgent?.dispose();
   }
@@ -768,20 +768,20 @@ async function cmdResume(planId?: string): Promise<void> {
     }
   }
 
-  const { loadSession: loadSess } = await loadSessionModule();
-  const session = await loadSess(plan.paths);
-  if (!session) {
+  const { loadRun } = await loadRunModule();
+  const run = await loadRun(plan.paths);
+  if (!run) {
     logError("No session found. Run 'synth run' instead.");
     process.exit(1);
   }
 
-  if (session.status === "completed") {
+  if (run.status === "completed") {
     log(fmt.info("This plan is already completed."));
     return;
   }
 
-  log(fmt.info(`Resuming plan ${plan.metadata.id} from iteration ${session.currentIteration}`));
-  await cmdRun(plan.metadata.id, session.currentIteration);
+  log(fmt.info(`Resuming plan ${plan.metadata.id} from iteration ${run.currentIteration}`));
+  await cmdRun(plan.metadata.id, run.currentIteration);
 }
 
 async function resumeInterview(

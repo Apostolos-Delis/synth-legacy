@@ -18,7 +18,7 @@ import { selectNextTask } from "../tasks/selector.js";
 import { buildPrompt } from "../prompts/build.js";
 import { appendText, writeText, ensureDir } from "../utils/fs.js";
 import { spawn } from "../utils/process.js";
-import { updateSession } from "../session/session.js";
+import { updateRun } from "../run/run.js";
 import { globalTrace } from "../utils/perf.js";
 
 const COMPLETION_PATTERN = /<promise>COMPLETE<\/promise>/;
@@ -386,12 +386,12 @@ export class Engine {
       trace.endPhase("engine:result-processing");
 
       try {
-        await updateSession(this.sessionPaths, { currentIteration: this.iteration });
+        await updateRun(this.sessionPaths, { currentIteration: this.iteration });
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : String(err);
         this.emit({
           type: "state:change",
-          message: `Failed to update session: ${message}`,
+          message: `Failed to update run: ${message}`,
         });
       }
 

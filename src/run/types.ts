@@ -1,4 +1,4 @@
-export type SessionState =
+export type RunState =
   | "running"
   | "paused"
   | "completed"
@@ -6,10 +6,10 @@ export type SessionState =
   | "failed"
   | "blocked";
 
-export interface SessionMetadata {
+export interface RunMetadata {
   id: string;
   planId: string;
-  status: SessionState;
+  status: RunState;
   startedAt: string;
   endedAt?: string;
   updatedAt: string;
@@ -21,7 +21,7 @@ export interface SessionMetadata {
 
 export interface LockFile {
   pid: number;
-  sessionId: string;
+  runId: string;
   acquiredAt: string;
   hostname: string;
 }
