@@ -29,15 +29,15 @@ export async function createRun(
     cwd,
   };
 
-  await writeJson(sessionPaths.session, run);
+  await writeJson(sessionPaths.run, run);
   return run;
 }
 
 export async function loadRun(
   sessionPaths: SessionPaths,
 ): Promise<RunMetadata | null> {
-  if (!(await fileExists(sessionPaths.session))) return null;
-  return readJson<RunMetadata>(sessionPaths.session);
+  if (!(await fileExists(sessionPaths.run))) return null;
+  return readJson<RunMetadata>(sessionPaths.run);
 }
 
 export async function updateRun(
@@ -52,7 +52,7 @@ export async function updateRun(
     ...updates,
     updatedAt: new Date().toISOString(),
   };
-  await writeJson(sessionPaths.session, updated);
+  await writeJson(sessionPaths.run, updated);
   return updated;
 }
 
@@ -81,7 +81,7 @@ export async function acquireLock(
     try {
       const existing = await readJson<LockFile>(sessionPaths.lock);
       if (isProcessRunning(existing.pid)) {
-        return false; // Another session is actively running
+        return false; // Another run is actively running
       }
       // Stale lock — remove it before attempting atomic create
       await unlink(sessionPaths.lock);

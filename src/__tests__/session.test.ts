@@ -13,8 +13,8 @@ import { writeJson } from "../utils/fs.js";
 import { makeSessionPaths, withTmpDir } from "./helpers.js";
 import type { LockFile } from "../run/types.js";
 
-describe("session lifecycle", () => {
-  test("createRun writes session.json with correct structure", async () => {
+describe("run lifecycle", () => {
+  test("createRun writes run.json with correct structure", async () => {
     await withTmpDir(async (dir) => {
       const paths = makeSessionPaths(dir);
       const run = await createRun(paths, "plan-1", "claude", 10, "/tmp");
@@ -42,7 +42,7 @@ describe("session lifecycle", () => {
     });
   });
 
-  test("loadRun returns null when no session exists", async () => {
+  test("loadRun returns null when no run exists", async () => {
     await withTmpDir(async (dir) => {
       const paths = makeSessionPaths(dir);
       const run = await loadRun(paths);
@@ -63,7 +63,7 @@ describe("session lifecycle", () => {
     });
   });
 
-  test("updateRun throws when no session exists", async () => {
+  test("updateRun throws when no run exists", async () => {
     await withTmpDir(async (dir) => {
       const paths = makeSessionPaths(dir);
       expect(updateRun(paths, { currentIteration: 1 })).rejects.toThrow(

@@ -14,7 +14,7 @@ export interface SessionPaths {
   prd: string;
   tasks: string;
   progress: string;
-  session: string;
+  run: string;
   lock: string;
   logs: string;
   summary: string;

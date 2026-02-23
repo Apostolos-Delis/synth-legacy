@@ -41,7 +41,7 @@ function sessionPaths(repoKey: string, sessionId: string): SessionPaths {
     prd: join(root, "prd.md"),
     tasks: join(root, "tasks.json"),
     progress: join(root, "progress.md"),
-    session: join(root, "session.json"),
+    run: join(root, "run.json"),
     lock: join(root, "synth.lock"),
     logs: join(root, "logs"),
     summary: join(root, "summary.md"),
