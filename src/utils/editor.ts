@@ -1,4 +1,4 @@
-import { mkdtemp, unlink, readFile, writeFile } from "node:fs/promises";
+import { mkdtemp, rmdir, unlink, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
@@ -27,6 +27,6 @@ export async function openInEditor(content: string): Promise<string | null> {
     return null;
   } finally {
     try { await unlink(tmpFile); } catch { /* already gone */ }
-    try { const { rmdir } = await import("node:fs/promises"); await rmdir(dir); } catch { /* best effort */ }
+    try { await rmdir(dir); } catch { /* best effort */ }
   }
 }

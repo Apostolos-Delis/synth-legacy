@@ -1,8 +1,3 @@
-export interface TimerResult {
-  name: string;
-  durationMs: number;
-}
-
 export interface PhaseEntry {
   name: string;
   durationMs: number;
@@ -16,11 +11,6 @@ export interface PerfReport {
 interface PhaseState {
   startedAt: number | null;
   durationMs: number;
-}
-
-export function startTimer(): () => number {
-  const start = performance.now();
-  return () => performance.now() - start;
 }
 
 export class PerfTrace {
@@ -82,30 +72,6 @@ export class PerfTrace {
     this.order = [];
     this.traceStart = null;
   }
-}
-
-export function formatReport(report: PerfReport): string {
-  const nameWidth = Math.max(
-    5,
-    ...report.phases.map((p) => p.name.length),
-  );
-  const lines: string[] = [];
-
-  const header = `${"Phase".padEnd(nameWidth)}  Duration (ms)`;
-  lines.push(header);
-  lines.push("-".repeat(header.length));
-
-  for (const phase of report.phases) {
-    const dur = phase.durationMs.toFixed(2).padStart(13);
-    lines.push(`${phase.name.padEnd(nameWidth)}  ${dur}`);
-  }
-
-  lines.push("-".repeat(header.length));
-  lines.push(
-    `${"Total".padEnd(nameWidth)}  ${report.totalMs.toFixed(2).padStart(13)}`,
-  );
-
-  return lines.join("\n");
 }
 
 export function formatProfileReport(report: PerfReport): string {
