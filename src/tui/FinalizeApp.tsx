@@ -133,6 +133,26 @@ export function FinalizeApp({ orchestrator, agent, config, planPaths, cwd, onQui
 
   // Execute fixes when phase transitions to "executing-fixes"
   const activeExecRef = useRef<string | null>(null);
+
+  // Run PR creation as a standalone step (reused by both direct and chained paths)
+  const runPrCreation = useCallback(() => {
+    activeExecRef.current = "creating-pr";
+    setIsLoading(true);
+    setLoadingStartTime(Date.now());
+
+    orchestrator.executePrCreation(config, planPaths, () => {
+      if (!destroyedRef.current) setMessages([...orchestrator.getMessages()]);
+    }).then(() => {
+      activeExecRef.current = null;
+      if (!destroyedRef.current) {
+        setMessages([...orchestrator.getMessages()]);
+        setIsLoading(false);
+      }
+    }).catch(() => {
+      activeExecRef.current = null;
+      if (!destroyedRef.current) setIsLoading(false);
+    });
+  }, [orchestrator, config, planPaths]);
   useEffect(() => {
     if (activeExecRef.current) return;
 
@@ -144,34 +164,24 @@ export function FinalizeApp({ orchestrator, agent, config, planPaths, cwd, onQui
       orchestrator.executeFixes(agent, config, planPaths, () => {
         if (!destroyedRef.current) setMessages([...orchestrator.getMessages()]);
       }).then(() => {
-        activeExecRef.current = null;
         if (!destroyedRef.current) {
           setMessages([...orchestrator.getMessages()]);
-          setIsLoading(false);
+          // Auto-chain into PR creation if fixes completed cleanly
+          if (orchestrator.getCurrentPhase() === "creating-pr") {
+            runPrCreation();
+            return;
+          }
         }
+        activeExecRef.current = null;
+        if (!destroyedRef.current) setIsLoading(false);
       }).catch(() => {
         activeExecRef.current = null;
         if (!destroyedRef.current) setIsLoading(false);
       });
     } else if (currentPhase === "creating-pr") {
-      activeExecRef.current = "creating-pr";
-      setIsLoading(true);
-      setLoadingStartTime(Date.now());
-
-      orchestrator.executePrCreation(config, planPaths, () => {
-        if (!destroyedRef.current) setMessages([...orchestrator.getMessages()]);
-      }).then(() => {
-        activeExecRef.current = null;
-        if (!destroyedRef.current) {
-          setMessages([...orchestrator.getMessages()]);
-          setIsLoading(false);
-        }
-      }).catch(() => {
-        activeExecRef.current = null;
-        if (!destroyedRef.current) setIsLoading(false);
-      });
+      runPrCreation();
     }
-  }, [currentPhase, orchestrator, agent, config, planPaths]);
+  }, [currentPhase, orchestrator, agent, config, planPaths, runPrCreation]);
 
   const syncLineCount = useCallback(() => {
     if (destroyedRef.current) return;
