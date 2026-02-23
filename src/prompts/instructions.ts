@@ -13,4 +13,13 @@ Rules:
 - Work on ONLY the assigned task
 - Keep changes focused and minimal
 - Follow existing code patterns
-- Do NOT commit broken code`;
+- Do NOT commit broken code
+
+## Acceptance Criteria Completion
+
+When you complete an acceptance criterion, emit an ac-done marker on its own line so progress can be tracked automatically. The marker format is \`<ac-done>N</ac-done>\` where N is the 1-based criterion number shown in the prompt (e.g. #1, #2).
+
+Example: When you complete acceptance criterion #1, emit:
+<ac-done>1</ac-done>
+
+Emit one marker per criterion, only after the criterion is fully satisfied.`;

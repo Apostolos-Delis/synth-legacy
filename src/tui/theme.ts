@@ -99,6 +99,8 @@ export const fullKeyboardShortcuts = [
   { key: "q", description: "Quit synth", category: "General" },
   { key: "Esc", description: "Go back / Cancel", category: "General" },
   { key: "?", description: "Show keyboard shortcuts", category: "General" },
+  { key: "j/k", description: "Navigate tasks / Scroll output", category: "Execution" },
+  { key: "Enter", description: "Enter output scroll mode", category: "Execution" },
   { key: "p", description: "Pause / Resume execution", category: "Execution" },
   { key: "d", description: "Toggle dashboard view", category: "Views" },
   { key: "Enter", description: "Send message (interview)", category: "Input" },

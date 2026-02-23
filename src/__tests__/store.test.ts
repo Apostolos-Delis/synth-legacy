@@ -55,6 +55,39 @@ describe("updateTaskStatus", () => {
     expect(updated.tasks[0].notes).toBe("new note");
   });
 
+  test("marks all criteriaCompleted true when status becomes done", () => {
+    const tf = makeTaskFile([
+      makeTask({
+        id: "US-001",
+        acceptanceCriteria: ["crit1", "crit2", "crit3"],
+      }),
+    ]);
+    const updated = updateTaskStatus(tf, "US-001", "done");
+    expect(updated.tasks[0].criteriaCompleted).toEqual([true, true, true]);
+  });
+
+  test("does not change criteriaCompleted for non-done status", () => {
+    const tf = makeTaskFile([
+      makeTask({
+        id: "US-001",
+        acceptanceCriteria: ["crit1", "crit2"],
+        criteriaCompleted: [true, false],
+      }),
+    ]);
+    const updated = updateTaskStatus(tf, "US-001", "in_progress");
+    expect(updated.tasks[0].criteriaCompleted).toEqual([true, false]);
+  });
+
+  test("handles task without criteriaCompleted (backward compat)", () => {
+    const tf = makeTaskFile([
+      makeTask({ id: "US-001", acceptanceCriteria: ["crit1"] }),
+    ]);
+    // criteriaCompleted is undefined by default
+    expect(tf.tasks[0].criteriaCompleted).toBeUndefined();
+    const updated = updateTaskStatus(tf, "US-001", "in_progress");
+    expect(updated.tasks[0].criteriaCompleted).toBeUndefined();
+  });
+
   test("does not modify other tasks", () => {
     const tf = makeTaskFile([
       makeTask({ id: "US-001" }),

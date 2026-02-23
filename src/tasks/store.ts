@@ -28,6 +28,10 @@ export function updateTaskStatus(
             notes: notes ? (t.notes ? `${t.notes}\n${notes}` : notes) : t.notes,
             iterationCount:
               status === "in_progress" ? t.iterationCount + 1 : t.iterationCount,
+            criteriaCompleted:
+              status === "done"
+                ? t.acceptanceCriteria.map(() => true)
+                : t.criteriaCompleted,
           }
         : t,
     ),

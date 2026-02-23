@@ -23,6 +23,7 @@ export function makeTask(overrides?: Partial<Task>): Task {
     title: "Test task",
     description: "desc",
     acceptanceCriteria: [],
+    criteriaCompleted: undefined,
     priority: 3,
     status: "open",
     iterationCount: 0,

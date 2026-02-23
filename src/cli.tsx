@@ -14,6 +14,7 @@ import {
 import { loadTasks, saveTasks, getProgress, resetOrphanedTasks } from "./tasks/store.js";
 import { writeText, readText, fileExists } from "./utils/fs.js";
 import { spawn } from "./utils/process.js";
+import { loadTaskOutput, buildIterationMap } from "./engine/output-index.js";
 import { ansi, fmt, STATUS_ICONS, STATUS_COLORS, PRIORITY_COLORS, initTheme } from "./tui/theme.js";
 import { globalTrace, formatProfileReport, formatProfileReportJson } from "./utils/perf.js";
 
@@ -422,7 +423,24 @@ async function cmdRun(planId?: string, startIteration = 0, tuiContext?: TuiConte
       currentPhase: null,
       phaseStartTime: null,
       completionSummary: null,
+      taskOutputMap: {},
     };
+
+    // Pre-load historical outputs for tasks completed in previous sessions
+    const completedTasks = taskFile.tasks.filter((t) => t.status === "done");
+    if (completedTasks.length > 0) {
+      buildIterationMap(plan.paths.progress).then(async (iterMap) => {
+        if (!tuiData || iterMap.length === 0) return;
+        for (const task of completedTasks) {
+          if (tuiData.taskOutputMap[task.id]) continue;
+          const output = await loadTaskOutput(plan!.paths.logs, task.id, iterMap);
+          if (output && !tuiData.taskOutputMap[task.id]) {
+            tuiData.taskOutputMap[task.id] = output;
+          }
+        }
+        renderTui();
+      });
+    }
   }
 
   let firstTokenRendered = false;
@@ -459,6 +477,7 @@ async function cmdRun(planId?: string, startIteration = 0, tuiContext?: TuiConte
           tuiData.isThinking = true;
           tuiData.currentPhase = "Starting task...";
           tuiData.phaseStartTime = event.timestamp ?? Date.now();
+          if (event.taskId) tuiData.taskOutputMap[event.taskId] = "";
           break;
         case "task:complete":
         case "task:failed": {
@@ -496,7 +515,13 @@ async function cmdRun(planId?: string, startIteration = 0, tuiContext?: TuiConte
             tuiData.currentPhase = "Streaming response...";
             tuiData.phaseStartTime = renderStart;
           }
-          if (event.message) tuiData.output += stripAnsi(event.message);
+          const stripped = event.message ? stripAnsi(event.message) : "";
+          if (stripped) {
+            tuiData.output += stripped;
+            if (tuiData.currentTaskId && tuiData.currentTaskId in tuiData.taskOutputMap) {
+              tuiData.taskOutputMap[tuiData.currentTaskId] += stripped;
+            }
+          }
           renderTui();
           // Record first-token-to-render latency for --profile reporting
           if (event.isFirstChunk && !firstTokenRendered) {
