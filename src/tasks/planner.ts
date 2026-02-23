@@ -1,6 +1,6 @@
 import type { TaskFile } from "./types.js";
 import type { AgentAdapter } from "../agents/types.js";
-import { readText } from "../utils/fs.js";
+import { readText, fileExists } from "../utils/fs.js";
 
 const PLANNER_PROMPT = `You are a task planner. Given a PRD (Product Requirements Document), generate a structured task list.
 
@@ -44,6 +44,9 @@ export async function generateTasks(
   model?: string,
   onProgress?: (chunk: string) => void,
 ): Promise<TaskFile> {
+  if (!(await fileExists(prdPath))) {
+    throw new Error(`PRD file not found: ${prdPath}. Run 'synth plan' to generate one.`);
+  }
   const prd = await readText(prdPath);
   const prompt = `${PLANNER_PROMPT}
 

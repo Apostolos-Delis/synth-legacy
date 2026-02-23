@@ -1,4 +1,4 @@
-import { useState, useCallback, type ReactNode } from "react";
+import { useState, useCallback, useMemo, type ReactNode } from "react";
 import { useTerminalDimensions, useKeyboard } from "@opentui/react";
 import type { Task } from "../tasks/types.js";
 import { boldAttr, colors, statusIndicators, STATUS_COLORS_HEX, PRIORITY_COLORS_HEX, layout, markdownSyntaxStyle } from "./theme.js";
@@ -48,7 +48,7 @@ export function ReviewView({ tasks, planId, onConfirm, onDecline }: ReviewViewPr
   const detailWidth = width - sidebarWidth;
   const bodyHeight = height - layout.header.height - layout.footer.height;
 
-  const taskIdMap = buildTaskIdMap(tasks);
+  const taskIdMap = useMemo(() => buildTaskIdMap(tasks), [tasks]);
   const selectedTask = tasks[selectedIndex] ?? null;
 
   // Summary stats
@@ -281,7 +281,7 @@ function TaskDetailPane({ task, taskIdMap, width, height }: TaskDetailPaneProps)
   );
 }
 
-function wordWrap(text: string, maxWidth: number): string {
+function wordWrap(text: string, maxWidth: number, indent = "        "): string {
   if (text.length <= maxWidth) return text;
   const lines: string[] = [];
   let remaining = text;
@@ -290,11 +290,10 @@ function wordWrap(text: string, maxWidth: number): string {
       lines.push(remaining);
       break;
     }
-    // Find last space within maxWidth
     let breakAt = remaining.lastIndexOf(" ", maxWidth);
     if (breakAt <= 0) breakAt = maxWidth;
     lines.push(remaining.slice(0, breakAt));
     remaining = remaining.slice(breakAt).trimStart();
   }
-  return lines.join("\n          "); // indent continuation lines
+  return lines.join("\n" + indent);
 }

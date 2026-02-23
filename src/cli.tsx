@@ -870,10 +870,10 @@ async function resumeInterview(
 
     // Phase 2: PRD Review (same flow as cmdPlan)
     const extractedPrd = prd as import("./interview/types.js").GeneratedPrd;
-    let prdMarkdown = interviewMod.prdToMarkdown(extractedPrd);
+    const prdMarkdown = interviewMod.prdToMarkdown(extractedPrd);
     await updatePlanMetadata(cwd, id, { description: extractedPrd.title });
 
-    const prdApproved = await new Promise<boolean>((resolve) => {
+    const prdApproved = await new Promise<boolean>((resolve, reject) => {
       planRoot.render(
         <tui.PrdReviewView
           prdMarkdown={prdMarkdown}
@@ -882,6 +882,7 @@ async function resumeInterview(
           cwd={cwd}
           model={config.agent.model}
           onApprove={() => resolve(true)}
+          onError={(err) => reject(err)}
           onQuit={() => resolve(false)}
         />,
       );
@@ -1197,10 +1198,10 @@ async function cmdPlan(planIdOrFlag?: string): Promise<void> {
 
     // Phase 2: PRD Review (user can revise before task generation)
     const extractedPrd = prd as import("./interview/types.js").GeneratedPrd;
-    let prdMarkdown = interviewMod.prdToMarkdown(extractedPrd);
+    const prdMarkdown = interviewMod.prdToMarkdown(extractedPrd);
     await updatePlanMetadata(cwd, id, { description: extractedPrd.title });
 
-    const prdApproved = await new Promise<boolean>((resolve) => {
+    const prdApproved = await new Promise<boolean>((resolve, reject) => {
       planRoot.render(
         <tui.PrdReviewView
           prdMarkdown={prdMarkdown}
@@ -1209,6 +1210,7 @@ async function cmdPlan(planIdOrFlag?: string): Promise<void> {
           cwd={cwd}
           model={config.agent.model}
           onApprove={() => resolve(true)}
+          onError={(err) => reject(err)}
           onQuit={() => resolve(false)}
         />,
       );

@@ -90,7 +90,7 @@ export function classifyPrError(raw: string): string {
   }
 
   // Repository not found / no remote
-  if (lower.includes("repository not found") || lower.includes("could not resolve") || lower.includes("no such remote") || lower.includes("404")) {
+  if (lower.includes("repository not found") || lower.includes("could not resolve") || lower.includes("no such remote") || /\b404\b/.test(lower)) {
     return "Could not find the GitHub repository. Check that the remote is configured correctly";
   }
 

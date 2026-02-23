@@ -6,6 +6,8 @@ import type { PlanPaths } from "../plans/types.js";
 import { boldAttr, colors, markdownSyntaxStyle } from "./theme.js";
 import { PhaseIndicator } from "./components/PhaseIndicator.js";
 import { OptionSelector } from "./components/OptionSelector.js";
+import { ToastContainer } from "./components/Toast.js";
+import { useToast } from "./hooks/useToast.js";
 import type { ChatOption } from "../finalize/chat-types.js";
 import { openInEditor } from "../utils/editor.js";
 import { writeText } from "../utils/fs.js";
@@ -17,6 +19,7 @@ interface PrdReviewViewProps {
   cwd: string;
   model?: string;
   onApprove: () => void;
+  onError?: (err: Error) => void;
   onQuit: () => void;
 }
 
@@ -32,6 +35,7 @@ export function PrdReviewView({
   cwd,
   model,
   onApprove,
+  onError,
   onQuit,
 }: PrdReviewViewProps): ReactNode {
   const [prdContent, setPrdContent] = useState(prdMarkdown);
@@ -46,6 +50,7 @@ export function PrdReviewView({
   const renderer = useRenderer();
   const editorOpenRef = useRef(false);
 
+  const { toasts, showError } = useToast();
   const destroyedRef = useRef(false);
   useEffect(() => () => { destroyedRef.current = true; }, []);
 
@@ -61,12 +66,21 @@ export function PrdReviewView({
 
   const handleOptionSelect = useCallback(async (option: ChatOption) => {
     if (option.value === "approve") {
-      await writeText(planPaths.prd, prdContent);
-      onApprove();
+      try {
+        await writeText(planPaths.prd, prdContent);
+        onApprove();
+      } catch (err) {
+        const error = err instanceof Error ? err : new Error(String(err));
+        if (onError) {
+          onError(error);
+        } else {
+          throw error;
+        }
+      }
     } else if (option.value === "revise") {
       setShowTextInput(true);
     }
-  }, [planPaths.prd, prdContent, onApprove]);
+  }, [planPaths.prd, prdContent, onApprove, onError]);
 
   const handleSubmit = useCallback(async () => {
     if (isLoading) return;
@@ -87,33 +101,41 @@ export function PrdReviewView({
     setLoadingStartTime(startTime);
     setStreamingText("");
 
-    try {
-      const prompt = buildRevisionPrompt(prdContent, value);
-      let output = "";
-      const handle = agent.execute(prompt, {
-        cwd,
-        model,
-        skipPermissions: false,
-        onStdout: (chunk) => {
-          output += chunk;
-          if (!destroyedRef.current) setStreamingText((prev) => prev + chunk);
-        },
-      });
-      await handle.promise;
+    const prompt = buildRevisionPrompt(prdContent, value);
 
-      if (!destroyedRef.current) {
-        const revisedPrd = extractMarkdownPrd(output) || output;
-        setPrdContent(revisedPrd);
-        setRevision((r) => r + 1);
-        setStreamingText("");
-        setIsLoading(false);
-        setShowTextInput(false);
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        let output = "";
+        if (attempt > 0 && !destroyedRef.current) setStreamingText("");
+        const handle = agent.execute(prompt, {
+          cwd,
+          model,
+          skipPermissions: false,
+          onStdout: (chunk) => {
+            output += chunk;
+            if (!destroyedRef.current) setStreamingText((prev) => prev + chunk);
+          },
+        });
+        await handle.promise;
+
+        if (!destroyedRef.current) {
+          const revisedPrd = extractMarkdownPrd(output) || output;
+          setPrdContent(revisedPrd);
+          setRevision((r) => r + 1);
+          setStreamingText("");
+          setIsLoading(false);
+          setShowTextInput(false);
+        }
+        return;
+      } catch {
+        // Auto-retry on first attempt; show toast after final failure
       }
-    } catch {
-      if (!destroyedRef.current) {
-        setStreamingText("");
-        setIsLoading(false);
-      }
+    }
+
+    if (!destroyedRef.current) {
+      showError("Revision failed — try again or edit manually", { duration: 5000 });
+      setStreamingText("");
+      setIsLoading(false);
     }
   }, [isLoading, prdContent, agent, cwd, model]);
 
@@ -161,14 +183,18 @@ export function PrdReviewView({
       editorOpenRef.current = true;
       const currentText = textarea.plainText ?? "";
       renderer.suspend();
-      openInEditor(currentText).then((result) => {
-        renderer.resume();
-        editorOpenRef.current = false;
-        if (result !== null && !destroyedRef.current) {
-          textarea.editBuffer.setText(result);
-          syncLineCount();
-        }
-      });
+      openInEditor(currentText)
+        .then((result) => {
+          if (result !== null && !destroyedRef.current) {
+            textarea.editBuffer.setText(result);
+            syncLineCount();
+          }
+        })
+        .catch(() => {})
+        .finally(() => {
+          renderer.resume();
+          editorOpenRef.current = false;
+        });
       return;
     }
 
@@ -378,16 +404,15 @@ export function PrdReviewView({
         }}
       >
         {isLoading ? (
-          <PhaseIndicator
-            phase={streamingText ? "Streaming revision..." : "Revising PRD..."}
-            startTime={loadingStartTime}
-          />
+          <text fg={colors.fg.muted}>Esc:cancel</text>
         ) : showTextInput ? (
           <text fg={colors.fg.muted}>Enter:send  Shift+Enter:newline  Ctrl+G:editor  Esc:back</text>
         ) : (
           <text fg={colors.fg.muted}>j/k:navigate  Enter:select  Esc:quit</text>
         )}
       </box>
+
+      <ToastContainer toasts={toasts} />
     </box>
   );
 }
