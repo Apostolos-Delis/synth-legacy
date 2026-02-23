@@ -23,7 +23,7 @@ interface PrdReviewViewProps {
 }
 
 const REVIEW_OPTIONS: ChatOption[] = [
-  { label: "Execute Plan", description: "Approve the PRD and proceed to task generation", value: "approve" },
+  { label: "Execute Session", description: "Approve the PRD and proceed to task generation", value: "approve" },
   { label: "Request Changes", description: "Type follow-up feedback to revise the PRD", value: "revise" },
 ];
 

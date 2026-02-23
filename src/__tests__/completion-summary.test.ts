@@ -51,7 +51,7 @@ describe("buildSummaryMarkdown format", () => {
       `| Field | Value |`,
       `|-------|-------|`,
       `| Project | ${data.projectName} |`,
-      `| Plan | ${data.planId} |`,
+      `| Session | ${data.planId} |`,
       `| Agent | ${data.agentName} |`,
       `| Duration | ${dur} |`,
       `| Iterations | ${data.totalIterations} |`,
@@ -94,7 +94,7 @@ describe("buildSummaryMarkdown format", () => {
     const md = buildSummaryMarkdown(baseSummary);
     expect(md).toContain("# Completion Summary");
     expect(md).toContain("| Project | test-project |");
-    expect(md).toContain("| Plan | abc-123 |");
+    expect(md).toContain("| Session | abc-123 |");
     expect(md).toContain("| Agent | claude |");
     expect(md).toContain("| Duration | 2m 5s |");
     expect(md).toContain("| Iterations | 5 |");

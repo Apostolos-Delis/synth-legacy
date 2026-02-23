@@ -163,7 +163,7 @@ async function resolvePlanId(input?: string): Promise<string | undefined> {
     const plans = allPlans.filter((p) => p.status !== "completed" && p.status !== "finalized");
     const idx = parseInt(input, 10) - 1;
     if (idx < 0 || idx >= plans.length) {
-      logError(`Plan #${input} not found. Run 'synth ls' to see available plans.`);
+      logError(`Session #${input} not found. Run 'synth ls' to see available sessions.`);
       process.exit(1);
     }
     return plans[idx].id;
@@ -180,14 +180,14 @@ async function cmdLs(): Promise<void> {
 
   if (plans.length === 0) {
     if (allPlans.length > 0) {
-      log(fmt.dim(`All ${allPlans.length} plan(s) are completed. Use 'synth ls --all' to show them.`));
+      log(fmt.dim(`All ${allPlans.length} session(s) are completed. Use 'synth ls --all' to show them.`));
     } else {
-      log(fmt.dim("No plans found. Run 'synth plan' to create one."));
+      log(fmt.dim("No sessions found. Run 'synth plan' to create one."));
     }
     return;
   }
 
-  const label = showAll ? "Plans (all)" : "Plans";
+  const label = showAll ? "Sessions (all)" : "Sessions";
   const hidden = allPlans.length - plans.length;
   const suffix = hidden > 0 ? ` ${ansi.muted}(${hidden} completed hidden, use --all)${ansi.reset}` : "";
   log(`${fmt.bold(label)}${suffix}\n`);
@@ -217,11 +217,11 @@ async function cmdLs(): Promise<void> {
 async function cmdShow(planId: string): Promise<void> {
   const plan = await getSession(cwd, planId);
   if (!plan) {
-    logError(`Plan '${planId}' not found`);
+    logError(`Session '${planId}' not found`);
     process.exit(1);
   }
 
-  log(fmt.bold(`Plan: ${plan.metadata.id}`));
+  log(fmt.bold(`Session: ${plan.metadata.id}`));
   log(fmt.label("  Status:", plan.metadata.status));
   log(fmt.label("  Created:", plan.metadata.createdAt));
   log(fmt.label("  Updated:", plan.metadata.updatedAt));
@@ -256,7 +256,7 @@ async function cmdStatus(planId?: string): Promise<void> {
   }
 
   if (!plan) {
-    log(fmt.dim("No active plan. Run 'synth plan' to create one."));
+    log(fmt.dim("No active session. Run 'synth plan' to create one."));
     return;
   }
 
@@ -335,12 +335,12 @@ async function cmdRun(planId?: string, startIteration = 0, tuiContext?: TuiConte
   }
 
   if (!plan) {
-    logError("No plan found. Run 'synth plan' first.");
+    logError("No session found. Run 'synth plan' first.");
     process.exit(1);
   }
 
   if (!(await fileExists(plan.paths.tasks))) {
-    logError(`Plan ${plan.metadata.id} has no tasks. Run 'synth plan' to generate them.`);
+    logError(`Session ${plan.metadata.id} has no tasks. Run 'synth plan' to generate them.`);
     process.exit(1);
   }
 
@@ -374,12 +374,12 @@ async function cmdRun(planId?: string, startIteration = 0, tuiContext?: TuiConte
 
   const locked = await runMod.acquireLock(plan.paths, run.id);
   if (!locked) {
-    logError("Another synth session is already running for this plan.");
+    logError("Another synth instance is already running for this session.");
     process.exit(1);
   }
 
   log(
-    `${fmt.bold("synth run")} ${ansi.muted}│${ansi.reset} ${fmt.label("plan:", plan.metadata.id)} ${ansi.muted}│${ansi.reset} ${fmt.label("agent:", config.agent.name)} ${ansi.muted}│${ansi.reset} ${fmt.label("max:", `${config.execution.max_iterations} iterations`)}`,
+    `${fmt.bold("synth run")} ${ansi.muted}│${ansi.reset} ${fmt.label("session:", plan.metadata.id)} ${ansi.muted}│${ansi.reset} ${fmt.label("agent:", config.agent.name)} ${ansi.muted}│${ansi.reset} ${fmt.label("max:", `${config.execution.max_iterations} iterations`)}`,
   );
   log("");
 
@@ -753,7 +753,7 @@ async function cmdResume(planId?: string): Promise<void> {
   }
 
   if (!plan) {
-    logError("No plan found to resume.");
+    logError("No session found to resume.");
     process.exit(1);
   }
 
@@ -768,7 +768,7 @@ async function cmdResume(planId?: string): Promise<void> {
       }
       const savedState = await readJson<import("./interview/types.js").InterviewState>(plan.paths.interview);
       if (savedState.prdPending && savedState.interviewerHistory.length > 0) {
-        log(fmt.info(`Resuming interview for plan ${id} (${savedState.interviewerHistory.length} messages saved)`));
+        log(fmt.info(`Resuming interview for session ${id} (${savedState.interviewerHistory.length} messages saved)`));
         await resumeInterview(plan, savedState);
         return;
       }
@@ -783,13 +783,13 @@ async function cmdResume(planId?: string): Promise<void> {
         process.exit(1);
       }
       const savedConversation = await readJson<import("./conversation/types.js").ConversationMessage[]>(finalizePath);
-      log(fmt.info(`Resuming finalize review for plan ${id} (${savedConversation.length} messages)`));
+      log(fmt.info(`Resuming finalize review for session ${id} (${savedConversation.length} messages)`));
       await cmdFinalize(id, undefined, undefined, savedConversation);
       return;
     }
 
     case "completed": {
-      log(fmt.info(`Plan ${id} execution is complete.`));
+      log(fmt.info(`Session ${id} execution is complete.`));
       const readline = await import("node:readline");
       const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
       const answer = await new Promise<string>((resolve) => {
@@ -803,22 +803,22 @@ async function cmdResume(planId?: string): Promise<void> {
     }
 
     case "finalized": {
-      log(fmt.info(`Plan ${id} is already finalized.`));
+      log(fmt.info(`Session ${id} is already finalized.`));
       return;
     }
 
     case "failed": {
-      logError(`Plan ${id} has failed. Check logs in ${plan.paths.logs} for details.`);
+      logError(`Session ${id} has failed. Check logs in ${plan.paths.logs} for details.`);
       return;
     }
 
     case "blocked": {
-      logError(`Plan ${id} is blocked. Check logs in ${plan.paths.logs} for details.`);
+      logError(`Session ${id} is blocked. Check logs in ${plan.paths.logs} for details.`);
       return;
     }
 
     case "planning": {
-      log(fmt.info(`Plan ${id} is in planning phase. Run 'synth run ${id}' to start execution.`));
+      log(fmt.info(`Session ${id} is in planning phase. Run 'synth run ${id}' to start execution.`));
       return;
     }
 
@@ -837,7 +837,7 @@ async function cmdResume(planId?: string): Promise<void> {
     return;
   }
 
-  log(fmt.info(`Resuming plan ${id} from iteration ${run.currentIteration}`));
+  log(fmt.info(`Resuming session ${id} from iteration ${run.currentIteration}`));
   await cmdRun(id, run.currentIteration);
 }
 
@@ -956,7 +956,7 @@ async function resumeInterview(
       process.off("SIGINT", sigintHandler);
       cleanup();
       agent.dispose();
-      log(`\nPlan saved. Run later with: ${fmt.bold(`synth run ${id}`)}`);
+      log(`\nSession saved. Run later with: ${fmt.bold(`synth run ${id}`)}`);
       return;
     }
 
@@ -1010,7 +1010,7 @@ async function resumeInterview(
     if (!confirmed) {
       cleanup();
       agent.dispose();
-      log(`\nPlan saved. Run later with: ${fmt.bold(`synth run ${id}`)}`);
+      log(`\nSession saved. Run later with: ${fmt.bold(`synth run ${id}`)}`);
       return;
     }
 
@@ -1111,7 +1111,7 @@ async function resumeInterview(
     if (!answer || answer.toLowerCase() === "y" || answer.toLowerCase() === "yes") {
       await cmdRun(id);
     } else {
-      log(`\nPlan saved. Run later with: ${fmt.bold(`synth run ${id}`)}`);
+      log(`\nSession saved. Run later with: ${fmt.bold(`synth run ${id}`)}`);
     }
   }
 }
@@ -1135,7 +1135,7 @@ async function cmdPlan(planIdOrFlag?: string): Promise<void> {
     const { id, paths } = await createSession(cwd, "Generated from PRD");
 
     await writeText(paths.prd, prdContent);
-    log(fmt.info(`Created plan: ${id}`));
+    log(fmt.info(`Created session: ${id}`));
 
     const [{ getAgent }, { generateTasks }] = await Promise.all([
       loadAgentRegistry(),
@@ -1285,7 +1285,7 @@ async function cmdPlan(planIdOrFlag?: string): Promise<void> {
       process.off("SIGINT", sigintHandler);
       cleanup();
       agent.dispose();
-      log(`\nPlan saved. Run later with: ${fmt.bold(`synth run ${id}`)}`);
+      log(`\nSession saved. Run later with: ${fmt.bold(`synth run ${id}`)}`);
       return;
     }
 
@@ -1339,7 +1339,7 @@ async function cmdPlan(planIdOrFlag?: string): Promise<void> {
     if (!confirmed) {
       cleanup();
       agent.dispose();
-      log(`\nPlan saved. Run later with: ${fmt.bold(`synth run ${id}`)}`);
+      log(`\nSession saved. Run later with: ${fmt.bold(`synth run ${id}`)}`);
       return;
     }
 
@@ -1443,7 +1443,7 @@ async function cmdPlan(planIdOrFlag?: string): Promise<void> {
     await cmdRun(id);
   } else {
     log(
-      `\nPlan saved. Run later with: ${fmt.bold(`synth run ${id}`)}`,
+      `\nSession saved. Run later with: ${fmt.bold(`synth run ${id}`)}`,
     );
   }
 }
@@ -1469,13 +1469,13 @@ async function cmdFinalize(
   }
 
   if (!plan) {
-    logError("No plan found to finalize.");
+    logError("No session found to finalize.");
     process.exit(1);
   }
 
   // Re-entry guard: already finalized plans cannot be re-finalized
   if (plan.metadata.status === "finalized") {
-    logError(`Plan '${plan.metadata.id}' is already finalized.`);
+    logError(`Session '${plan.metadata.id}' is already finalized.`);
     process.exit(1);
   }
 
@@ -1601,7 +1601,7 @@ async function cmdSpawn(planIdOrFlag?: string): Promise<void> {
   if (!planId && !doPlan) {
     const plan = await getMostRecentSession(cwd);
     if (!plan) {
-      logError("No plan found. Use 'synth spawn --plan' to start a new plan.");
+      logError("No session found. Use 'synth spawn --plan' to start a new session.");
       process.exit(1);
     }
     planId = plan.metadata.id;
@@ -1609,7 +1609,7 @@ async function cmdSpawn(planIdOrFlag?: string): Promise<void> {
 
   const wtName = planId ?? `synth-${Date.now().toString(36)}`;
   if (!/^[\w./-]+$/.test(wtName)) {
-    logError(`Invalid plan ID: ${wtName}`);
+    logError(`Invalid session ID: ${wtName}`);
     process.exit(1);
   }
   const wtPath = join(cwd, ".worktrees", wtName);
@@ -1679,7 +1679,7 @@ async function cmdClean(): Promise<void> {
     return;
   }
 
-  log(fmt.bold(`Removing ${stale.length} abandoned plan(s):\n`));
+  log(fmt.bold(`Removing ${stale.length} abandoned session(s):\n`));
   for (const plan of stale) {
     const date = fmt.dim(new Date(plan.createdAt).toLocaleDateString());
     const deleted = await deleteSession(cwd, plan.id);
@@ -1764,7 +1764,7 @@ function buildSummaryMarkdown(data: Omit<CompletionSummary, "summaryFilePath">):
     `| Field | Value |`,
     `|-------|-------|`,
     `| Project | ${data.projectName} |`,
-    `| Plan | ${data.planId} |`,
+    `| Session | ${data.planId} |`,
     `| Agent | ${data.agentName} |`,
     `| Duration | ${dur} |`,
     `| Iterations | ${data.totalIterations} |`,
@@ -1839,7 +1839,7 @@ async function main(): Promise<void> {
     case "show": {
       const showId = await resolvePlanId(args[1]);
       if (!showId) {
-        logError("Usage: synth show <plan-id>");
+        logError("Usage: synth show <session-id>");
         process.exit(1);
       }
       await cmdShow(showId);
@@ -1880,22 +1880,22 @@ async function main(): Promise<void> {
 
       log(`${ansi.bold}Workflow:${ansi.reset}`);
       log(`  ${ansi.primary}plan${ansi.reset} ${ansi.muted}[--prd <path>]${ansi.reset}    Interview → generate tasks → execute`);
-      log(`  ${ansi.primary}run${ansi.reset} ${ansi.muted}[<plan-id>]${ansi.reset}        Execute the task loop`);
-      log(`  ${ansi.primary}resume${ansi.reset} ${ansi.muted}[<plan-id>]${ansi.reset}     Resume paused session`);
-      log(`  ${ansi.primary}finalize${ansi.reset} ${ansi.muted}[<plan-id>]${ansi.reset}   Self-review → format → split → PR`);
-      log(`  ${ansi.primary}spawn${ansi.reset} ${ansi.muted}[<plan-id>]${ansi.reset}      Run plan in background worktree`);
+      log(`  ${ansi.primary}run${ansi.reset} ${ansi.muted}[<session-id>]${ansi.reset}     Execute the task loop`);
+      log(`  ${ansi.primary}resume${ansi.reset} ${ansi.muted}[<session-id>]${ansi.reset}  Resume paused session`);
+      log(`  ${ansi.primary}finalize${ansi.reset} ${ansi.muted}[<session-id>]${ansi.reset} Self-review → format → split → PR`);
+      log(`  ${ansi.primary}spawn${ansi.reset} ${ansi.muted}[<session-id>]${ansi.reset}   Run session in background worktree`);
 
       log(`\n${ansi.bold}Inspect:${ansi.reset}`);
-      log(`  ${ansi.primary}ls${ansi.reset} ${ansi.muted}[--all]${ansi.reset}              List plans (hides completed)`);
-      log(`  ${ansi.primary}show${ansi.reset} ${ansi.muted}<plan-id>${ansi.reset}          Show plan details`);
-      log(`  ${ansi.primary}status${ansi.reset} ${ansi.muted}[<plan-id>]${ansi.reset}      Plan/session status`);
+      log(`  ${ansi.primary}ls${ansi.reset} ${ansi.muted}[--all]${ansi.reset}              List sessions (hides completed)`);
+      log(`  ${ansi.primary}show${ansi.reset} ${ansi.muted}<session-id>${ansi.reset}       Show session details`);
+      log(`  ${ansi.primary}status${ansi.reset} ${ansi.muted}[<session-id>]${ansi.reset}   Session status`);
       log(`  ${ansi.primary}ps${ansi.reset}                       List running instances`);
       log(`  ${ansi.primary}config${ansi.reset}                   Display configuration`);
       log(`  ${ansi.primary}themes${ansi.reset}                   List themes and spinners`);
 
       log(`\n${ansi.bold}System:${ansi.reset}`);
       log(`  ${ansi.primary}init${ansi.reset}                     Create synth.toml`);
-      log(`  ${ansi.primary}clean${ansi.reset}                    Remove abandoned plans`);
+      log(`  ${ansi.primary}clean${ansi.reset}                    Remove abandoned sessions`);
       log(`  ${ansi.primary}update${ansi.reset}                   Update to latest version`);
       log(`  ${ansi.primary}version${ansi.reset}                  Show version`);
 
