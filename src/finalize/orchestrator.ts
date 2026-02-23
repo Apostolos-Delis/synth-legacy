@@ -24,7 +24,9 @@ import { getCurrentBranch } from "../utils/git.js";
 import { loadTasks } from "../tasks/store.js";
 
 const MAX_HISTORY = 20;
-const OPTION_RE = /\[OPTION(\*?)\]([^|]+)\|([^[]+)\[\/OPTION\]/g;
+const OPTION_CLOSED_RE = /\[OPTION(\*?)\]([^[]*)\[\/OPTION\]/g;
+const OPTION_UNCLOSED_RE = /\[OPTION(\*?)\]([^\n]*)/g;
+const OPTION_ORPHAN_CLOSE_RE = /\[\/OPTION\]/g;
 const QUESTION_RE = /\[QUESTION\](.*?)\[\/QUESTION\]/g;
 const FIX_RE = /\[FIX\]([\s\S]*?)\[\/FIX\]/g;
 const REVIEW_COMPLETE_RE = /\[REVIEW_COMPLETE\]/;
@@ -38,16 +40,43 @@ export interface ParsedResponse {
   reviewComplete: boolean;
 }
 
-function matchToOption(m: RegExpMatchArray): ChatOption {
+function matchToOption(m: RegExpMatchArray): ChatOption | null {
   const recommended = m[1] === "*";
-  const label = m[2].trim();
-  const description = m[3].trim();
+  const rawContent = (m[2] || "").trim();
+  if (!rawContent) return null;
+  const pipeIdx = rawContent.indexOf("|");
+  if (pipeIdx > 0) {
+    const label = rawContent.slice(0, pipeIdx).trim();
+    const desc = rawContent.slice(pipeIdx + 1).trim();
+    if (label) {
+      return {
+        label,
+        description: desc,
+        value: label.toLowerCase().replace(/\s+/g, "-"),
+        ...(recommended ? { recommended: true } : {}),
+      };
+    }
+  }
   return {
-    label,
-    description,
-    value: label.toLowerCase().replace(/\s+/g, "-"),
+    label: rawContent,
+    description: "",
+    value: rawContent.toLowerCase().replace(/\s+/g, "-"),
     ...(recommended ? { recommended: true } : {}),
   };
+}
+
+function extractOptions(text: string): ChatOption[] {
+  const options: ChatOption[] = [];
+  for (const m of text.matchAll(OPTION_CLOSED_RE)) {
+    const opt = matchToOption(m);
+    if (opt) options.push(opt);
+  }
+  const afterClosed = text.replace(OPTION_CLOSED_RE, "");
+  for (const m of afterClosed.matchAll(OPTION_UNCLOSED_RE)) {
+    const opt = matchToOption(m);
+    if (opt) options.push(opt);
+  }
+  return options;
 }
 
 export function parseAIResponse(raw: string): ParsedResponse {
@@ -68,7 +97,7 @@ export function parseAIResponse(raw: string): ParsedResponse {
   if (questionMarkers.length > 0) {
     // Capture any options that appear before the first [QUESTION] marker
     const preamble = raw.slice(0, questionMarkers[0].index!);
-    const preambleOptions = [...preamble.matchAll(OPTION_RE)].map(matchToOption);
+    const preambleOptions = extractOptions(preamble);
     if (preambleOptions.length > 0) {
       questionGroups.push({ question: "", options: preambleOptions });
     }
@@ -83,14 +112,14 @@ export function parseAIResponse(raw: string): ParsedResponse {
         : raw.length;
       const segment = raw.slice(startIdx, endIdx);
 
-      const groupOptions = [...segment.matchAll(OPTION_RE)].map(matchToOption);
+      const groupOptions = extractOptions(segment);
       questionGroups.push({ question, options: groupOptions });
     }
     // Flatten all options for backward compat
     options = questionGroups.flatMap((g) => g.options);
   } else {
     // Flat mode (backward compat): parse all [OPTION] markers as a single group
-    options = [...raw.matchAll(OPTION_RE)].map(matchToOption);
+    options = extractOptions(raw);
     // Wrap as single unnamed group if there are options
     if (options.length > 0) {
       questionGroups = [{ question: "", options }];
@@ -99,7 +128,9 @@ export function parseAIResponse(raw: string): ParsedResponse {
 
   // Strip markers from displayed content
   let content = raw
-    .replace(OPTION_RE, "")
+    .replace(OPTION_CLOSED_RE, "")
+    .replace(OPTION_UNCLOSED_RE, "")
+    .replace(OPTION_ORPHAN_CLOSE_RE, "")
     .replace(QUESTION_RE, "")
     .replace(FIX_RE, "")
     .replace(REVIEW_COMPLETE_RE, "")

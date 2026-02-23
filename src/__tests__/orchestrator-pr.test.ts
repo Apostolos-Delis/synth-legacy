@@ -239,3 +239,74 @@ describe("parseAIResponse — recommended and question groups", () => {
     expect(result.options).toHaveLength(2);
   });
 });
+
+describe("parseAIResponse — malformed OPTION markers", () => {
+  test("missing | separator falls back to raw text as label", () => {
+    const raw = "[OPTION]Just a label[/OPTION]";
+    const result = parseAIResponse(raw);
+    expect(result.options).toHaveLength(1);
+    expect(result.options[0].label).toBe("Just a label");
+    expect(result.options[0].description).toBe("");
+    expect(result.options[0].value).toBe("just-a-label");
+  });
+
+  test("unclosed [OPTION] tag falls back to raw text as label", () => {
+    const raw = "Some text\n[OPTION]Unclosed option text";
+    const result = parseAIResponse(raw);
+    expect(result.options).toHaveLength(1);
+    expect(result.options[0].label).toBe("Unclosed option text");
+    expect(result.options[0].description).toBe("");
+  });
+
+  test("empty content [OPTION][/OPTION] is skipped without crash", () => {
+    const raw = "Some text\n[OPTION][/OPTION]\nMore text";
+    const result = parseAIResponse(raw);
+    expect(result.options).toHaveLength(0);
+    expect(result.content).toContain("Some text");
+    expect(result.content).toContain("More text");
+    expect(result.content).not.toContain("[OPTION]");
+    expect(result.content).not.toContain("[/OPTION]");
+  });
+
+  test("mix of well-formed and malformed markers", () => {
+    const raw = [
+      "[OPTION]Valid|With description[/OPTION]",
+      "[OPTION]No separator[/OPTION]",
+      "[OPTION]Unclosed marker",
+    ].join("\n");
+    const result = parseAIResponse(raw);
+    expect(result.options).toHaveLength(3);
+    expect(result.options[0].label).toBe("Valid");
+    expect(result.options[0].description).toBe("With description");
+    expect(result.options[1].label).toBe("No separator");
+    expect(result.options[1].description).toBe("");
+    expect(result.options[2].label).toBe("Unclosed marker");
+    expect(result.options[2].description).toBe("");
+  });
+
+  test("malformed markers are stripped from content", () => {
+    const raw = "Intro\n[OPTION]No sep[/OPTION]\n[OPTION]Unclosed\nTrailing";
+    const result = parseAIResponse(raw);
+    expect(result.content).not.toContain("[OPTION]");
+    expect(result.content).not.toContain("[/OPTION]");
+    expect(result.content).toContain("Intro");
+    expect(result.content).toContain("Trailing");
+  });
+
+  test("malformed [OPTION*] with no separator preserves recommended flag", () => {
+    const raw = "[OPTION*]Recommended choice[/OPTION]";
+    const result = parseAIResponse(raw);
+    expect(result.options).toHaveLength(1);
+    expect(result.options[0].label).toBe("Recommended choice");
+    expect(result.options[0].recommended).toBe(true);
+    expect(result.options[0].description).toBe("");
+  });
+
+  test("orphaned [/OPTION] closing tag is stripped from content", () => {
+    const raw = "Some text [/OPTION] more text";
+    const result = parseAIResponse(raw);
+    expect(result.content).not.toContain("[/OPTION]");
+    expect(result.content).toContain("Some text");
+    expect(result.content).toContain("more text");
+  });
+});
