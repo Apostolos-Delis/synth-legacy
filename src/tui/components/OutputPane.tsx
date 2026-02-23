@@ -47,7 +47,14 @@ export function OutputPane({ output, width, height, isThinking = false, currentP
     () => (task ? calcHeaderHeight(task, width, terminalHeight, height) : 0),
     [task, width, terminalHeight, height],
   );
-  const outputHeight = height - headerHeight;
+  const maxOutputHeight = height - headerHeight;
+
+  // Shrink the output box to fit content so we don't show a huge empty area
+  // with a scrollbar when only a few lines are present.
+  // +2 accounts for top/bottom border lines.
+  const contentLines = output ? output.split("\n").length + 2 : MIN_OUTPUT_HEIGHT;
+  const outputHeight = Math.max(MIN_OUTPUT_HEIGHT, Math.min(maxOutputHeight, contentLines));
+
   const waiting = isThinking && !output;
 
   return (
