@@ -12,7 +12,7 @@ import {
   deletePlan,
 } from "./plans/registry.js";
 import { loadTasks, saveTasks, getProgress, resetOrphanedTasks } from "./tasks/store.js";
-import { writeText, readText, fileExists } from "./utils/fs.js";
+import { writeText, readText, fileExists, writeJson } from "./utils/fs.js";
 import { spawn } from "./utils/process.js";
 import { loadTaskOutput, buildIterationMap } from "./engine/output-index.js";
 import { ansi, fmt, STATUS_ICONS, STATUS_COLORS, PRIORITY_COLORS, initTheme } from "./tui/theme.js";
@@ -814,6 +814,7 @@ async function cmdPlan(planIdOrFlag?: string): Promise<void> {
   const interviewer = new interviewMod.Interviewer(agent, cwd, config.agent.model);
 
   let prd: import("./interview/types.js").GeneratedPrd | null = null;
+  let cliPlanInfo: { id: string; paths: import("./plans/types.js").PlanPaths } | null = null;
 
   if (tuiEnabled) {
     const tui = await loadTui();
@@ -826,6 +827,18 @@ async function cmdPlan(planIdOrFlag?: string): Promise<void> {
     const cleanup = () => {
       planRoot.unmount();
       planRenderer.destroy();
+    };
+
+    // Create plan early so we have a planPaths to write interview state to
+    const { id, paths } = await createPlan(cwd, "");
+
+    const saveInterviewState = async () => {
+      const state: import("./interview/types.js").InterviewState = {
+        messages: interviewer.getHistory(),
+        interviewerHistory: interviewer.getHistory(),
+        prdPending: !prd,
+      };
+      await writeJson(paths.interview, state);
     };
 
     const sigintHandler = () => {
@@ -852,6 +865,7 @@ async function cmdPlan(planIdOrFlag?: string): Promise<void> {
     });
 
     if (!interviewResult) {
+      await saveInterviewState();
       process.off("SIGINT", sigintHandler);
       cleanup();
       agent.dispose();
@@ -859,15 +873,15 @@ async function cmdPlan(planIdOrFlag?: string): Promise<void> {
     }
 
     if (!prd) {
+      await saveInterviewState();
       process.off("SIGINT", sigintHandler);
       cleanup();
       agent.dispose();
       return;
     }
 
-    // Phase 2: Task Generation (keep renderer alive)
+    // Phase 2: Task Generation (keep renderer alive, reuse early-created plan)
     const extractedPrd = prd as import("./interview/types.js").GeneratedPrd;
-    const { id, paths } = await createPlan(cwd, "");
     const prdMarkdown = interviewMod.prdToMarkdown(extractedPrd);
     await writeText(paths.prd, prdMarkdown);
     await updatePlanMetadata(cwd, id, { description: extractedPrd.title });
@@ -928,6 +942,18 @@ async function cmdPlan(planIdOrFlag?: string): Promise<void> {
     cleanup();
     return;
   } else {
+    // Create plan early for non-TUI path too
+    cliPlanInfo = await createPlan(cwd, "");
+
+    const saveCliInterviewState = async () => {
+      const state: import("./interview/types.js").InterviewState = {
+        messages: interviewer.getHistory(),
+        interviewerHistory: interviewer.getHistory(),
+        prdPending: !prd,
+      };
+      await writeJson(cliPlanInfo!.paths.interview, state);
+    };
+
     log(`\n${ansi.magenta}Synth:${ansi.reset}`);
     log(interviewMod.WELCOME_MESSAGE);
 
@@ -949,6 +975,7 @@ async function cmdPlan(planIdOrFlag?: string): Promise<void> {
     while (!prd) {
       const userInput = await askQuestion();
       if (userInput === null) {
+        await saveCliInterviewState();
         agent.dispose();
         return;
       }
@@ -962,6 +989,7 @@ async function cmdPlan(planIdOrFlag?: string): Promise<void> {
         log(`\n${ansi.primary}Does this all look good? Press Enter to generate the PRD and tasks, or type feedback to refine.${ansi.reset}`);
         const confirmation = await askQuestion();
         if (confirmation === null) {
+          await saveCliInterviewState();
           agent.dispose();
           return;
         }
@@ -977,12 +1005,12 @@ async function cmdPlan(planIdOrFlag?: string): Promise<void> {
   }
 
   // Non-TUI path continues here (TUI path returns early above)
-  if (!prd) {
+  if (!prd || !cliPlanInfo) {
     agent.dispose();
     return;
   }
 
-  const { id, paths } = await createPlan(cwd, "");
+  const { id, paths } = cliPlanInfo;
   const prdMarkdown = interviewMod.prdToMarkdown(prd);
   await writeText(paths.prd, prdMarkdown);
   await updatePlanMetadata(cwd, id, { description: prd.title });

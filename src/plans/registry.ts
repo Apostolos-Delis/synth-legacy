@@ -45,6 +45,7 @@ function planPaths(repoKey: string, planId: string): PlanPaths {
     lock: join(root, "synth.lock"),
     logs: join(root, "logs"),
     summary: join(root, "summary.md"),
+    interview: join(root, "interview.json"),
   };
 }
 

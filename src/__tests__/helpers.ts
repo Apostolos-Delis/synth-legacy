@@ -14,6 +14,7 @@ export function makePlanPaths(root: string): PlanPaths {
     lock: join(root, "session.lock"),
     logs: join(root, "logs"),
     summary: join(root, "summary.md"),
+    interview: join(root, "interview.json"),
   };
 }
 

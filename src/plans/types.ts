@@ -18,4 +18,5 @@ export interface PlanPaths {
   lock: string;
   logs: string;
   summary: string;
+  interview: string;
 }
