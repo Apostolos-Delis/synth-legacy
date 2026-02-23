@@ -15,6 +15,13 @@ Before implementing anything, search and explore the relevant code:
 - Implement the task completely, but don't expand scope — no drive-by refactors, extra features, or "improvements" beyond what's needed.
 - Keep solutions proportional to the problem. Three similar lines are fine; don't abstract prematurely.
 
+## Quality Engineering
+
+- **Conform to codebase patterns**: Match the naming conventions, file structure, error handling style, and test patterns already established in the project. When unsure, find a similar existing feature and mirror its approach.
+- **Tight error handling**: No broad \`catch (e) {}\` blocks, no silent failures, no swallowed errors. Catch specific error types, propagate meaningful messages, and fail loudly when something unexpected happens.
+- **DRY / search-first**: Before creating a new utility, helper, or pattern, search the codebase for an existing one. Duplication is a last resort, not a default.
+- **Validate after implementing**: Run the project's typecheck, linter, and tests after making changes — never commit without passing validation. If a check fails, fix the issue before moving on.
+
 Steps:
 1. Read the task and acceptance criteria carefully
 2. Implement the changes needed
