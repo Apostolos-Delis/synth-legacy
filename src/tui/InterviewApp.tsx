@@ -7,6 +7,7 @@ import { boldAttr, colors, markdownSyntaxStyle } from "./theme.js";
 import { PhaseIndicator } from "./components/PhaseIndicator.js";
 import { openInEditor } from "../utils/editor.js";
 import { copyToClipboard } from "../utils/clipboard.js";
+import { formatDuration } from "../utils/format.js";
 
 interface InterviewAppProps {
   onSendMessage: (msg: string, onChunk: (chunk: string) => void) => Promise<{ response: string; done: boolean }>;
@@ -90,7 +91,8 @@ export function InterviewApp({ onSendMessage, onComplete, onQuit, initialMessage
     const userMsg: InterviewMessage = { role: "user", content: value };
     setMessages((prev) => [...prev, userMsg]);
     setIsLoading(true);
-    setLoadingStartTime(Date.now());
+    const startTime = Date.now();
+    setLoadingStartTime(startTime);
     setStreamingText("");
 
     try {
@@ -98,8 +100,9 @@ export function InterviewApp({ onSendMessage, onComplete, onQuit, initialMessage
         setStreamingText((prev) => prev + chunk);
       });
       setStreamingText("");
-      const elapsedSecs = Math.floor((Date.now() - loadingStartTime) / 1000);
-      const assistantMsg: InterviewMessage = { role: "assistant", content: `${response}\n\n_Generated in ${elapsedSecs}s_` };
+      const elapsed = Date.now() - startTime;
+      const durationLabel = elapsed > 0 ? `\n\n_Generated in ${formatDuration(elapsed)}_` : "";
+      const assistantMsg: InterviewMessage = { role: "assistant", content: `${response}${durationLabel}` };
       setMessages((prev) => [...prev, assistantMsg]);
       setIsLoading(false);
 

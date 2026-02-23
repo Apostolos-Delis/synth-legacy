@@ -1,10 +1,31 @@
 import { useMemo, type ReactNode } from "react";
+import { useTerminalDimensions } from "@opentui/react";
 import type { Task } from "../../tasks/types.js";
-import { colors } from "../theme.js";
+import { colors, markdownSyntaxStyle } from "../theme.js";
 import { PhaseIndicator } from "./PhaseIndicator.js";
 import { TaskDetailHeader } from "./TaskDetailHeader.js";
 
-const HEADER_HEIGHT = 10;
+const MIN_OUTPUT_HEIGHT = 10;
+
+function wrapLineCount(text: string, width: number): number {
+  if (width <= 0 || text.length === 0) return 1;
+  return Math.max(1, Math.ceil(text.length / width));
+}
+
+function calcHeaderHeight(task: Task, width: number, terminalHeight: number, paneHeight: number): number {
+  // Usable text width inside bordered box
+  const innerWidth = Math.max(1, width - 6);
+
+  // Lines: border(2) + title(1) + description(N) + blank separator(1) + criteria(M)
+  const descLines = wrapLineCount(task.description, innerWidth);
+  const criteriaLines = task.acceptanceCriteria.length;
+  const contentHeight = 2 + 1 + descLines + 1 + criteriaLines;
+
+  const maxFromTerminal = Math.floor(terminalHeight * 0.4);
+  const maxFromPane = paneHeight - MIN_OUTPUT_HEIGHT;
+
+  return Math.max(4, Math.min(contentHeight, maxFromTerminal, maxFromPane));
+}
 
 interface OutputPaneProps {
   output: string;
@@ -21,15 +42,17 @@ interface OutputPaneProps {
 export function OutputPane({ output, width, height, isThinking = false, currentPhase, phaseStartTime, task, outputScrollFocused = false, autoScroll = true }: OutputPaneProps): ReactNode {
   // Output is pre-stripped of ANSI codes in the event handler for minimal render-path latency.
 
-  const headerHeight = task ? HEADER_HEIGHT : 0;
+  const { height: terminalHeight } = useTerminalDimensions();
+  const headerHeight = useMemo(
+    () => (task ? calcHeaderHeight(task, width, terminalHeight, height) : 0),
+    [task, width, terminalHeight, height],
+  );
   const outputHeight = height - headerHeight;
   const waiting = isThinking && !output;
 
-  const lines = useMemo(() => output.split("\n"), [output]);
-
   return (
     <box width={width} height={height} flexDirection="column">
-      {task && <TaskDetailHeader task={task} width={width} height={HEADER_HEIGHT} />}
+      {task && <TaskDetailHeader task={task} width={width} height={headerHeight} />}
       <box
         width={width}
         height={outputHeight}
@@ -55,11 +78,7 @@ export function OutputPane({ output, width, height, isThinking = false, currentP
               </text>
             )
           ) : (
-            lines.map((line, i) => (
-              <text key={i}>
-                <span fg={colors.fg.secondary}>{line}</span>
-              </text>
-            ))
+            <markdown content={output} syntaxStyle={markdownSyntaxStyle()} />
           )}
         </scrollbox>
       </box>

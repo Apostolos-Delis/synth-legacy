@@ -66,7 +66,7 @@ async function loadFinalize() {
 
 // TUI imports are loaded dynamically to keep non-TUI commands fast.
 async function loadTui() {
-  const [{ createCliRenderer }, { createRoot }, { App }, { InterviewApp }, { GeneratingView }, { ReviewView }, { FinalizeApp }] = await Promise.all([
+  const [{ createCliRenderer }, { createRoot }, { App }, { InterviewApp }, { GeneratingView }, { ReviewView }, { FinalizeApp }, { PrdReviewView }] = await Promise.all([
     import("@opentui/core"),
     import("@opentui/react"),
     import("./tui/App.js"),
@@ -74,8 +74,9 @@ async function loadTui() {
     import("./tui/GeneratingView.js"),
     import("./tui/ReviewView.js"),
     import("./tui/FinalizeApp.js"),
+    import("./tui/PrdReviewView.js"),
   ]);
-  return { createCliRenderer, createRoot, App, InterviewApp, GeneratingView, ReviewView, FinalizeApp };
+  return { createCliRenderer, createRoot, App, InterviewApp, GeneratingView, ReviewView, FinalizeApp, PrdReviewView };
 }
 
 const VERSION = "0.5.0";
@@ -404,6 +405,7 @@ async function cmdRun(planId?: string, startIteration = 0, tuiContext?: TuiConte
       root = tuiContext.root;
     } else {
       renderer = await tui.createCliRenderer({
+        useMouse: false,
         useKittyKeyboard: { disambiguate: true, alternateKeys: true },
       });
       root = tui.createRoot(renderer);
@@ -805,6 +807,7 @@ async function resumeInterview(
     const tui = await loadTui();
     const planRenderer = await tui.createCliRenderer({
       exitOnCtrlC: false,
+      useMouse: false,
       useKittyKeyboard: { disambiguate: true, alternateKeys: true },
     });
     const planRoot = tui.createRoot(planRenderer);
@@ -865,11 +868,33 @@ async function resumeInterview(
       return;
     }
 
-    // Continue with task generation (same flow as cmdPlan Phase 2+)
+    // Phase 2: PRD Review (same flow as cmdPlan)
     const extractedPrd = prd as import("./interview/types.js").GeneratedPrd;
     const prdMarkdown = interviewMod.prdToMarkdown(extractedPrd);
-    await writeText(paths.prd, prdMarkdown);
     await updatePlanMetadata(cwd, id, { description: extractedPrd.title });
+
+    const prdApproved = await new Promise<boolean>((resolve, reject) => {
+      planRoot.render(
+        <tui.PrdReviewView
+          prdMarkdown={prdMarkdown}
+          agent={agent}
+          planPaths={paths}
+          cwd={cwd}
+          model={config.agent.model}
+          onApprove={() => resolve(true)}
+          onError={(err) => reject(err)}
+          onQuit={() => resolve(false)}
+        />,
+      );
+    });
+
+    if (!prdApproved) {
+      process.off("SIGINT", sigintHandler);
+      cleanup();
+      agent.dispose();
+      log(`\nPlan saved. Run later with: ${fmt.bold(`synth run ${id}`)}`);
+      return;
+    }
 
     let streamOutput = "";
     let taskCount = 0;
@@ -878,7 +903,7 @@ async function resumeInterview(
     let taskFile;
     try {
       taskFile = await generateTasks(
-        agent, prdMarkdown, config.project.name, config.project.branch || `synth/${id}`, cwd, config.agent.model,
+        agent, paths.prd, config.project.name, config.project.branch || `synth/${id}`, cwd, config.agent.model,
         (chunk) => {
           streamOutput += chunk;
           const ids = streamOutput.match(/US-\d{3}/g);
@@ -997,14 +1022,13 @@ async function resumeInterview(
     }
 
     // Continue with task generation
-    const prdMarkdown = interviewMod.prdToMarkdown(prd);
-    await writeText(paths.prd, prdMarkdown);
+    await writeText(paths.prd, interviewMod.prdToMarkdown(prd));
     await updatePlanMetadata(cwd, id, { description: prd.title });
 
     logSuccess(`PRD saved to ${paths.prd}`);
 
     log("Generating tasks...\n");
-    const taskFile = await generateTasks(agent, prdMarkdown, config.project.name, config.project.branch || `synth/${id}`, cwd, config.agent.model);
+    const taskFile = await generateTasks(agent, paths.prd, config.project.name, config.project.branch || `synth/${id}`, cwd, config.agent.model);
 
     await saveTasks(paths.tasks, taskFile);
     await writeText(paths.progress, "## Codebase Patterns\n\n---\n\n");
@@ -1064,12 +1088,12 @@ async function cmdPlan(planIdOrFlag?: string): Promise<void> {
 
     const taskFile = tuiEnabled
       ? await withSpinner("Generating tasks from PRD", () =>
-          generateTasks(agent, prdContent, config.project.name, config.project.branch, cwd, config.agent.model),
+          generateTasks(agent, paths.prd, config.project.name, config.project.branch, cwd, config.agent.model),
           { successMessage: fmt.success("Tasks generated") },
         )
       : await (async () => {
           log("Generating tasks from PRD...");
-          return generateTasks(agent, prdContent, config.project.name, config.project.branch, cwd, config.agent.model);
+          return generateTasks(agent, paths.prd, config.project.name, config.project.branch, cwd, config.agent.model);
         })();
 
     await saveTasks(paths.tasks, taskFile);
@@ -1111,6 +1135,7 @@ async function cmdPlan(planIdOrFlag?: string): Promise<void> {
     const tui = await loadTui();
     const planRenderer = await tui.createCliRenderer({
       exitOnCtrlC: false,
+      useMouse: false,
       useKittyKeyboard: { disambiguate: true, alternateKeys: true },
     });
     const planRoot = tui.createRoot(planRenderer);
@@ -1171,11 +1196,33 @@ async function cmdPlan(planIdOrFlag?: string): Promise<void> {
       return;
     }
 
-    // Phase 2: Task Generation (keep renderer alive, reuse early-created plan)
+    // Phase 2: PRD Review (user can revise before task generation)
     const extractedPrd = prd as import("./interview/types.js").GeneratedPrd;
     const prdMarkdown = interviewMod.prdToMarkdown(extractedPrd);
-    await writeText(paths.prd, prdMarkdown);
     await updatePlanMetadata(cwd, id, { description: extractedPrd.title });
+
+    const prdApproved = await new Promise<boolean>((resolve, reject) => {
+      planRoot.render(
+        <tui.PrdReviewView
+          prdMarkdown={prdMarkdown}
+          agent={agent}
+          planPaths={paths}
+          cwd={cwd}
+          model={config.agent.model}
+          onApprove={() => resolve(true)}
+          onError={(err) => reject(err)}
+          onQuit={() => resolve(false)}
+        />,
+      );
+    });
+
+    if (!prdApproved) {
+      process.off("SIGINT", sigintHandler);
+      cleanup();
+      agent.dispose();
+      log(`\nPlan saved. Run later with: ${fmt.bold(`synth run ${id}`)}`);
+      return;
+    }
 
     let streamOutput = "";
     let taskCount = 0;
@@ -1184,7 +1231,7 @@ async function cmdPlan(planIdOrFlag?: string): Promise<void> {
     let taskFile;
     try {
       taskFile = await generateTasks(
-        agent, prdMarkdown, config.project.name, config.project.branch || `synth/${id}`, cwd, config.agent.model,
+        agent, paths.prd, config.project.name, config.project.branch || `synth/${id}`, cwd, config.agent.model,
         (chunk) => {
           streamOutput += chunk;
           const ids = streamOutput.match(/US-\d{3}/g);
@@ -1302,14 +1349,13 @@ async function cmdPlan(planIdOrFlag?: string): Promise<void> {
   }
 
   const { id, paths } = cliPlanInfo;
-  const prdMarkdown = interviewMod.prdToMarkdown(prd);
-  await writeText(paths.prd, prdMarkdown);
+  await writeText(paths.prd, interviewMod.prdToMarkdown(prd));
   await updatePlanMetadata(cwd, id, { description: prd.title });
 
   logSuccess(`PRD saved to ${paths.prd}`);
 
   log("Generating tasks...\n");
-  const taskFile = await generateTasks(agent, prdMarkdown, config.project.name, config.project.branch || `synth/${id}`, cwd, config.agent.model);
+  const taskFile = await generateTasks(agent, paths.prd, config.project.name, config.project.branch || `synth/${id}`, cwd, config.agent.model);
 
   await saveTasks(paths.tasks, taskFile);
   await writeText(paths.progress, "## Codebase Patterns\n\n---\n\n");
@@ -1394,6 +1440,7 @@ async function cmdFinalize(
     if (!renderer || !root) {
       renderer = await tui.createCliRenderer({
         exitOnCtrlC: false,
+        useMouse: false,
         useKittyKeyboard: { disambiguate: true, alternateKeys: true },
       });
       root = tui.createRoot(renderer);

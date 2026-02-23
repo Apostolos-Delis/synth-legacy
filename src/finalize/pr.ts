@@ -67,6 +67,55 @@ export function generatePrBody(
   return sections.join("\n");
 }
 
+/**
+ * Classify a raw CLI/API error into a user-friendly message.
+ * Strips GraphQL noise and identifies common failure modes.
+ */
+export function classifyPrError(raw: string): string {
+  const lower = raw.toLowerCase();
+
+  // gh CLI not installed
+  if (lower.includes("command not found") || lower.includes("not found: gh") || lower.includes("no such file or directory: gh")) {
+    return "GitHub CLI (gh) is not installed. Install it with: brew install gh";
+  }
+
+  // Not authenticated
+  if (lower.includes("not logged") || lower.includes("auth login") || lower.includes("authentication required") || lower.includes("authentication failed") || lower.includes("401")) {
+    return "Not authenticated with GitHub. Run: gh auth login";
+  }
+
+  // PR already exists
+  if (lower.includes("already exists") || lower.includes("a pull request already exists")) {
+    return "A pull request already exists for this branch";
+  }
+
+  // Repository not found / no remote
+  if (lower.includes("repository not found") || lower.includes("could not resolve") || lower.includes("no such remote") || /\b404\b/.test(lower)) {
+    return "Could not find the GitHub repository. Check that the remote is configured correctly";
+  }
+
+  // Network errors
+  if (lower.includes("could not connect") || lower.includes("network") || lower.includes("timeout") || lower.includes("timed out")) {
+    return "Network error — could not connect to GitHub. Check your internet connection";
+  }
+
+  // Permission denied
+  if (lower.includes("permission denied") || lower.includes("403") || lower.includes("forbidden")) {
+    return "Permission denied. You may not have push access to this repository";
+  }
+
+  // Strip GraphQL error wrapping to extract a clean message
+  const graphqlMatch = raw.match(/GraphQL:\s*(.+?)(?:\s*\(|$)/i);
+  if (graphqlMatch) {
+    return graphqlMatch[1].trim();
+  }
+
+  // Fallback: return a cleaned-up version (strip ANSI codes, trim)
+  const cleaned = raw.replace(/\x1b\[[0-9;]*m/g, "").trim();
+  // Limit length to avoid dumping walls of text
+  return cleaned.length > 200 ? cleaned.slice(0, 200) + "..." : cleaned;
+}
+
 export async function createPr(
   cwd: string,
   branch: string,
@@ -80,7 +129,7 @@ export async function createPr(
   });
   const pushResult = await pushHandle.promise;
   if (pushResult.exitCode !== 0) {
-    throw new Error(`Push failed: ${pushResult.stderr}`);
+    throw new Error(classifyPrError(pushResult.stderr || "Push failed"));
   }
 
   // Create PR
@@ -98,7 +147,7 @@ export async function createPr(
   });
   const prResult = await prHandle.promise;
   if (prResult.exitCode !== 0) {
-    throw new Error(`PR creation failed: ${prResult.stderr}`);
+    throw new Error(classifyPrError(prResult.stderr || "PR creation failed"));
   }
 
   const url = prResult.stdout.trim();

@@ -125,23 +125,33 @@ export async function finalize(
     }
   }
 
-  // 5. Create PR
+  // 5. Create PR (skip if on base branch)
   let prUrl: string | null = null;
   if (config.finalize.create_pr) {
-    const prdContent = prdExists ? await readText(planPaths.prd) : null;
-    const diffStats = await getDiffStats(cwd, config.project.base_branch);
-    const body = generatePrBody(
-      taskFile,
-      prdContent,
-      findings,
-      diffStats,
-      audit,
-    );
-
-    const title = taskFile.description || config.project.name;
     const branch = await getCurrentBranch(cwd);
-    const result = await createPr(cwd, branch, title, body);
-    prUrl = result.url;
+    if (branch === config.project.base_branch) {
+      console.log(`Skipping PR creation: already on base branch '${branch}'`);
+    } else {
+      const prdContent = prdExists ? await readText(planPaths.prd) : null;
+      const diffStats = await getDiffStats(cwd, config.project.base_branch);
+      const body = generatePrBody(
+        taskFile,
+        prdContent,
+        findings,
+        diffStats,
+        audit,
+      );
+
+      const title = taskFile.description || config.project.name;
+      try {
+        const result = await createPr(cwd, branch, title, body);
+        prUrl = result.url;
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error(`PR creation failed: ${msg}`);
+        console.error("Continuing with remaining finalize steps.");
+      }
+    }
   }
 
   return {
