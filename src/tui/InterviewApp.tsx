@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef, type ReactNode } from "react";
+import { useState, useCallback, useRef, type ReactNode } from "react";
 import { useKeyboard, useTerminalDimensions, useRenderer } from "@opentui/react";
 import type { TextareaRenderable } from "@opentui/core";
 import type { InterviewMessage } from "../interview/types.js";
@@ -8,6 +8,9 @@ import { PhaseIndicator } from "./components/PhaseIndicator.js";
 import { openInEditor } from "../utils/editor.js";
 import { copyToClipboard } from "../utils/clipboard.js";
 import { formatDuration } from "../utils/format.js";
+import { useDestroyedRef } from "./hooks/useDestroyedRef.js";
+import { useSyncLineCount } from "./hooks/useSyncLineCount.js";
+import { calcInputSizing } from "./hooks/useInputSizing.js";
 
 interface InterviewAppProps {
   onSendMessage: (msg: string, onChunk: (chunk: string) => void) => Promise<{ response: string; done: boolean }>;
@@ -44,23 +47,12 @@ export function InterviewApp({ onSendMessage, onComplete, onQuit, initialMessage
   const [streamingText, setStreamingText] = useState("");
   const [pendingConfirmation, setPendingConfirmation] = useState(false);
   const textareaRef = useRef<TextareaRenderable>(null);
-  const [inputLineCount, setInputLineCount] = useState(1);
   const { height: termHeight } = useTerminalDimensions();
   const renderer = useRenderer();
   const editorOpenRef = useRef(false);
 
-  const destroyedRef = useRef(false);
-  useEffect(() => () => { destroyedRef.current = true; }, []);
-
-  const syncLineCount = useCallback(() => {
-    if (destroyedRef.current) return;
-    try {
-      const text = textareaRef.current?.plainText ?? "";
-      setInputLineCount(Math.max(1, text.split("\n").length));
-    } catch {
-      // EditBuffer may be destroyed during shutdown
-    }
-  }, []);
+  const destroyedRef = useDestroyedRef();
+  const { inputLineCount, setInputLineCount, syncLineCount } = useSyncLineCount(textareaRef, destroyedRef);
 
   const handleSubmit = useCallback(async () => {
     if (isLoading) return;
@@ -260,20 +252,7 @@ export function InterviewApp({ onSendMessage, onComplete, onQuit, initialMessage
     }
   }, [handleSubmit, onQuit, isLoading, syncLineCount, renderer, messages]));
 
-  // Sync line count after every key event (runs after textarea processes the key)
-  useKeyboard(useCallback(() => {
-    // Use setTimeout(0) so it runs after the textarea has processed the current key
-    setTimeout(syncLineCount, 0);
-  }, [syncLineCount]));
-
-  // Input area grows with content, capped so header + a few message rows remain visible
-  const BORDER = 2;          // top + bottom border
-  const HEADER_HEIGHT = 3;
-  const MIN_MESSAGES_VISIBLE = 3;
-  const MIN_INPUT_HEIGHT = 6;
-  const maxInputHeight = Math.max(MIN_INPUT_HEIGHT, termHeight - HEADER_HEIGHT - MIN_MESSAGES_VISIBLE);
-  const inputHeight = Math.min(Math.max(inputLineCount + BORDER, MIN_INPUT_HEIGHT), maxInputHeight);
-  const textareaHeight = inputHeight - BORDER;
+  const { inputHeight, textareaHeight } = calcInputSizing(termHeight, inputLineCount);
 
   return (
     <box style={{ width: "100%", height: "100%", flexDirection: "column" }}>

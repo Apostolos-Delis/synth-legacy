@@ -12,6 +12,9 @@ import { OptionSelector } from "./components/OptionSelector.js";
 import { openInEditor } from "../utils/editor.js";
 import { copyToClipboard } from "../utils/clipboard.js";
 import { readText, fileExists } from "../utils/fs.js";
+import { useDestroyedRef } from "./hooks/useDestroyedRef.js";
+import { useSyncLineCount } from "./hooks/useSyncLineCount.js";
+import { calcInputSizing } from "./hooks/useInputSizing.js";
 
 interface FinalizeAppProps {
   orchestrator: FinalizeOrchestrator;
@@ -75,7 +78,6 @@ export function FinalizeApp({ orchestrator, agent, config, planPaths, cwd, onQui
   const [loadingStartTime, setLoadingStartTime] = useState(0);
 
   const textareaRef = useRef<TextareaRenderable>(null);
-  const [inputLineCount, setInputLineCount] = useState(1);
   const { height: termHeight } = useTerminalDimensions();
   const renderer = useRenderer();
   const editorOpenRef = useRef(false);
@@ -84,8 +86,8 @@ export function FinalizeApp({ orchestrator, agent, config, planPaths, cwd, onQui
   const [prdContent, setPrdContent] = useState<string | null>(null);
   const completionFiredRef = useRef(false);
 
-  const destroyedRef = useRef(false);
-  useEffect(() => () => { destroyedRef.current = true; }, []);
+  const destroyedRef = useDestroyedRef();
+  const { inputLineCount, setInputLineCount, syncLineCount } = useSyncLineCount(textareaRef, destroyedRef);
 
   // Subscribe to orchestrator phase changes and sync messages
   useEffect(() => {
@@ -199,16 +201,6 @@ export function FinalizeApp({ orchestrator, agent, config, planPaths, cwd, onQui
       runPrCreation();
     }
   }, [currentPhase, orchestrator, agent, config, planPaths, runPrCreation]);
-
-  const syncLineCount = useCallback(() => {
-    if (destroyedRef.current) return;
-    try {
-      const text = textareaRef.current?.plainText ?? "";
-      setInputLineCount(Math.max(1, text.split("\n").length));
-    } catch {
-      // EditBuffer may be destroyed during shutdown
-    }
-  }, []);
 
   // Determine if the last assistant message has options
   const lastMessage = messages.length > 0 ? messages[messages.length - 1] : null;
@@ -431,19 +423,7 @@ export function FinalizeApp({ orchestrator, agent, config, planPaths, cwd, onQui
     }
   }, [handleSubmit, onQuit, isLoading, isComplete, showOptions, syncLineCount, renderer, messages]));
 
-  // Sync line count after every key event
-  useKeyboard(useCallback(() => {
-    setTimeout(syncLineCount, 0);
-  }, [syncLineCount]));
-
-  // Input area sizing
-  const BORDER = 2;
-  const HEADER_HEIGHT = 3;
-  const MIN_MESSAGES_VISIBLE = 3;
-  const MIN_INPUT_HEIGHT = 6;
-  const maxInputHeight = Math.max(MIN_INPUT_HEIGHT, termHeight - HEADER_HEIGHT - MIN_MESSAGES_VISIBLE);
-  const inputHeight = Math.min(Math.max(inputLineCount + BORDER, MIN_INPUT_HEIGHT), maxInputHeight);
-  const textareaHeight = inputHeight - BORDER;
+  const { inputHeight, textareaHeight } = calcInputSizing(termHeight, inputLineCount);
 
   return (
     <box style={{ width: "100%", height: "100%", flexDirection: "column" }}>

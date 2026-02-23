@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useEffect, type ReactNode } from "react";
+import { useState, useCallback, useRef, type ReactNode } from "react";
 import { useKeyboard, useTerminalDimensions, useRenderer } from "@opentui/react";
 import type { TextareaRenderable } from "@opentui/core";
 import type { AgentAdapter } from "../agents/types.js";
@@ -9,6 +9,9 @@ import { ToastContainer } from "./components/Toast.js";
 import { useToast } from "./hooks/useToast.js";
 import type { ChatOption, QuestionGroup } from "../finalize/chat-types.js";
 import { openInEditor } from "../utils/editor.js";
+import { useDestroyedRef } from "./hooks/useDestroyedRef.js";
+import { useSyncLineCount } from "./hooks/useSyncLineCount.js";
+import { calcInputSizing } from "./hooks/useInputSizing.js";
 
 interface PrdReviewViewProps {
   prdMarkdown: string;
@@ -41,24 +44,13 @@ export function PrdReviewView({
   const [showTextInput, setShowTextInput] = useState(false);
   const [revision, setRevision] = useState(0);
   const textareaRef = useRef<TextareaRenderable>(null);
-  const [inputLineCount, setInputLineCount] = useState(1);
   const { height: termHeight } = useTerminalDimensions();
   const renderer = useRenderer();
   const editorOpenRef = useRef(false);
 
   const { toasts, showError } = useToast();
-  const destroyedRef = useRef(false);
-  useEffect(() => () => { destroyedRef.current = true; }, []);
-
-  const syncLineCount = useCallback(() => {
-    if (destroyedRef.current) return;
-    try {
-      const text = textareaRef.current?.plainText ?? "";
-      setInputLineCount(Math.max(1, text.split("\n").length));
-    } catch {
-      // EditBuffer may be destroyed during shutdown
-    }
-  }, []);
+  const destroyedRef = useDestroyedRef();
+  const { inputLineCount, setInputLineCount, syncLineCount } = useSyncLineCount(textareaRef, destroyedRef);
 
   const handleOptionSelect = useCallback(async (selectedAnswers: ChatOption[]) => {
     const option = selectedAnswers[0];
@@ -131,7 +123,7 @@ export function PrdReviewView({
       setStreamingText("");
       setIsLoading(false);
     }
-  }, [isLoading, prdContent, agent, cwd, model]);
+  }, [isLoading, prdContent, agent, cwd, model, showError]);
 
   useKeyboard(useCallback((key: { name: string; shift?: boolean; ctrl?: boolean; meta?: boolean; option?: boolean; preventDefault?: () => void }) => {
     const textarea = textareaRef.current;
@@ -243,19 +235,7 @@ export function PrdReviewView({
     }
   }, [handleSubmit, onQuit, isLoading, showTextInput, syncLineCount, renderer]));
 
-  // Sync line count after every key event
-  useKeyboard(useCallback(() => {
-    setTimeout(syncLineCount, 0);
-  }, [syncLineCount]));
-
-  // Input area sizing
-  const BORDER = 2;
-  const HEADER_HEIGHT = 3;
-  const MIN_MESSAGES_VISIBLE = 3;
-  const MIN_INPUT_HEIGHT = 6;
-  const maxInputHeight = Math.max(MIN_INPUT_HEIGHT, termHeight - HEADER_HEIGHT - MIN_MESSAGES_VISIBLE);
-  const inputHeight = Math.min(Math.max(inputLineCount + BORDER, MIN_INPUT_HEIGHT), maxInputHeight);
-  const textareaHeight = inputHeight - BORDER;
+  const { inputHeight, textareaHeight } = calcInputSizing(termHeight, inputLineCount);
 
   return (
     <box style={{ width: "100%", height: "100%", flexDirection: "column" }}>
