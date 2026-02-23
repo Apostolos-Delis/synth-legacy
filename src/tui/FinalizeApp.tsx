@@ -2,6 +2,8 @@ import { useState, useEffect, useCallback, useRef, type ReactNode } from "react"
 import { useKeyboard, useTerminalDimensions, useRenderer } from "@opentui/react";
 import type { TextareaRenderable } from "@opentui/core";
 import type { FinalizeMessage, FinalizePhase, ChatOption } from "../finalize/chat-types.js";
+import type { FinalizeOrchestrator } from "../finalize/orchestrator.js";
+import type { AgentAdapter } from "../agents/types.js";
 import { boldAttr, colors, markdownSyntaxStyle } from "./theme.js";
 import { PhaseIndicator } from "./components/PhaseIndicator.js";
 import { OptionSelector } from "./components/OptionSelector.js";
@@ -9,12 +11,9 @@ import { openInEditor } from "../utils/editor.js";
 import { copyToClipboard } from "../utils/clipboard.js";
 
 interface FinalizeAppProps {
-  messages: FinalizeMessage[];
-  onSendMessage: (msg: string) => void;
-  onSelectOption: (option: ChatOption) => void;
+  orchestrator: FinalizeOrchestrator;
+  agent: AgentAdapter;
   onQuit: () => void;
-  currentPhase: FinalizePhase;
-  isLoading: boolean;
 }
 
 const PHASE_LABELS: Record<FinalizePhase, string> = {
@@ -44,25 +43,30 @@ function MessageBubble({ message }: { message: FinalizeMessage }): ReactNode {
   );
 }
 
-export function FinalizeApp({ messages, onSendMessage, onSelectOption, onQuit, currentPhase, isLoading }: FinalizeAppProps): ReactNode {
+export function FinalizeApp({ orchestrator, agent, onQuit }: FinalizeAppProps): ReactNode {
+  const [messages, setMessages] = useState<FinalizeMessage[]>(() => orchestrator.getMessages());
+  const [currentPhase, setCurrentPhase] = useState<FinalizePhase>(() => orchestrator.getCurrentPhase());
+  const [isLoading, setIsLoading] = useState(false);
+  const [streamingText, setStreamingText] = useState("");
+  const [loadingStartTime, setLoadingStartTime] = useState(0);
+
   const textareaRef = useRef<TextareaRenderable>(null);
   const [inputLineCount, setInputLineCount] = useState(1);
   const { height: termHeight } = useTerminalDimensions();
   const renderer = useRenderer();
   const editorOpenRef = useRef(false);
-  const [loadingStartTime, setLoadingStartTime] = useState(0);
 
   const destroyedRef = useRef(false);
   useEffect(() => () => { destroyedRef.current = true; }, []);
 
-  // Track loading start time
-  const prevLoadingRef = useRef(false);
+  // Subscribe to orchestrator phase changes
   useEffect(() => {
-    if (isLoading && !prevLoadingRef.current) {
-      setLoadingStartTime(Date.now());
-    }
-    prevLoadingRef.current = isLoading;
-  }, [isLoading]);
+    return orchestrator.onPhaseChange((phase) => {
+      if (!destroyedRef.current) {
+        setCurrentPhase(phase);
+      }
+    });
+  }, [orchestrator]);
 
   const syncLineCount = useCallback(() => {
     if (destroyedRef.current) return;
@@ -78,7 +82,39 @@ export function FinalizeApp({ messages, onSendMessage, onSelectOption, onQuit, c
   const lastMessage = messages.length > 0 ? messages[messages.length - 1] : null;
   const showOptions = lastMessage?.role === "assistant" && lastMessage.options && lastMessage.options.length > 0 && !isLoading;
 
-  const handleSubmit = useCallback(() => {
+  const handleOptionSelect = useCallback(async (option: ChatOption) => {
+    if (isLoading) return;
+
+    setIsLoading(true);
+    setLoadingStartTime(Date.now());
+    setStreamingText("");
+
+    // Immediately show the user's selection
+    setMessages((prev) => [...prev, { role: "user", content: `Selected: ${option.label}` }]);
+
+    try {
+      await orchestrator.handleOptionSelect(option, agent, (chunk) => {
+        if (!destroyedRef.current) setStreamingText((prev) => prev + chunk);
+      });
+
+      if (!destroyedRef.current) {
+        setStreamingText("");
+        setMessages(orchestrator.getMessages());
+        setIsLoading(false);
+      }
+    } catch (err) {
+      if (!destroyedRef.current) {
+        setStreamingText("");
+        setMessages((prev) => [
+          ...prev,
+          { role: "system", content: `Error: ${err instanceof Error ? err.message : "Agent failed to respond"}` },
+        ]);
+        setIsLoading(false);
+      }
+    }
+  }, [isLoading, orchestrator, agent]);
+
+  const handleSubmit = useCallback(async () => {
     if (isLoading || showOptions) return;
     const textarea = textareaRef.current;
     if (!textarea) return;
@@ -88,8 +124,34 @@ export function FinalizeApp({ messages, onSendMessage, onSelectOption, onQuit, c
 
     textarea.editBuffer.setText("");
     setInputLineCount(1);
-    onSendMessage(value);
-  }, [isLoading, showOptions, onSendMessage]);
+
+    // Immediately show the user message
+    setMessages((prev) => [...prev, { role: "user", content: value }]);
+    setIsLoading(true);
+    setLoadingStartTime(Date.now());
+    setStreamingText("");
+
+    try {
+      await orchestrator.handleUserMessage(value, agent, (chunk) => {
+        if (!destroyedRef.current) setStreamingText((prev) => prev + chunk);
+      });
+
+      if (!destroyedRef.current) {
+        setStreamingText("");
+        setMessages(orchestrator.getMessages());
+        setIsLoading(false);
+      }
+    } catch (err) {
+      if (!destroyedRef.current) {
+        setStreamingText("");
+        setMessages((prev) => [
+          ...prev,
+          { role: "system", content: `Error: ${err instanceof Error ? err.message : "Agent failed to respond"}` },
+        ]);
+        setIsLoading(false);
+      }
+    }
+  }, [isLoading, showOptions, orchestrator, agent]);
 
   useKeyboard(useCallback((key: { name: string; shift?: boolean; ctrl?: boolean; meta?: boolean; option?: boolean; preventDefault?: () => void }) => {
     const textarea = textareaRef.current;
@@ -264,11 +326,18 @@ export function FinalizeApp({ messages, onSendMessage, onSelectOption, onQuit, c
             <box style={{ width: "100%", flexDirection: "column", marginBottom: 1 }}>
               <box style={{ flexDirection: "row", gap: 1 }}>
                 <text fg={colors.accent.secondary} attributes={boldAttr()}>Synth</text>
-                <PhaseIndicator
-                  phase={PHASE_LABELS[currentPhase]}
-                  startTime={loadingStartTime}
-                />
+                {!streamingText && (
+                  <PhaseIndicator
+                    phase={PHASE_LABELS[currentPhase]}
+                    startTime={loadingStartTime}
+                  />
+                )}
               </box>
+              {streamingText && (
+                <box style={{ paddingLeft: 2 }}>
+                  <markdown content={streamingText} syntaxStyle={markdownSyntaxStyle()} streaming={true} />
+                </box>
+              )}
             </box>
           )}
         </scrollbox>
@@ -289,7 +358,7 @@ export function FinalizeApp({ messages, onSendMessage, onSelectOption, onQuit, c
             paddingBottom: 1,
           }}
         >
-          <OptionSelector options={lastMessage!.options!} onSelect={onSelectOption} />
+          <OptionSelector options={lastMessage!.options!} onSelect={handleOptionSelect} />
         </box>
       ) : (
         <box
@@ -339,7 +408,7 @@ export function FinalizeApp({ messages, onSendMessage, onSelectOption, onQuit, c
       >
         {isLoading ? (
           <PhaseIndicator
-            phase={PHASE_LABELS[currentPhase]}
+            phase={streamingText ? "Streaming response..." : PHASE_LABELS[currentPhase]}
             startTime={loadingStartTime}
           />
         ) : showOptions ? (
