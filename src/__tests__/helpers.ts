@@ -11,7 +11,7 @@ export function makePlanPaths(root: string): PlanPaths {
     tasks: join(root, "tasks.json"),
     progress: join(root, "progress.md"),
     session: join(root, "session.json"),
-    lock: join(root, "session.lock"),
+    lock: join(root, "synth.lock"),
     logs: join(root, "logs"),
     summary: join(root, "summary.md"),
     interview: join(root, "interview.json"),

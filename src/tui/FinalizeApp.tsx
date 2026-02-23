@@ -210,7 +210,7 @@ export function FinalizeApp({ orchestrator, agent, config, planPaths, cwd, onQui
     : [];
   const showOptions = !isComplete && optionGroups.length > 0 && !isLoading;
   const optionSelectorHeight = showOptions
-    ? Math.max(...optionGroups.map(g => g.options.length + 1)) * 2 + (optionGroups.length > 1 ? 2 : 0) + 2 + 4
+    ? optionGroups.reduce((sum, g) => sum + g.options.length + 1, 0) * 2 + (optionGroups.length > 1 ? 2 : 0) + 2 + 4
     : 0;
 
   const handleOptionSelect = useCallback(async (selectedAnswers: ChatOption[]) => {

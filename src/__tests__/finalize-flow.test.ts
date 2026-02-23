@@ -1,4 +1,4 @@
-import { describe, test, expect, mock, beforeEach } from "bun:test";
+import { describe, test, expect, mock, beforeEach, afterAll } from "bun:test";
 import type { SpawnResult, SpawnHandle } from "../utils/process.js";
 import type { FinalizeMessage, ChatOption } from "../finalize/chat-types.js";
 
@@ -68,6 +68,12 @@ mock.module("../utils/fs.js", () => ({
   fileExists: async () => false,
   readText: async () => "",
 }));
+
+// Restore all module mocks after this file's tests complete so they don't
+// leak into other test files that share the same Bun process.
+afterAll(() => {
+  mock.restore();
+});
 
 // ---------------------------------------------------------------------------
 // Imports (after mocks)

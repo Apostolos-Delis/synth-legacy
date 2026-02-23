@@ -168,7 +168,7 @@ export async function createPr(
   });
   const pushResult = await pushHandle.promise;
   if (pushResult.exitCode !== 0) {
-    throw new Error(classifyPrError(pushResult.stderr || "Push failed"));
+    throw new Error(pushResult.stderr || "Push failed");
   }
 
   // Create PR
@@ -186,7 +186,7 @@ export async function createPr(
   });
   const prResult = await prHandle.promise;
   if (prResult.exitCode !== 0) {
-    throw new Error(classifyPrError(prResult.stderr || "PR creation failed"));
+    throw new Error(prResult.stderr || "PR creation failed");
   }
 
   const url = prResult.stdout.trim();
