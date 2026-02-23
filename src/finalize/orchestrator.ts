@@ -14,6 +14,42 @@ import {
 } from "./audit-chat.js";
 
 const MAX_HISTORY = 20;
+const OPTION_RE = /\[OPTION\]([^|]+)\|([^[]+)\[\/OPTION\]/g;
+const REVIEW_COMPLETE_RE = /\[REVIEW_COMPLETE\]/;
+const PROCEED_COMMANDS = new Set(["proceed", "done"]);
+
+export interface ParsedResponse {
+  content: string;
+  options: ChatOption[];
+  reviewComplete: boolean;
+}
+
+export function parseAIResponse(raw: string): ParsedResponse {
+  const options: ChatOption[] = [];
+
+  for (const match of raw.matchAll(OPTION_RE)) {
+    const label = match[1].trim();
+    const description = match[2].trim();
+    options.push({
+      label,
+      description,
+      value: label.toLowerCase().replace(/\s+/g, "-"),
+    });
+  }
+
+  const reviewComplete = REVIEW_COMPLETE_RE.test(raw);
+
+  // Strip markers from displayed content
+  let content = raw
+    .replace(OPTION_RE, "")
+    .replace(REVIEW_COMPLETE_RE, "")
+    .trim();
+
+  // Collapse leftover blank lines from stripped markers
+  content = content.replace(/\n{3,}/g, "\n\n");
+
+  return { content, options, reviewComplete };
+}
 
 export type PhaseChangeListener = (phase: FinalizePhase) => void;
 
@@ -80,10 +116,12 @@ export class FinalizeOrchestrator {
 
     // Send to AI and get the initial review
     const response = await this.sendToAgent(agent, userPrompt, onChunk);
+    const parsed = parseAIResponse(response);
 
     const assistantMsg: FinalizeMessage = {
       role: "assistant",
-      content: response,
+      content: parsed.content,
+      ...(parsed.options.length > 0 ? { options: parsed.options } : {}),
     };
     this.messages.push(assistantMsg);
 
@@ -152,22 +190,28 @@ export class FinalizeOrchestrator {
     text: string,
     onChunk?: (chunk: string) => void,
   ): Promise<OrchestratorResponse> {
+    // Check for user shortcut to skip remaining Q&A
+    if (PROCEED_COMMANDS.has(text.trim().toLowerCase())) {
+      this.setPhase("collecting-fixes");
+      const assistantMsg: FinalizeMessage = {
+        role: "assistant",
+        content:
+          "Understood — moving on to collect fixes. Let me summarize the issues found and recommend which ones to address.",
+      };
+      this.messages.push(assistantMsg);
+      return { message: assistantMsg };
+    }
+
     const prompt = this.buildConversationPrompt(
       `The user is in the discussion phase of a code review. They said:\n\n"${text}"\n\n` +
-        `Continue the code review discussion. If the user wants to proceed with fixes, ` +
-        `list the concrete fix tasks you recommend and ask which ones they'd like to apply. ` +
+        `Continue the code review discussion by asking your next follow-up question on a single topic. ` +
+        `If you want to offer choices, use [OPTION]label|description[/OPTION] markers (2-4 options). ` +
+        `If you have no more concerns, end with [REVIEW_COMPLETE]. ` +
         `Ask one question at a time. Be concise.`,
     );
 
     const response = await this.sendToAgent(agent, prompt, onChunk);
-
-    const assistantMsg: FinalizeMessage = {
-      role: "assistant",
-      content: response,
-    };
-    this.messages.push(assistantMsg);
-
-    return { message: assistantMsg };
+    return this.processDiscussingResponse(response);
   }
 
   private async handleDiscussionOption(
@@ -181,18 +225,42 @@ export class FinalizeOrchestrator {
 
     const prompt = this.buildConversationPrompt(
       `The user selected the option: "${option.label}" (${option.description}).\n\n` +
-        `Respond appropriately based on their choice. If they want to fix issues, ` +
-        `present the specific fixes as a numbered list and ask them to confirm which ` +
-        `ones to apply.`,
+        `Respond based on their choice, then ask your next follow-up question on a single topic. ` +
+        `If you want to offer choices, use [OPTION]label|description[/OPTION] markers (2-4 options). ` +
+        `If you have no more concerns, end with [REVIEW_COMPLETE]. Be concise.`,
     );
 
     const response = await this.sendToAgent(agent, prompt, onChunk);
 
+    // If we already transitioned to collecting-fixes, don't re-process for discussion
+    if (this.phase === "collecting-fixes") {
+      const parsed = parseAIResponse(response);
+      const assistantMsg: FinalizeMessage = {
+        role: "assistant",
+        content: parsed.content,
+        ...(parsed.options.length > 0 ? { options: parsed.options } : {}),
+      };
+      this.messages.push(assistantMsg);
+      return { message: assistantMsg };
+    }
+
+    return this.processDiscussingResponse(response);
+  }
+
+  private processDiscussingResponse(response: string): OrchestratorResponse {
+    const parsed = parseAIResponse(response);
+
     const assistantMsg: FinalizeMessage = {
       role: "assistant",
-      content: response,
+      content: parsed.content,
+      ...(parsed.options.length > 0 ? { options: parsed.options } : {}),
     };
     this.messages.push(assistantMsg);
+
+    // AI signalled review is complete — transition to collecting-fixes
+    if (parsed.reviewComplete) {
+      this.setPhase("collecting-fixes");
+    }
 
     return { message: assistantMsg };
   }

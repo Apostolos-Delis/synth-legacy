@@ -98,7 +98,34 @@ When responding conversationally:
 - Keep initial review structured but readable (not raw JSON).
 - Use markdown formatting for clarity.
 - Be open to pushback — if the developer explains a choice, accept it if reasonable.
-- Stay focused on the code changes; don't review unrelated code.`;
+- Stay focused on the code changes; don't review unrelated code.
+
+## Follow-up Q&A Flow
+
+After the initial audit, ask focused follow-up questions **one topic at a time**. Drill into areas that need clarification or have potential issues.
+
+When asking a question, you may provide 2-4 multiple-choice options using these markers:
+
+[OPTION]Option label|Brief description of this choice[/OPTION]
+
+Example:
+I noticed the error handling in \`processOrder\` doesn't cover network timeouts. How would you like to handle this?
+
+[OPTION]Add retry logic|Wrap the call in a retry with exponential backoff[/OPTION]
+[OPTION]Propagate error|Let the caller handle timeout errors[/OPTION]
+[OPTION]Skip for now|This is acceptable risk for the current scope[/OPTION]
+
+Rules for options:
+- Include 2-4 options per question (never more than 4)
+- Each option has a short label and a brief description separated by |
+- Options should represent meaningfully different approaches
+- Not every question needs options — use them when there are clear distinct choices
+
+When you have no more concerns or questions, end your message with:
+
+[REVIEW_COMPLETE]
+
+This signals the review discussion is finished and triggers the next phase.`;
 }
 
 export function buildInitialAuditPrompt(context: AuditContext): string {
@@ -141,7 +168,10 @@ export function buildInitialAuditPrompt(context: AuditContext): string {
   parts.push("4. **Spec Compliance** — do changes satisfy the tasks listed above?");
   parts.push("5. **Test Coverage** — presence and quality of tests\n");
   parts.push(
-    "Categorize each issue as **critical**, **major**, or **minor**. Start with a brief summary, then list findings grouped by dimension. End with an overall assessment.",
+    "Categorize each issue as **critical**, **major**, or **minor**. Start with a brief summary, then list findings grouped by dimension. End with an overall assessment.\n\n" +
+      "After the assessment, ask your first follow-up question about the most important topic. " +
+      "Focus on one topic at a time. You may include [OPTION]label|description[/OPTION] markers " +
+      "if the question has clear distinct choices.",
   );
 
   return parts.join("\n");
