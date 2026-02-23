@@ -1,8 +1,8 @@
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { readdir, rm } from "node:fs/promises";
-import type { PlanMetadata, PlanPaths } from "./types.js";
-import { generatePlanId } from "./id.js";
+import type { SessionMetadata, SessionPaths } from "./types.js";
+import { generateSessionId } from "./id.js";
 import { ensureDir, fileExists, dirExists, readJson, writeJson } from "../utils/fs.js";
 import { spawn } from "../utils/process.js";
 
@@ -34,8 +34,8 @@ async function getRepoKey(cwd: string): Promise<string> {
   return cwd.split("/").pop() ?? "unknown";
 }
 
-function planPaths(repoKey: string, planId: string): PlanPaths {
-  const root = join(PLANS_DIR, repoKey, planId);
+function sessionPaths(repoKey: string, sessionId: string): SessionPaths {
+  const root = join(PLANS_DIR, repoKey, sessionId);
   return {
     root,
     prd: join(root, "prd.md"),
@@ -49,19 +49,19 @@ function planPaths(repoKey: string, planId: string): PlanPaths {
   };
 }
 
-export async function createPlan(
+export async function createSession(
   cwd: string,
   description: string,
-): Promise<{ id: string; paths: PlanPaths; metadata: PlanMetadata }> {
+): Promise<{ id: string; paths: SessionPaths; metadata: SessionMetadata }> {
   const repoKey = await getRepoKey(cwd);
-  const id = generatePlanId();
-  const paths = planPaths(repoKey, id);
+  const id = generateSessionId();
+  const paths = sessionPaths(repoKey, id);
 
   await ensureDir(paths.root);
   await ensureDir(paths.logs);
 
   const now = new Date().toISOString();
-  const metadata: PlanMetadata = {
+  const metadata: SessionMetadata = {
     id,
     repoKey,
     description,
@@ -77,75 +77,74 @@ export async function createPlan(
   return { id, paths, metadata };
 }
 
-export async function getPlan(
+export async function getSession(
   cwd: string,
-  planId: string,
-): Promise<{ paths: PlanPaths; metadata: PlanMetadata } | null> {
+  sessionId: string,
+): Promise<{ paths: SessionPaths; metadata: SessionMetadata } | null> {
   const repoKey = await getRepoKey(cwd);
-  const paths = planPaths(repoKey, planId);
+  const paths = sessionPaths(repoKey, sessionId);
   const metaPath = join(paths.root, "metadata.json");
 
   if (!(await fileExists(metaPath))) return null;
 
-  const metadata = await readJson<PlanMetadata>(metaPath);
+  const metadata = await readJson<SessionMetadata>(metaPath);
   return { paths, metadata };
 }
 
-export async function updatePlanMetadata(
+export async function updateSessionMetadata(
   cwd: string,
-  planId: string,
-  updates: Partial<PlanMetadata>,
-): Promise<PlanMetadata> {
-  const plan = await getPlan(cwd, planId);
-  if (!plan) throw new Error(`Plan ${planId} not found`);
+  sessionId: string,
+  updates: Partial<SessionMetadata>,
+): Promise<SessionMetadata> {
+  const session = await getSession(cwd, sessionId);
+  if (!session) throw new Error(`Session ${sessionId} not found`);
 
-  const updated: PlanMetadata = {
-    ...plan.metadata,
+  const updated: SessionMetadata = {
+    ...session.metadata,
     ...updates,
     updatedAt: new Date().toISOString(),
   };
 
-  await writeJson(join(plan.paths.root, "metadata.json"), updated);
+  await writeJson(join(session.paths.root, "metadata.json"), updated);
   return updated;
 }
 
-export async function listPlans(cwd: string): Promise<PlanMetadata[]> {
+export async function listSessions(cwd: string): Promise<SessionMetadata[]> {
   const repoKey = await getRepoKey(cwd);
   const repoDir = join(PLANS_DIR, repoKey);
 
   if (!(await dirExists(repoDir))) return [];
 
   const entries = await readdir(repoDir, { withFileTypes: true });
-  const plans: PlanMetadata[] = [];
+  const sessions: SessionMetadata[] = [];
 
   for (const entry of entries) {
     if (!entry.isDirectory()) continue;
     const metaPath = join(repoDir, entry.name, "metadata.json");
     if (await fileExists(metaPath)) {
-      plans.push(await readJson<PlanMetadata>(metaPath));
+      sessions.push(await readJson<SessionMetadata>(metaPath));
     }
   }
 
   // Sort by most recent first
-  plans.sort(
+  sessions.sort(
     (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime(),
   );
-  return plans;
+  return sessions;
 }
 
-export async function getMostRecentPlan(
+export async function getMostRecentSession(
   cwd: string,
-): Promise<{ paths: PlanPaths; metadata: PlanMetadata } | null> {
-  const plans = await listPlans(cwd);
-  if (plans.length === 0) return null;
-  return getPlan(cwd, plans[0].id);
+): Promise<{ paths: SessionPaths; metadata: SessionMetadata } | null> {
+  const sessions = await listSessions(cwd);
+  if (sessions.length === 0) return null;
+  return getSession(cwd, sessions[0].id);
 }
 
-export async function deletePlan(cwd: string, planId: string): Promise<boolean> {
+export async function deleteSession(cwd: string, sessionId: string): Promise<boolean> {
   const repoKey = await getRepoKey(cwd);
-  const paths = planPaths(repoKey, planId);
+  const paths = sessionPaths(repoKey, sessionId);
   if (!(await dirExists(paths.root))) return false;
   await rm(paths.root, { recursive: true, force: true });
   return true;
 }
-

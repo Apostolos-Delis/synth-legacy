@@ -1,4 +1,4 @@
-export interface PlanMetadata {
+export interface SessionMetadata {
   id: string;
   repoKey: string;
   description: string;
@@ -9,7 +9,7 @@ export interface PlanMetadata {
   tasksCompleted: number;
 }
 
-export interface PlanPaths {
+export interface SessionPaths {
   root: string;
   prd: string;
   tasks: string;

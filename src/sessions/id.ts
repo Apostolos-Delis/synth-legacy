@@ -16,7 +16,7 @@ function pick<T>(arr: T[]): T {
   return arr[Math.floor(Math.random() * arr.length)];
 }
 
-export function generatePlanId(): string {
+export function generateSessionId(): string {
   const adj = pick(ADJECTIVES);
   const noun = pick(NOUNS);
   const num = Math.floor(Math.random() * 100);
