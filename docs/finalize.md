@@ -5,7 +5,7 @@ The finalize pipeline (`src/finalize/`) runs after all tasks are complete. It re
 ## Pipeline Overview
 
 ```
-synth finalize [<plan-id>]
+Finalize phase (auto-triggered by synth start, or via synth resume on completed sessions)
   |
   v
 1. Self-Review ──> findings[] ──> critical? -> BLOCKED
@@ -64,7 +64,7 @@ The diff sent to the agent is `git diff <base_branch>...HEAD`, truncated to 50,0
 
 ### Blocking Behavior
 
-If any finding has `severity: "critical"`, the pipeline is **blocked** — no formatting, splitting, or PR creation happens. The critical findings are reported so the user can address them before re-running `synth finalize`.
+If any finding has `severity: "critical"`, the pipeline is **blocked** — no formatting, splitting, or PR creation happens. The critical findings are reported so the user can address them before re-running `synth resume`.
 
 ## Stage 2: Auto-Format
 

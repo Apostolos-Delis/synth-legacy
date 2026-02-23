@@ -19,7 +19,7 @@ The loader performs a deep merge, so you only need to specify the fields you wan
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `name` | string | `""` (auto-detected) | Project name. If empty, detected from the directory name |
-| `branch` | string | `""` | Feature branch name for the plan |
+| `branch` | string | `""` | Feature branch name for the session |
 | `base_branch` | string | `"main"` | Base branch for diffs and PR target |
 
 ### `[agent]`
@@ -124,10 +124,10 @@ Some commands accept flags that override config:
 
 | Command | Flag | Overrides |
 |---------|------|-----------|
-| `plan` | `--prd <path>` | Skips interview, uses existing PRD file |
-| `spawn` | `--plan` | Starts a new plan in the worktree |
+| `start` | `--prd <path>` | Skips interview, uses existing PRD file |
+| `spawn` | `--start` | Starts a new session in the worktree |
 
-Most configuration is intended to live in `synth.toml` rather than CLI flags, since plans are long-running and flags would need to be re-specified on each `resume`.
+Most configuration is intended to live in `synth.toml` rather than CLI flags, since sessions are long-running and flags would need to be re-specified on each `resume`.
 
 ## Environment Tips
 

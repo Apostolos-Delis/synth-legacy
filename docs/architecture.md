@@ -1,6 +1,6 @@
 # Architecture
 
-Synth is a CLI tool that orchestrates AI coding agents through a structured plan-execute-review lifecycle. This document covers the system design, data flow, and key architectural decisions.
+Synth is a CLI tool that orchestrates AI coding agents through a structured interview-execute-review lifecycle. This document covers the system design, data flow, and key architectural decisions.
 
 ## High-Level Architecture
 
@@ -10,18 +10,18 @@ Synth is a CLI tool that orchestrates AI coding agents through a structured plan
                          +--------+---------+
                                   |
                     +-------------+-------------+
-                    |             |              |
-               synth plan    synth run     synth finalize
-                    |             |              |
-                    v             v              v
+                    |                           |
+               synth start                synth resume
+                    |                           |
+                    v                           v
              +-----------+  +---------+  +-----------+
-             | Interview |  | Engine  |  | Finalize  |
+             | Interview |->| Engine  |->| Finalize  |
              +-----------+  +---------+  +-----------+
                     |             |              |
                     v             v              v
              +------------------------------------------+
-             |        Plan Storage (~/.synth/)           |
-             |  metadata | prd | tasks | session | logs |
+             |      Session Storage (~/.synth/)           |
+             |  metadata | prd | tasks | run | logs    |
              +------------------------------------------+
                                   |
                                   v
@@ -40,7 +40,7 @@ Synth is a CLI tool that orchestrates AI coding agents through a structured plan
 
 ## State Machine
 
-Plans progress through a defined set of states:
+Sessions progress through a defined set of states:
 
 ```
 interviewing --> planning --> executing <--> paused
@@ -50,7 +50,10 @@ interviewing --> planning --> executing <--> paused
                             completed  blocked-+
                                 |        |
                                 v        v
-                            finalized  failed
+                           finalizing  failed
+                                |
+                                v
+                            finalized
 ```
 
 | State | Description |
@@ -61,6 +64,7 @@ interviewing --> planning --> executing <--> paused
 | `paused` | User-paused or iteration cap reached |
 | `blocked` | Circuit breaker tripped or no eligible tasks |
 | `completed` | All tasks done |
+| `finalizing` | Self-review and PR generation in progress |
 | `finalized` | PR created successfully |
 | `failed` | Unrecoverable error |
 
@@ -68,25 +72,31 @@ The engine itself tracks a separate runtime state: `idle`, `executing`, `paused`
 
 ## On-Disk Layout
 
-Synth stores all plan data outside the project repository to avoid polluting the working tree.
+Synth stores all session data outside the project repository to avoid polluting the working tree.
 
 ### Global storage
 
 ```
-~/.synth/plans/
+~/.synth/sessions/
   <repo-key>/                      # e.g. "owner/repo-name"
-    <plan-id>/                     # e.g. "bold-falcon-42"
-      metadata.json                # PlanMetadata — status, timestamps, progress
+    <session-id>/                  # e.g. "bold-falcon-42"
+      metadata.json                # SessionMetadata — status, timestamps, progress
       prd.md                       # Generated PRD in markdown
       tasks.json                   # TaskFile — task list with status
       progress.md                  # Iteration log (appended per success)
-      session.json                 # SessionMetadata — current session state
+      run.json                     # RunMetadata — current execution run state
+      interview.json               # Interview conversation history (auto-persisted)
+      finalize-conversation.json   # Finalize conversation history (auto-persisted)
       synth.lock                   # Atomic lock file (PID, hostname)
       logs/
         iteration-001.jsonl        # Raw agent output per iteration
         iteration-002.jsonl
         ...
 ```
+
+### Migration from legacy layout
+
+On first access, synth automatically migrates `~/.synth/plans/` to `~/.synth/sessions/` and renames `session.json` to `run.json` inside each session directory. The migration is one-time, idempotent, and logs what it did to stderr.
 
 ### Project root
 
@@ -100,7 +110,7 @@ The **repo key** is derived from the git remote origin URL (normalized: strip `.
 
 ## Data Flow
 
-### 1. Interview Phase (`synth plan`)
+### 1. Interview Phase (`synth start`)
 
 ```
 User input --> Interviewer --> Agent (multi-turn) --> GeneratedPrd
@@ -120,7 +130,7 @@ User input --> Interviewer --> Agent (multi-turn) --> GeneratedPrd
 
 The interviewer maintains a sliding window of the last 16 messages (8 turns) to keep context manageable. When the agent emits a JSON-fenced PRD, it's extracted, validated, converted to markdown, and fed to the task planner.
 
-### 2. Execution Phase (`synth run`)
+### 2. Execution Phase
 
 ```
 for each iteration:
@@ -151,7 +161,7 @@ for each iteration:
                                   next iteration
 ```
 
-### 3. Finalize Phase (`synth finalize`)
+### 3. Finalize Phase
 
 ```
 git diff --> self-review (3 perspectives) --> findings
@@ -178,10 +188,12 @@ cli.tsx
   |
   +-- config/loader ---- config/defaults + config/types
   |
-  +-- plans/registry --- plans/id + plans/types + utils/fs
+  +-- sessions/registry --- sessions/id + sessions/slug + sessions/types + utils/fs
+  |
+  +-- conversation/engine --- conversation/types + agents/*
   |
   +-- interview/interviewer --- interview/prompts + interview/types
-  |                              + agents/*
+  |                              + conversation/engine + agents/*
   |
   +-- tasks/planner --- tasks/types + agents/*
   |
@@ -190,17 +202,19 @@ cli.tsx
   |                  +- engine/backpressure
   |                  +- tasks/store + tasks/selector
   |                  +- prompts/build
-  |                  +- session/session
+  |                  +- run/run
   |                  +- agents/registry
   |
-  +-- finalize/finalize --- finalize/review
-  |                      +- finalize/formatter
-  |                      +- finalize/splitter
-  |                      +- finalize/pr
+  +-- finalize/finalize ------- finalize/review
+  |                          +- finalize/formatter
+  |                          +- finalize/splitter
+  |                          +- finalize/pr
+  +-- finalize/orchestrator --- conversation/engine
   |
   +-- tui/App --- tui/ExecutionView
               +- tui/DashboardView
-              +- tui/InterviewView
+              +- tui/InterviewApp
+              +- tui/FinalizeApp
               +- tui/components/*
 ```
 
@@ -218,13 +232,13 @@ Rather than maintaining a long-running agent conversation, Synth spawns a new su
 - Predictable resource usage
 - Easy timeout and interrupt handling
 
-### Global plan storage
+### Global session storage
 
-Plans live in `~/.synth/plans/` rather than in the project directory because:
+Sessions live in `~/.synth/sessions/` rather than in the project directory because:
 - No `.gitignore` additions needed
-- Multiple plans can target the same repo
-- Session state and logs don't clutter the working tree
-- Plans survive branch switches and `git clean`
+- Multiple sessions can target the same repo
+- Run state and logs don't clutter the working tree
+- Sessions survive branch switches and `git clean`
 
 ### Dependency-aware task selection
 
@@ -232,4 +246,4 @@ Tasks declare `dependsOn` relationships. The selector filters to candidates whos
 
 ### Atomic file locking
 
-Session locking uses `O_CREAT|O_EXCL` (exclusive create) for race-free acquisition. Stale locks from crashed processes are detected via PID liveness checks using signal zero (`kill(pid, 0)`).
+Run locking uses `O_CREAT|O_EXCL` (exclusive create) for race-free acquisition. Stale locks from crashed processes are detected via PID liveness checks using signal zero (`kill(pid, 0)`).

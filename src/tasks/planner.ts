@@ -53,7 +53,7 @@ export async function generateTasks(
 ): Promise<TaskFile> {
   const { model, taskPrefix, onProgress } = options ?? {};
   if (!(await fileExists(prdPath))) {
-    throw new Error(`PRD file not found: ${prdPath}. Run 'synth plan' to generate one.`);
+    throw new Error(`PRD file not found: ${prdPath}. Run 'synth start' to generate one.`);
   }
   const prd = await readText(prdPath);
   const prompt = `${buildPlannerPrompt(taskPrefix ?? "US")}

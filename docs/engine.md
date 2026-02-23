@@ -21,8 +21,8 @@ Each iteration follows this sequence:
 ├─────────────────────────────────────────────────┤
 │  5. Mark task "in_progress", save               │
 ├─────────────────────────────────────────────────┤
-│  6. buildPrompt(task, planPaths, cwd, iteration,│
-│     agentName)                                  │
+│  6. buildPrompt(task, sessionPaths, cwd,         │
+│     iteration, agentName)                       │
 ├─────────────────────────────────────────────────┤
 │  7. agent.execute(prompt) — stream stdout/stderr│
 ├─────────────────────────────────────────────────┤
@@ -39,7 +39,7 @@ Each iteration follows this sequence:
 │     yes -> mark done, reset breaker, auto-commit│
 │     no  -> revert to open, record in breaker    │
 ├─────────────────────────────────────────────────┤
-│ 13. Update session with current iteration       │
+│ 13. Update run with current iteration            │
 ├─────────────────────────────────────────────────┤
 │ 14. Sleep iteration_delay ms                    │
 └─────────────────────────────────────────────────┘
@@ -169,15 +169,15 @@ The engine detects completion through two mechanisms:
 
 Both are checked each iteration. The task file check is authoritative — even without the `COMPLETE` signal, the engine will finish when all tasks are resolved.
 
-## Session Management
+## Run Management
 
-Each `synth run` or `synth resume` creates a session tracked in `session.json`:
+Each `synth start` or `synth resume` creates an execution run tracked in `run.json`:
 
 ```typescript
-interface SessionMetadata {
+interface RunMetadata {
   id: string;              // "sess-<timestamp36>-<random6>"
   sessionId: string;
-  status: SessionState;    // running | paused | completed | interrupted | failed | blocked
+  status: RunState;        // running | paused | completed | interrupted | failed | blocked
   startedAt: string;
   endedAt?: string;
   updatedAt: string;
@@ -190,12 +190,12 @@ interface SessionMetadata {
 
 ### Lock Files
 
-Only one session can run per plan at a time. The lock file (`synth.lock`) is acquired atomically using `O_CREAT|O_EXCL` flags:
+Only one run can execute per session at a time. The lock file (`synth.lock`) is acquired atomically using `O_CREAT|O_EXCL` flags:
 
 ```typescript
 interface LockFile {
   pid: number;
-  sessionId: string;
+  runId: string;
   acquiredAt: string;
   hostname: string;
 }
@@ -205,7 +205,7 @@ interface LockFile {
 
 ### Orphaned Task Reset
 
-When a session starts, `resetOrphanedTasks()` resets any `in_progress` tasks back to `open`. This handles the case where a previous session crashed mid-iteration, leaving a task in a partial state.
+When a run starts, `resetOrphanedTasks()` resets any `in_progress` tasks back to `open`. This handles the case where a previous run crashed mid-iteration, leaving a task in a partial state.
 
 ## Auto-Commit Strategy
 

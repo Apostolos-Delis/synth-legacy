@@ -480,7 +480,7 @@ export function FinalizeApp({ orchestrator, agent, config, sessionPaths, cwd, on
         }}
       >
         <box style={{ flexDirection: "row", gap: 2 }}>
-          <text fg={colors.accent.primary} attributes={boldAttr()}>synth finalize</text>
+          <text fg={colors.accent.primary} attributes={boldAttr()}>synth</text>
           <text fg={colors.fg.muted}>{PHASE_LABELS[currentPhase]}</text>
         </box>
         <text fg={colors.fg.muted}>

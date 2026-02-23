@@ -198,7 +198,7 @@ async function cmdLs(): Promise<void> {
     if (allPlans.length > 0) {
       log(fmt.dim(`All ${allPlans.length} session(s) are completed. Use 'synth ls --all' to show them.`));
     } else {
-      log(fmt.dim("No sessions found. Run 'synth plan' to create one."));
+      log(fmt.dim("No sessions found. Run 'synth start' to create one."));
     }
     return;
   }
@@ -272,7 +272,7 @@ async function cmdStatus(sessionId?: string): Promise<void> {
   }
 
   if (!plan) {
-    log(fmt.dim("No active session. Run 'synth plan' to create one."));
+    log(fmt.dim("No active session. Run 'synth start' to create one."));
     return;
   }
 
@@ -351,12 +351,12 @@ async function cmdRun(sessionId?: string, startIteration = 0, tuiContext?: TuiCo
   }
 
   if (!plan) {
-    logError("No session found. Run 'synth plan' first.");
+    logError("No session found. Run 'synth start' first.");
     process.exit(1);
   }
 
   if (!(await fileExists(plan.paths.tasks))) {
-    logError(`Session ${plan.metadata.id} has no tasks. Run 'synth plan' to generate them.`);
+    logError(`Session ${plan.metadata.id} has no tasks. Run 'synth start' to generate them.`);
     process.exit(1);
   }
 
@@ -395,7 +395,7 @@ async function cmdRun(sessionId?: string, startIteration = 0, tuiContext?: TuiCo
   }
 
   log(
-    `${fmt.bold("synth run")} ${ansi.muted}│${ansi.reset} ${fmt.label("session:", plan.metadata.id)} ${ansi.muted}│${ansi.reset} ${fmt.label("agent:", config.agent.name)} ${ansi.muted}│${ansi.reset} ${fmt.label("max:", `${config.execution.max_iterations} iterations`)}`,
+    `${fmt.bold("synth")} ${ansi.muted}│${ansi.reset} ${fmt.label("session:", plan.metadata.id)} ${ansi.muted}│${ansi.reset} ${fmt.label("agent:", config.agent.name)} ${ansi.muted}│${ansi.reset} ${fmt.label("max:", `${config.execution.max_iterations} iterations`)}`,
   );
   log("");
 
@@ -713,7 +713,15 @@ async function cmdRun(sessionId?: string, startIteration = 0, tuiContext?: TuiCo
         }
       } else {
         printCompletionSummary(summaryData);
-        log(`\n${fmt.dim(`Run 'synth finalize ${plan.metadata.id}' to start finalize review.`)}`);
+        const readline = await import("node:readline");
+        const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+        const answer = await new Promise<string>((resolve) => {
+          rl.question(`\nCreate PR? (Y/n) `, resolve);
+        });
+        rl.close();
+        if (!answer || answer.toLowerCase() === "y" || answer.toLowerCase() === "yes") {
+          await cmdFinalize(plan.metadata.id);
+        }
       }
     }
 
@@ -796,7 +804,7 @@ async function cmdResume(sessionId?: string): Promise<void> {
     case "finalizing": {
       const finalizePath = join(plan.paths.root, "finalize-conversation.json");
       if (!(await fileExists(finalizePath))) {
-        logError(`Finalize conversation state missing for session ${id}. Run 'synth finalize ${id}' to start a fresh review.`);
+        logError(`Finalize conversation state missing for session ${id}. Run 'synth resume ${id}' to start a fresh review.`);
         process.exit(1);
       }
       const savedConversation = await readJson<import("./finalize/chat-types.js").FinalizeMessage[]>(finalizePath);
@@ -814,7 +822,7 @@ async function cmdResume(sessionId?: string): Promise<void> {
       const readline = await import("node:readline");
       const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
       const answer = await new Promise<string>((resolve) => {
-        rl.question(`Run finalize to review changes and create a PR? (Y/n) `, resolve);
+        rl.question(`Create PR? (Y/n) `, resolve);
       });
       rl.close();
       if (!answer || answer.toLowerCase() === "y" || answer.toLowerCase() === "yes") {
@@ -839,8 +847,8 @@ async function cmdResume(sessionId?: string): Promise<void> {
     }
 
     case "planning": {
-      log(fmt.info(`Session ${id} is in planning phase. Run 'synth run ${id}' to start execution.`));
-      return;
+      log(fmt.info(`Session ${id} is in planning phase — starting execution.`));
+      break; // fall through to execution resume below
     }
 
     // executing, paused — fall through to execution resume below
@@ -849,12 +857,21 @@ async function cmdResume(sessionId?: string): Promise<void> {
   const { loadRun } = await loadRunModule();
   const run = await loadRun(plan.paths);
   if (!run) {
-    logError(`No run state found for session ${id}. Run 'synth run ${id}' to start execution.`);
+    logError(`No run state found for session ${id}. Run 'synth start' to create a new session.`);
     process.exit(1);
   }
 
   if (run.status === "completed") {
-    log(fmt.info(`Execution is complete. Run 'synth finalize ${id}' to review and create a PR.`));
+    log(fmt.info(`Session ${id} execution is complete.`));
+    const readline = await import("node:readline");
+    const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+    const answer = await new Promise<string>((resolve) => {
+      rl.question(`Create PR? (Y/n) `, resolve);
+    });
+    rl.close();
+    if (!answer || answer.toLowerCase() === "y" || answer.toLowerCase() === "yes") {
+      await cmdFinalize(id);
+    }
     return;
   }
 
@@ -966,7 +983,7 @@ async function resumeInterview(
       process.off("SIGINT", sigintHandler);
       cleanup();
       agent.dispose();
-      log(`\nSession saved. Run later with: ${fmt.bold(`synth run ${id}`)}`);
+      log(`\nSession saved. Resume later with: ${fmt.bold(`synth resume ${id}`)}`);
       return;
     }
 
@@ -1024,7 +1041,7 @@ async function resumeInterview(
     if (!confirmed) {
       cleanup();
       agent.dispose();
-      log(`\nSession saved. Run later with: ${fmt.bold(`synth run ${id}`)}`);
+      log(`\nSession saved. Resume later with: ${fmt.bold(`synth resume ${id}`)}`);
       return;
     }
 
@@ -1123,12 +1140,12 @@ async function resumeInterview(
     if (!answer || answer.toLowerCase() === "y" || answer.toLowerCase() === "yes") {
       await cmdRun(id);
     } else {
-      log(`\nSession saved. Run later with: ${fmt.bold(`synth run ${id}`)}`);
+      log(`\nSession saved. Resume later with: ${fmt.bold(`synth resume ${id}`)}`);
     }
   }
 }
 
-async function cmdPlan(sessionIdOrFlag?: string): Promise<void> {
+async function cmdStart(sessionIdOrFlag?: string): Promise<void> {
   const config = await applyTheme();
 
   const prdIndex = args.indexOf("--prd");
@@ -1174,18 +1191,17 @@ async function cmdPlan(sessionIdOrFlag?: string): Promise<void> {
       taskCount: taskFile.tasks.length,
     });
 
-    logSuccess(
-      `Generated ${taskFile.tasks.length} tasks. Run 'synth run ${id}' to start.`,
-    );
+    // Auto-chain into execution
     agent.dispose();
+    await cmdRun(id);
     return;
   }
 
-  if (sessionIdOrFlag && sessionIdOrFlag !== "plan") {
+  if (sessionIdOrFlag && sessionIdOrFlag !== "start") {
     const plan = await getSession(cwd, sessionIdOrFlag);
     if (plan) {
       await cmdShow(sessionIdOrFlag);
-      log(`\nTo execute: ${fmt.bold(`synth run ${sessionIdOrFlag}`)}`);
+      log(`\nTo resume: ${fmt.bold(`synth resume ${sessionIdOrFlag}`)}`);
       return;
     }
   }
@@ -1288,7 +1304,7 @@ async function cmdPlan(sessionIdOrFlag?: string): Promise<void> {
       process.off("SIGINT", sigintHandler);
       cleanup();
       agent.dispose();
-      log(`\nSession saved. Run later with: ${fmt.bold(`synth run ${id}`)}`);
+      log(`\nSession saved. Resume later with: ${fmt.bold(`synth resume ${id}`)}`);
       return;
     }
 
@@ -1346,7 +1362,7 @@ async function cmdPlan(sessionIdOrFlag?: string): Promise<void> {
     if (!confirmed) {
       cleanup();
       agent.dispose();
-      log(`\nSession saved. Run later with: ${fmt.bold(`synth run ${id}`)}`);
+      log(`\nSession saved. Resume later with: ${fmt.bold(`synth resume ${id}`)}`);
       return;
     }
 
@@ -1448,7 +1464,7 @@ async function cmdPlan(sessionIdOrFlag?: string): Promise<void> {
     await cmdRun(id);
   } else {
     log(
-      `\nSession saved. Run later with: ${fmt.bold(`synth run ${id}`)}`,
+      `\nSession saved. Resume later with: ${fmt.bold(`synth resume ${id}`)}`,
     );
   }
 }
@@ -1557,7 +1573,7 @@ async function cmdFinalize(
     }
   } else {
     // ── Non-TUI: automated finalize pipeline ──
-    log(`${fmt.bold("synth finalize")} ${ansi.muted}─${ansi.reset} ${plan.metadata.id}\n`);
+    log(`${fmt.bold("synth")} ${ansi.muted}─ finalize ─${ansi.reset} ${plan.metadata.id}\n`);
 
     const [{ getAgent }, { finalize }] = await Promise.all([
       loadAgentRegistry(),
@@ -1596,18 +1612,18 @@ async function cmdFinalize(
 async function cmdSpawn(sessionIdOrFlag?: string): Promise<void> {
   await applyTheme();
   let sessionId: string | undefined;
-  let doPlan = false;
+  let doStart = false;
 
-  if (sessionIdOrFlag === "--plan") {
-    doPlan = true;
+  if (sessionIdOrFlag === "--start") {
+    doStart = true;
   } else {
     sessionId = sessionIdOrFlag;
   }
 
-  if (!sessionId && !doPlan) {
+  if (!sessionId && !doStart) {
     const plan = await getMostRecentSession(cwd);
     if (!plan) {
-      logError("No session found. Use 'synth spawn --plan' to start a new session.");
+      logError("No session found. Use 'synth spawn --start' to start a new session.");
       process.exit(1);
     }
     sessionId = plan.metadata.id;
@@ -1646,7 +1662,7 @@ async function cmdSpawn(sessionIdOrFlag?: string): Promise<void> {
     }
   }
 
-  const cmd = doPlan ? "synth plan" : `synth run ${sessionId}`;
+  const cmd = doStart ? "synth start" : `synth resume ${sessionId}`;
   log(fmt.info(`Starting: cd ${wtPath} && ${cmd}`));
 
   const runHandle = spawn({
@@ -1827,17 +1843,11 @@ async function main(): Promise<void> {
     case "init":
       await cmdInit();
       break;
-    case "plan":
-      await cmdPlan(await resolvePlanId(args[1]));
-      break;
-    case "run":
-      await cmdRun(await resolvePlanId(args[1]));
+    case "start":
+      await cmdStart(await resolvePlanId(args[1]));
       break;
     case "resume":
       await cmdResume(await resolvePlanId(args[1]));
-      break;
-    case "finalize":
-      await cmdFinalize(await resolvePlanId(args[1]));
       break;
     case "ls":
       await cmdLs();
@@ -1885,10 +1895,8 @@ async function main(): Promise<void> {
       log("Usage: synth <command> [options]\n");
 
       log(`${ansi.bold}Workflow:${ansi.reset}`);
-      log(`  ${ansi.primary}plan${ansi.reset} ${ansi.muted}[--prd <path>]${ansi.reset}    Interview → generate tasks → execute`);
-      log(`  ${ansi.primary}run${ansi.reset} ${ansi.muted}[<session-id>]${ansi.reset}     Execute the task loop`);
-      log(`  ${ansi.primary}resume${ansi.reset} ${ansi.muted}[<session-id>]${ansi.reset}  Resume paused session`);
-      log(`  ${ansi.primary}finalize${ansi.reset} ${ansi.muted}[<session-id>]${ansi.reset} Self-review → format → split → PR`);
+      log(`  ${ansi.primary}start${ansi.reset} ${ansi.muted}[--prd <path>]${ansi.reset}   Interview → generate tasks → execute → PR`);
+      log(`  ${ansi.primary}resume${ansi.reset} ${ansi.muted}[<session-id>]${ansi.reset}  Resume a paused or interrupted session`);
       log(`  ${ansi.primary}spawn${ansi.reset} ${ansi.muted}[<session-id>]${ansi.reset}   Run session in background worktree`);
 
       log(`\n${ansi.bold}Inspect:${ansi.reset}`);

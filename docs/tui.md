@@ -9,7 +9,7 @@ The TUI uses OpenTUI's React bindings (`@opentui/react`) to render terminal comp
 ```
 App (keyboard nav + view routing)
   |
-  +-- InterviewView (chat-style Q&A)
+  +-- InterviewApp (chat-style Q&A)
   |     +-- Header
   |     +-- ChatPane
   |     +-- Footer
@@ -21,8 +21,13 @@ App (keyboard nav + view routing)
   |     +-- StatusBar
   |
   +-- DashboardView (task table)
+  |     +-- Header
+  |     +-- Task table
+  |     +-- Footer
+  |
+  +-- FinalizeApp (finalize conversation)
         +-- Header
-        +-- Task table
+        +-- ChatPane
         +-- Footer
 ```
 
@@ -53,10 +58,10 @@ State is updated in response to engine events (`task:start`, `agent:stdout`, `st
 
 ### InterviewView
 
-Displays during `synth plan`. A chat-style interface showing the conversation between the user and the AI interviewer.
+Displays during `synth start`. A chat-style interface showing the conversation between the user and the AI interviewer.
 
 ```
-┌─ Synth ─ plan: bold-falcon-42 ─────────────────┐
+┌─ Synth ─ session: bold-falcon-42 ─────────────────┐
 │                                                  │
 │  Synth: What problem are you trying to solve?    │
 │                                                  │
@@ -72,10 +77,10 @@ Displays during `synth plan`. A chat-style interface showing the conversation be
 
 ### ExecutionView
 
-Displays during `synth run`. A split-pane layout with the task list on the left and agent output on the right.
+Displays during execution. A split-pane layout with the task list on the left and agent output on the right.
 
 ```
-┌─ Synth ─ plan: bold-falcon-42 ── iter 3/20 ── claude ── 2m 15s ─┐
+┌─ Synth ─ session: bold-falcon-42 ── iter 3/20 ── claude ── 2m 15s ─┐
 │                      │                                            │
 │  ✓ US-001 Setup DB   │  > Reading src/models/task.ts...           │
 │  ✓ US-002 Add routes │  > Adding validation to create endpoint    │
@@ -95,7 +100,7 @@ The task sidebar takes ~30% width (max 40 characters). Tasks show status icons, 
 A full-width task table toggled with `d` during execution.
 
 ```
-┌─ Synth ─ plan: bold-falcon-42 ─────────────────────────┐
+┌─ Synth ─ session: bold-falcon-42 ─────────────────────────┐
 │                                                          │
 │  ID      Title              Status    Pri   Iterations   │
 │  US-001  Setup database     ✓ done     1        1        │
@@ -113,7 +118,7 @@ A full-width task table toggled with `d` during execution.
 
 ### Header
 
-Displays project name, plan ID, current iteration, agent name, and elapsed time. Time formats adaptively: seconds, then minutes + seconds, then hours + minutes + seconds.
+Displays project name, session ID, current iteration, agent name, and elapsed time. Time formats adaptively: seconds, then minutes + seconds, then hours + minutes + seconds.
 
 ### TaskSidebar
 

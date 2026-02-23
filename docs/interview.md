@@ -5,7 +5,7 @@ The interview system (`src/interview/`) drives a multi-turn AI conversation to p
 ## Overview
 
 ```
-synth plan
+synth start
   |
   v
 Interviewer.start()
@@ -36,29 +36,39 @@ generateTasks(prd) -> tasks.json
 
 ## How It Works
 
+### ConversationEngine
+
+The interviewer delegates conversation management to a shared `ConversationEngine` (`src/conversation/engine.ts`). The engine handles message history, agent communication, sliding window truncation, and auto-persistence — the interviewer retains only PRD-specific logic (extraction, system prompt, confirmation flow).
+
 ### Starting the Interview
 
-`Interviewer.start()` sends the system prompt to the agent and returns the opening question. The agent is instructed to interview the user across five topic areas before producing a PRD.
+`Interviewer.start()` sends the system prompt to the agent via the ConversationEngine and returns the opening question. The agent is instructed to interview the user across five topic areas before producing a PRD.
 
 ### Multi-Turn Conversation
 
 Each call to `Interviewer.respond(userMessage)`:
 
-1. Appends the user message to conversation history
-2. Builds a prompt containing the system prompt + conversation history
-3. Sends it to the agent
-4. Appends the agent's response to history
-5. Checks if the response contains a JSON PRD (extraction attempt)
+1. Delegates to `ConversationEngine.send(userMessage)` which:
+   - Appends the user message to conversation history
+   - Builds a prompt containing the system prompt + conversation history
+   - Sends it to the agent (with optional streaming)
+   - Appends the agent's response to history
+   - Auto-persists conversation state to `interview.json`
+2. Checks if the response contains a JSON PRD (extraction attempt)
 
 ### Sliding Window Context
 
-To prevent context window overflow in long interviews, the interviewer uses a sliding window of the **last 16 messages** (8 user-agent turns). When messages are truncated, a note is prepended:
+To prevent context window overflow in long interviews, the ConversationEngine uses a sliding window of the **last 16 messages** (configurable via `maxHistoryWindow`). When messages are truncated, a note is prepended:
 
 ```
-[Note: {N} earlier messages omitted for brevity]
+[Earlier conversation truncated — N messages omitted]
 ```
 
 This keeps the prompt size manageable while preserving the most recent and relevant context.
+
+### Auto-Persistence
+
+Conversation state is automatically persisted to `interview.json` after every message exchange via the engine's `persist` callback. This means a crash or interruption at any point preserves all prior messages, enabling robust resume.
 
 ## System Prompt
 
@@ -163,11 +173,15 @@ If extraction fails, the conversation continues — the agent will try again in 
 - {gate2}
 ```
 
-This markdown is written to `prd.md` in the plan directory and can be reviewed or edited before proceeding to task generation.
+This markdown is written to `prd.md` in the session directory and can be reviewed or edited before proceeding to task generation.
 
-## Resuming an Existing Plan
+## Resuming an Interview
 
-When `synth plan --prd <path>` is used, the interview is skipped entirely. The provided PRD file is read directly and fed to the task planner. This supports:
+`synth resume <session-id>` on a session in `interviewing` status restores the full conversation history from `interview.json` and resumes the interview in the TUI with all prior messages displayed. If no saved state exists (e.g., crashed before the first exchange), resume shows a clear error message.
+
+## Skipping the Interview
+
+When `synth start --prd <path>` is used, the interview is skipped entirely. The provided PRD file is read directly and fed to the task planner. This supports:
 
 - Pre-written PRDs from external tools
 - Edited PRDs from previous interview sessions
@@ -177,11 +191,11 @@ When `synth plan --prd <path>` is used, the interview is skipped entirely. The p
 
 After the PRD is finalized (either via interview or `--prd` flag):
 
-1. PRD markdown is written to the plan directory
-2. Plan status is updated to `planning`
+1. PRD markdown is written to the session directory
+2. Session status is updated to `planning`
 3. `generateTasks(agent, prd, projectName, branchName, cwd)` sends the PRD to the agent with task generation instructions
 4. The agent returns a JSON `TaskFile` with dependency-ordered tasks
 5. Tasks are written to `tasks.json`
-6. Plan status is updated to `executing`
+6. Session status is updated to `executing`
 
 See [tasks.md](tasks.md) for details on task generation, the `TaskFile` format, and dependency resolution.

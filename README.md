@@ -31,26 +31,25 @@ bun link
 # Create synth.toml in your project
 synth init
 
-# Start an interactive interview, generate tasks, and begin execution
-synth plan
+# Start an interactive interview, generate tasks, execute, and create a PR
+synth start
 
-# When execution finishes, review + format + split commits + open PR
-synth finalize
+# If interrupted, pick up where you left off
+synth resume
 ```
 
 ## CLI Reference
 
 | Command | Usage | Description |
 |---------|-------|-------------|
-| `plan` | `synth plan [--prd <path>]` | Interactive PRD interview, task generation, and optional auto-start |
-| `run` | `synth run [<plan-id>]` | Execute the engine loop for a plan |
-| `resume` | `synth resume [<plan-id>]` | Resume a paused or interrupted session |
-| `finalize` | `synth finalize [<plan-id>]` | Self-review, auto-format, commit splitting, and PR creation |
-| `ls` | `synth ls` | List all plans for the current repo |
-| `show` | `synth show <plan-id>` | Show detailed plan info and task list |
-| `status` | `synth status [<plan-id>]` | Show progress bar and session state |
-| `spawn` | `synth spawn [<plan-id>] [--plan]` | Run synth in a git worktree (background) |
-| `ps` | `synth ps` | List currently executing plan instances |
+| `start` | `synth start [--prd <path>]` | Interview → generate tasks → execute → PR |
+| `resume` | `synth resume [<session-id>]` | Resume a paused or interrupted session |
+| `ls` | `synth ls [--all]` | List sessions for the current repo (hides completed by default) |
+| `show` | `synth show <session-id>` | Show detailed session info and task list |
+| `status` | `synth status [<session-id>]` | Show progress bar and session state |
+| `spawn` | `synth spawn [<session-id>] [--start]` | Run synth in a git worktree (background) |
+| `ps` | `synth ps` | List currently running session instances |
+| `clean` | `synth clean` | Remove abandoned sessions |
 | `init` | `synth init` | Create `synth.toml` from template |
 | `themes` | `synth themes` | List available themes and spinners |
 | `config` | `synth config` | Dump resolved configuration as JSON |
@@ -105,9 +104,8 @@ User
   v
 CLI (cli.tsx) ---- command routing
   |
-  |--- plan         -> Interviewer -> Task Planner -> tasks.json
-  |--- run/resume   -> Engine loop
-  |--- finalize     -> Review -> Format -> Split -> PR
+  |--- start        -> Interviewer -> Task Planner -> Engine loop -> Review -> PR
+  |--- resume       -> Pick up any phase where it left off
   |
   v
 Engine (engine.ts)
@@ -118,14 +116,14 @@ Engine (engine.ts)
   +-- Circuit Breaker -- consecutive failure guard
   +-- Rate Limiter ----- detection + exponential backoff
   +-- Backpressure ----- quality gate commands
-  +-- Session Manager -- atomic locking + state tracking
+  +-- Run Manager ------ atomic locking + state tracking
   |
   v
-Plan Storage (~/.synth/plans/<repo>/<plan-id>/)
+Session Storage (~/.synth/sessions/<repo>/<session-id>/)
   +-- metadata.json    +-- tasks.json
   +-- prd.md           +-- progress.md
-  +-- session.json     +-- synth.lock
-  +-- logs/
+  +-- run.json         +-- synth.lock
+  +-- interview.json   +-- logs/
 ```
 
 See [docs/architecture.md](docs/architecture.md) for state machines, data flow diagrams, and design decisions.
@@ -144,6 +142,9 @@ src/
     types.ts                #   SynthConfig interface
     defaults.ts             #   Default values
     loader.ts               #   TOML loader + deep merge
+  conversation/             # Shared conversation engine
+    engine.ts               #   ConversationEngine class
+    types.ts                #   ConversationMessage
   engine/                   # Execution engine
     engine.ts               #   Core loop (select -> prompt -> execute -> validate)
     circuit-breaker.ts      #   Consecutive failure guard
@@ -151,24 +152,26 @@ src/
     backpressure.ts         #   Quality gate runner
   finalize/                 # Finalize pipeline
     finalize.ts             #   Pipeline orchestrator
+    orchestrator.ts         #   Conversation-based finalize flow
     review.ts               #   AI self-review (3 perspectives)
     formatter.ts            #   Auto-formatter detection
     splitter.ts             #   Commit categorization
     pr.ts                   #   PR body generation + gh integration
   interview/                # PRD interview
-    interviewer.ts          #   Multi-turn interview loop
+    interviewer.ts          #   Multi-turn interview loop (uses ConversationEngine)
     prompts.ts              #   System prompt
     types.ts                #   InterviewMessage, GeneratedPrd
-  plans/                    # Plan management
-    registry.ts             #   Plan CRUD + storage
+  sessions/                 # Session management
+    registry.ts             #   Session CRUD + storage + migration
     id.ts                   #   Human-readable ID generator
-    types.ts                #   PlanMetadata, PlanPaths
+    slug.ts                 #   Session slug + task prefix derivation
+    types.ts                #   SessionMetadata, SessionPaths
   prompts/                  # Prompt assembly
     build.ts                #   buildPrompt() — iteration prompt
     instructions.ts         #   ITERATION_INSTRUCTIONS constant
-  session/                  # Session lifecycle
-    session.ts              #   Create, update, end + atomic locking
-    types.ts                #   SessionState, LockFile
+  run/                      # Execution run lifecycle
+    run.ts                  #   Create, update, end + atomic locking
+    types.ts                #   RunMetadata, RunState, LockFile
   tasks/                    # Task management
     types.ts                #   Task, TaskFile interfaces
     store.ts                #   Task persistence + helpers
@@ -178,7 +181,8 @@ src/
     App.tsx                 #   Root app + keyboard navigation
     DashboardView.tsx       #   Task table view
     ExecutionView.tsx       #   Split-pane execution view
-    InterviewView.tsx       #   Chat-style interview view
+    InterviewApp.tsx        #   Chat-style interview app
+    FinalizeApp.tsx         #   Finalize conversation app
     theme.ts                #   ThemeColors interface + runtime colors
     spinners.ts             #   Spinner presets (dots, braille, etc.)
     themes/                 #   Built-in theme definitions
@@ -188,6 +192,8 @@ src/
   utils/                    # Shared utilities
     fs.ts                   #   File I/O wrappers
     process.ts              #   Subprocess spawning
+    git.ts                  #   Git operations
+    format.ts               #   Formatting helpers
   __tests__/                # Test suite
 ```
 
