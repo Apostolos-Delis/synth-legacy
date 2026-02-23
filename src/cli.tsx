@@ -66,7 +66,7 @@ async function loadFinalize() {
 
 // TUI imports are loaded dynamically to keep non-TUI commands fast.
 async function loadTui() {
-  const [{ createCliRenderer }, { createRoot }, { App }, { InterviewApp }, { GeneratingView }, { ReviewView }, { FinalizeApp }] = await Promise.all([
+  const [{ createCliRenderer }, { createRoot }, { App }, { InterviewApp }, { GeneratingView }, { ReviewView }, { FinalizeApp }, { PrdReviewView }] = await Promise.all([
     import("@opentui/core"),
     import("@opentui/react"),
     import("./tui/App.js"),
@@ -74,8 +74,9 @@ async function loadTui() {
     import("./tui/GeneratingView.js"),
     import("./tui/ReviewView.js"),
     import("./tui/FinalizeApp.js"),
+    import("./tui/PrdReviewView.js"),
   ]);
-  return { createCliRenderer, createRoot, App, InterviewApp, GeneratingView, ReviewView, FinalizeApp };
+  return { createCliRenderer, createRoot, App, InterviewApp, GeneratingView, ReviewView, FinalizeApp, PrdReviewView };
 }
 
 const VERSION = "0.5.0";
@@ -1171,11 +1172,35 @@ async function cmdPlan(planIdOrFlag?: string): Promise<void> {
       return;
     }
 
-    // Phase 2: Task Generation (keep renderer alive, reuse early-created plan)
+    // Phase 2: PRD Review (user can revise before task generation)
     const extractedPrd = prd as import("./interview/types.js").GeneratedPrd;
-    const prdMarkdown = interviewMod.prdToMarkdown(extractedPrd);
-    await writeText(paths.prd, prdMarkdown);
+    let prdMarkdown = interviewMod.prdToMarkdown(extractedPrd);
     await updatePlanMetadata(cwd, id, { description: extractedPrd.title });
+
+    const prdApproved = await new Promise<boolean>((resolve) => {
+      planRoot.render(
+        <tui.PrdReviewView
+          prdMarkdown={prdMarkdown}
+          agent={agent}
+          planPaths={paths}
+          cwd={cwd}
+          model={config.agent.model}
+          onApprove={() => resolve(true)}
+          onQuit={() => resolve(false)}
+        />,
+      );
+    });
+
+    if (!prdApproved) {
+      process.off("SIGINT", sigintHandler);
+      cleanup();
+      agent.dispose();
+      log(`\nPlan saved. Run later with: ${fmt.bold(`synth run ${id}`)}`);
+      return;
+    }
+
+    // Re-read PRD in case it was revised during review
+    prdMarkdown = await readText(paths.prd);
 
     let streamOutput = "";
     let taskCount = 0;
