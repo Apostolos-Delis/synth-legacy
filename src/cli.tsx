@@ -513,7 +513,7 @@ async function cmdRun(planId?: string, startIteration = 0, tuiContext?: TuiConte
           const renderStart = event.isFirstChunk ? performance.now() : 0;
           if (event.isFirstChunk) {
             tuiData.currentPhase = "Streaming response...";
-            tuiData.phaseStartTime = renderStart;
+            tuiData.phaseStartTime = Date.now();
           }
           const stripped = event.message ? stripAnsi(event.message) : "";
           if (stripped) {

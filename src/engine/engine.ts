@@ -95,7 +95,7 @@ export class Engine {
       }
 
       // Load tasks fresh each iteration
-      this.emit({ type: "phase:scanning", timestamp: performance.now() });
+      this.emit({ type: "phase:scanning", timestamp: Date.now() });
       const taskFile = await loadTasks(this.planPaths.tasks);
 
       // Check all done
@@ -132,7 +132,7 @@ export class Engine {
       await saveTasks(this.planPaths.tasks, updatedFile);
 
       // Build prompt
-      this.emit({ type: "phase:building-prompt", timestamp: performance.now() });
+      this.emit({ type: "phase:building-prompt", timestamp: Date.now() });
       trace.startPhase("engine:prompt-build");
       const prompt = await buildPrompt(
         task,
@@ -143,7 +143,7 @@ export class Engine {
       trace.endPhase("engine:prompt-build");
 
       // Execute agent
-      this.emit({ type: "phase:spawning-agent", timestamp: performance.now() });
+      this.emit({ type: "phase:spawning-agent", timestamp: Date.now() });
       trace.startPhase("engine:agent-execution");
       const startTime = Date.now();
       let output = "";
@@ -192,7 +192,7 @@ export class Engine {
       });
 
       this.activeInterrupt = () => handle.interrupt();
-      this.emit({ type: "phase:waiting-response", timestamp: performance.now() });
+      this.emit({ type: "phase:waiting-response", timestamp: Date.now() });
       const result = await handle.promise;
       this.activeInterrupt = null;
       trace.endPhase("engine:agent-execution");
