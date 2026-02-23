@@ -35,17 +35,51 @@ async function safeReadText(path: string): Promise<string | null> {
   return null;
 }
 
+function getAgentSpecificInstructions(agentName: string): string | null {
+  switch (agentName) {
+    case "claude":
+      return `## Agent-Specific Guidance (Claude)
+
+- Use the Task tool with subagent_type to delegate independent sub-tasks in parallel
+- Prefer Glob/Grep/Read over Bash for file operations — dedicated tools give better output
+- When exploring unfamiliar code, use the Explore agent rather than manual grep chains
+- For multi-file changes, use parallel tool calls when edits are independent
+- Mark ac-done markers immediately after completing each acceptance criterion`;
+
+    case "codex":
+      return `## Agent-Specific Guidance (Codex)
+
+- Use the apply patch tool for multi-line edits — it handles conflict resolution automatically
+- Prefer structured tool output over shell pipelines for file reads and searches
+- When running verification commands, chain them with && to fail fast on first error
+- Keep shell commands simple and atomic — avoid complex piped expressions
+- Write file contents directly rather than using echo/cat with heredocs`;
+
+    default:
+      return null;
+  }
+}
+
 export async function buildPrompt(
   task: Task,
   planPaths: PlanPaths,
   cwd: string,
   iteration: number,
+  agentName?: string,
 ): Promise<string> {
   const trace = globalTrace();
   const sections: string[] = [];
 
   // 1. Instructions
   sections.push(ITERATION_INSTRUCTIONS);
+
+  // 1b. Agent-specific instructions (injected after generic instructions)
+  if (agentName) {
+    const agentInstructions = getAgentSpecificInstructions(agentName);
+    if (agentInstructions) {
+      sections.push(agentInstructions);
+    }
+  }
 
   // 2 & 3. Read AGENTS.md and progress.md concurrently
   trace.startPhase("build:read-files");

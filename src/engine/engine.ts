@@ -139,6 +139,7 @@ export class Engine {
         this.planPaths,
         this.cwd,
         this.iteration,
+        this.config.agent.name,
       );
       trace.endPhase("engine:prompt-build");
 

@@ -118,4 +118,50 @@ describe("buildPrompt", () => {
       expect(prompt).not.toContain("Recent Progress");
     });
   });
+
+  test("includes Claude-specific guidance when agentName is 'claude'", async () => {
+    await withTmpDir(async (dir) => {
+      const paths = makePlanPaths(dir);
+      const prompt = await buildPrompt(makeTask(), paths, dir, 1, "claude");
+      expect(prompt).toContain("Agent-Specific Guidance (Claude)");
+      expect(prompt).toContain("Task tool with subagent_type");
+    });
+  });
+
+  test("includes Codex-specific guidance when agentName is 'codex'", async () => {
+    await withTmpDir(async (dir) => {
+      const paths = makePlanPaths(dir);
+      const prompt = await buildPrompt(makeTask(), paths, dir, 1, "codex");
+      expect(prompt).toContain("Agent-Specific Guidance (Codex)");
+      expect(prompt).toContain("apply patch tool");
+    });
+  });
+
+  test("omits agent-specific section for unrecognized agent type", async () => {
+    await withTmpDir(async (dir) => {
+      const paths = makePlanPaths(dir);
+      const prompt = await buildPrompt(makeTask(), paths, dir, 1, "unknown-agent");
+      expect(prompt).not.toContain("Agent-Specific Guidance");
+      expect(prompt).toContain(ITERATION_INSTRUCTIONS);
+    });
+  });
+
+  test("omits agent-specific section when agentName is undefined", async () => {
+    await withTmpDir(async (dir) => {
+      const paths = makePlanPaths(dir);
+      const prompt = await buildPrompt(makeTask(), paths, dir, 1);
+      expect(prompt).not.toContain("Agent-Specific Guidance");
+    });
+  });
+
+  test("agent-specific section appears after generic instructions", async () => {
+    await withTmpDir(async (dir) => {
+      const paths = makePlanPaths(dir);
+      const prompt = await buildPrompt(makeTask(), paths, dir, 1, "claude");
+      const instructionsIdx = prompt.indexOf(ITERATION_INSTRUCTIONS);
+      const agentIdx = prompt.indexOf("Agent-Specific Guidance (Claude)");
+      expect(instructionsIdx).toBeGreaterThanOrEqual(0);
+      expect(agentIdx).toBeGreaterThan(instructionsIdx);
+    });
+  });
 });
