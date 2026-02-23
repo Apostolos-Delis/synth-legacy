@@ -1,8 +1,26 @@
 import { useState, useCallback, useRef, type ReactNode } from "react";
-import { useKeyboard } from "@opentui/react";
+import { useKeyboard, useTerminalDimensions } from "@opentui/react";
 import type { TextareaRenderable } from "@opentui/core";
 import type { ChatOption, QuestionGroup } from "../../finalize/chat-types.js";
 import { boldAttr, colors } from "../theme.js";
+
+function wordWrap(text: string, maxWidth: number): string[] {
+  if (maxWidth <= 0) return [text];
+  if (text.length <= maxWidth) return [text];
+  const lines: string[] = [];
+  let remaining = text;
+  while (remaining.length > 0) {
+    if (remaining.length <= maxWidth) {
+      lines.push(remaining);
+      break;
+    }
+    let breakAt = remaining.lastIndexOf(" ", maxWidth);
+    if (breakAt <= 0) breakAt = maxWidth;
+    lines.push(remaining.slice(0, breakAt));
+    remaining = remaining.slice(breakAt).trimStart();
+  }
+  return lines;
+}
 
 export interface OptionSelectorProps {
   groups: QuestionGroup[];
@@ -46,12 +64,19 @@ export function OptionSelector({ groups, onSelect, showOther = true }: OptionSel
   const showOtherRef = useRef(showOther);
   showOtherRef.current = showOther;
 
+  const { width: termWidth } = useTerminalDimensions();
+
   const currentGroup = groups[activeTab];
   const optionsWithOther = showOther
     ? [...currentGroup.options, OTHER_OPTION]
     : currentGroup.options;
   const selectedIndex = selectedIndices[activeTab] ?? 0;
   const isMultiQuestion = groups.length > 1;
+
+  // Prefix is: paddingLeft(1) + radio(1) + space(1) + num(1-2) + "." + space = ~6-7 chars
+  const labelPrefixWidth = 6;
+  const labelAvail = Math.max(20, termWidth - 1 - labelPrefixWidth);
+  const descAvail = Math.max(20, termWidth - 1 - 5); // paddingLeft(1) + inner paddingLeft(5)
 
   const trySubmit = useCallback((updatedAnswers: (ChatOption | null)[]) => {
     const allAnswered = updatedAnswers.every((a) => a !== null);
@@ -204,6 +229,9 @@ export function OptionSelector({ groups, onSelect, showOther = true }: OptionSel
         const num = `${i + 1}`;
         const radio = isSelected ? "\u25CF" : "\u25CB";
         const recommendedBadge = option.recommended ? " (Recommended)" : "";
+        const fullLabel = option.label + recommendedBadge;
+        const labelLines = wordWrap(fullLabel, labelAvail);
+        const descLines = option.description ? wordWrap(option.description, descAvail) : [];
 
         return (
           <box key={option.value + i} style={{ flexDirection: "column", paddingLeft: 1, marginBottom: 0 }}>
@@ -215,17 +243,26 @@ export function OptionSelector({ groups, onSelect, showOther = true }: OptionSel
                 fg={isSelected ? colors.accent.primary : colors.fg.primary}
                 attributes={isSelected ? boldAttr() : undefined}
               >
-                {option.label}
-              </text>
-              {recommendedBadge && (
-                <text fg={colors.status.warning}>{recommendedBadge}</text>
-              )}
-            </box>
-            <box style={{ paddingLeft: 5 }}>
-              <text fg={isOther ? colors.fg.muted : isSelected ? colors.fg.secondary : colors.fg.muted}>
-                {option.description}
+                {labelLines[0]}
               </text>
             </box>
+            {labelLines.slice(1).map((line, li) => (
+              <box key={`label-${li}`} style={{ paddingLeft: labelPrefixWidth }}>
+                <text
+                  fg={isSelected ? colors.accent.primary : colors.fg.primary}
+                  attributes={isSelected ? boldAttr() : undefined}
+                >
+                  {line}
+                </text>
+              </box>
+            ))}
+            {descLines.map((line, di) => (
+              <box key={`desc-${di}`} style={{ paddingLeft: 5 }}>
+                <text fg={isOther ? colors.fg.muted : isSelected ? colors.fg.secondary : colors.fg.muted}>
+                  {line}
+                </text>
+              </box>
+            ))}
           </box>
         );
       })}
