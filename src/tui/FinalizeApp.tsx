@@ -551,7 +551,7 @@ export function FinalizeApp({ orchestrator, agent, config, planPaths, cwd, onQui
             height: optionSelectorHeight,
             flexDirection: "column",
             border: true,
-            borderColor: colors.border.normal,
+            borderColor: colors.border.active,
             paddingLeft: 1,
             paddingRight: 1,
           }}
