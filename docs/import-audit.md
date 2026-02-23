@@ -27,16 +27,16 @@ Profiled with `scripts/profile-imports.ts` (averaged across 3 runs):
 
 | Module                 | Avg Load (ms) | Eagerly Loaded? | Needed For               |
 |-----------------------|---------------|-----------------|--------------------------|
-| `interview/interviewer` | ~1.25        | YES             | `plan` command only      |
-| `engine/engine`         | ~1.10        | YES             | `run`/`resume` only      |
+| `interview/interviewer` | ~1.25        | YES             | `start` command only     |
+| `engine/engine`         | ~1.10        | YES             | `start`/`resume` only    |
 | `tui/themes/resolve`    | ~0.83        | YES             | Theme resolution         |
 | `config/loader`         | ~0.78        | YES             | All commands except version/help |
-| `agents/registry`       | ~0.64        | YES             | `run`/`plan`/`finalize`  |
-| `finalize/finalize`     | ~0.66        | YES             | `finalize` command only  |
-| `plans/registry`        | ~0.62        | YES             | Most commands            |
+| `agents/registry`       | ~0.64        | YES             | `start`/`resume`         |
+| `finalize/finalize`     | ~0.66        | YES             | Finalize phase only      |
+| `sessions/registry`     | ~0.62        | YES             | Most commands            |
 | `tasks/store`           | ~0.28        | YES             | Most commands            |
 | `tui/spinner`           | ~0.13        | YES             | TUI spinner display      |
-| `session/session`       | ~0.01        | YES             | `run`/`resume`/`status`  |
+| `run/run`               | ~0.01        | YES             | `start`/`resume`/`status`|
 
 ### Node Built-ins
 
@@ -69,7 +69,7 @@ The codebase already defers several imports correctly:
 
 1. **TUI components** — `loadTui()` dynamically imports `@opentui/core`, `@opentui/react`, `App`, `InterviewApp`, `GeneratingView`, `ReviewView`
 2. **node-notifier** — `await import("./notifications.js")` in cmdRun
-3. **node:readline** — `await import("node:readline")` in cmdPlan
+3. **node:readline** — `await import("node:readline")` in cmdStart
 
 However, the `tui/theme.ts` → `@opentui/core` eager import negates the `loadTui()` deferral.
 
@@ -87,7 +87,7 @@ However, the `tui/theme.ts` → `@opentui/core` eager import negates the `loadTu
 | Module | Current Cost | Action | Expected Savings |
 |--------|-------------|--------|-----------------|
 | `smol-toml` (via `config/loader.ts`) | ~3ms | Defer config loading; version/help don't need it | ~3ms |
-| `interview/interviewer` | ~1.25ms | Defer to `cmdPlan()` | ~1.25ms |
+| `interview/interviewer` | ~1.25ms | Defer to `cmdStart()` | ~1.25ms |
 | `engine/engine` | ~1.1ms | Defer to `cmdRun()`/`cmdResume()` | ~1.1ms |
 
 ### Tier 3: Low Impact (<1ms savings)
@@ -98,9 +98,9 @@ However, the `tui/theme.ts` → `@opentui/core` eager import negates the `loadTu
 | `config/loader` | ~0.78ms | Defer to commands that use config | ~0.78ms |
 | `finalize/finalize` | ~0.66ms | Defer to `cmdFinalize()` | ~0.66ms |
 | `agents/registry` | ~0.64ms | Defer to commands using agents | ~0.64ms |
-| `plans/registry` | ~0.62ms | Defer to commands using plans | ~0.62ms |
+| `sessions/registry` | ~0.62ms | Defer to commands using sessions | ~0.62ms |
 | `tasks/store` | ~0.28ms | Defer to commands using tasks | ~0.28ms |
-| `tasks/planner` | ~0.16ms | Defer to `cmdPlan()` | ~0.16ms |
+| `tasks/planner` | ~0.16ms | Defer to `cmdStart()` | ~0.16ms |
 | `tui/spinner` | ~0.13ms | Defer to TUI commands | ~0.13ms |
 | `tui/spinners` | ~0.01ms | Defer to themes command | ~0.01ms |
 
@@ -122,14 +122,13 @@ With all deferrals applied, `synth version` should drop from ~75ms to ~16ms (Bun
 | `version`  | `tui/theme` (ANSI only) | All others |
 | `help`     | `tui/theme` (ANSI only) | All others |
 | `init`     | `tui/theme`, `utils/fs` | All others |
-| `ls`       | `tui/theme`, `plans/registry`, `tasks/store` | All others |
-| `show`     | `tui/theme`, `plans/registry`, `tasks/store`, `utils/fs` | All others |
-| `status`   | `tui/theme`, `plans/registry`, `tasks/store`, `session/session` | All others |
+| `ls`       | `tui/theme`, `sessions/registry`, `tasks/store` | All others |
+| `show`     | `tui/theme`, `sessions/registry`, `tasks/store`, `utils/fs` | All others |
+| `status`   | `tui/theme`, `sessions/registry`, `tasks/store`, `run/run` | All others |
 | `config`   | `tui/theme`, `config/loader`, `tui/themes/*` | All others |
 | `themes`   | `tui/theme`, `config/loader`, `tui/themes/*`, `tui/spinners` | All others |
-| `plan`     | Nearly everything (config, agents, interviewer, tasks, TUI) | `engine`, `finalize` |
-| `run`      | Nearly everything (config, agents, engine, tasks, TUI) | `finalize`, `interviewer` |
-| `finalize` | config, agents, finalize, tasks, plans | `engine`, `interviewer`, TUI components |
+| `start`    | Nearly everything (config, agents, interviewer, engine, tasks, TUI, finalize) | — |
+| `resume`   | Varies by phase (config, agents, engine/interviewer/finalize, tasks, TUI) | Unused phases |
 
 ## Reproduction
 

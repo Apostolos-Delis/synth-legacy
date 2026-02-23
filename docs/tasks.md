@@ -49,7 +49,7 @@ interface TaskFile {
 }
 ```
 
-Persisted at `~/.synth/plans/<repo>/<plan-id>/tasks.json`.
+Persisted at `~/.synth/sessions/<repo>/<session-id>/tasks.json`.
 
 ## Task Lifecycle
 
@@ -173,4 +173,4 @@ After extraction, the planner applies defaults to every task:
 
 ## Orphaned Task Reset
 
-When a session starts, `resetOrphanedTasks()` finds any tasks with status `in_progress` and resets them to `open`. This handles the case where a previous session was killed mid-iteration (Ctrl+C, crash, system shutdown), leaving a task in a state that no agent is actually working on.
+When a run starts, `resetOrphanedTasks()` finds any tasks with status `in_progress` and resets them to `open`. This handles the case where a previous run was killed mid-iteration (Ctrl+C, crash, system shutdown), leaving a task in a state that no agent is actually working on.
