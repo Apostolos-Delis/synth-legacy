@@ -36,10 +36,6 @@ mock.module("../utils/process.js", () => ({
   spawn: (opts: { cmd: string[] }) => spawnImpl(opts),
 }));
 
-mock.module("../utils/git.js", () => ({
-  getCurrentBranch: async () => "feature-branch",
-}));
-
 const mockTaskFile = {
   project: "test",
   branchName: "feature-branch",
@@ -96,6 +92,12 @@ function makeMockAgent() {
       process: null as unknown,
     }),
   } as any; // eslint-disable-line @typescript-eslint/no-explicit-any
+}
+
+function makeOrchestrator(branch = "feature-branch") {
+  return new FinalizeOrchestrator({
+    gitOps: { getCurrentBranch: async () => branch },
+  });
 }
 
 function makeConfig(overrides?: Partial<SynthConfig>): SynthConfig {
@@ -165,7 +167,7 @@ describe("Auto-finalize flow: review completion → PR creation", () => {
   });
 
   test("review completion with no fixes auto-transitions to creating-pr phase", () => {
-    const orch = new FinalizeOrchestrator();
+    const orch = makeOrchestrator();
     const agent = makeMockAgent();
 
     // Simulate: review is complete, AI had no fixes → transition to collecting-fixes
@@ -180,12 +182,12 @@ describe("Auto-finalize flow: review completion → PR creation", () => {
     // to the default handler. Let's instead test the internal phase transitions directly.
 
     // The real test: create an orchestrator, manually walk it through phases
-    const orch2 = new FinalizeOrchestrator();
+    const orch2 = makeOrchestrator();
     expect(orch2.getCurrentPhase()).toBe("auditing");
   });
 
   test("executePrCreation commits staged changes, pushes, and creates PR", async () => {
-    const orch = new FinalizeOrchestrator();
+    const orch = makeOrchestrator();
     const config = makeConfig();
     const planPaths = makePlanPaths("/tmp/test-plan");
     const { messages, onMessage } = collectMessages();
@@ -213,7 +215,7 @@ describe("Auto-finalize flow: review completion → PR creation", () => {
       return originalImpl(opts);
     };
 
-    const orch = new FinalizeOrchestrator();
+    const orch = makeOrchestrator();
     const config = makeConfig();
     const planPaths = makePlanPaths("/tmp/test-plan");
     const { messages, onMessage } = collectMessages();
@@ -227,14 +229,7 @@ describe("Auto-finalize flow: review completion → PR creation", () => {
   });
 
   test("executePrCreation skips when on base branch", async () => {
-    // Override getCurrentBranch to return "main" (the base branch)
-    mock.module("../utils/git.js", () => ({
-      getCurrentBranch: async () => "main",
-    }));
-
-    // Re-import to pick up the new mock
-    const { FinalizeOrchestrator: FreshOrch } = await import("../finalize/orchestrator.js");
-    const orch = new FreshOrch();
+    const orch = makeOrchestrator("main");
     const config = makeConfig();
     const planPaths = makePlanPaths("/tmp/test-plan");
     const { onMessage } = collectMessages();
@@ -244,15 +239,10 @@ describe("Auto-finalize flow: review completion → PR creation", () => {
     expect(orch.getCurrentPhase()).toBe("complete");
     expect(result.message.content).toContain("Skipping PR creation");
     expect(result.message.content).toContain("already on base branch");
-
-    // Restore original mock
-    mock.module("../utils/git.js", () => ({
-      getCurrentBranch: async () => "feature-branch",
-    }));
   });
 
   test("phase transitions are reported to listeners", async () => {
-    const orch = new FinalizeOrchestrator();
+    const orch = makeOrchestrator();
     const config = makeConfig();
     const planPaths = makePlanPaths("/tmp/test-plan");
     const { onMessage } = collectMessages();
@@ -283,7 +273,7 @@ describe("Error handling: push rejection, gh auth failure, network error", () =>
       return makeSpawnHandle(makeSpawnResult());
     };
 
-    const orch = new FinalizeOrchestrator();
+    const orch = makeOrchestrator();
     const config = makeConfig();
     const planPaths = makePlanPaths("/tmp/test-plan");
     const { onMessage } = collectMessages();
@@ -321,7 +311,7 @@ describe("Error handling: push rejection, gh auth failure, network error", () =>
       return makeSpawnHandle(makeSpawnResult());
     };
 
-    const orch = new FinalizeOrchestrator();
+    const orch = makeOrchestrator();
     const config = makeConfig();
     const planPaths = makePlanPaths("/tmp/test-plan");
     const { onMessage } = collectMessages();
@@ -353,7 +343,7 @@ describe("Error handling: push rejection, gh auth failure, network error", () =>
       return makeSpawnHandle(makeSpawnResult());
     };
 
-    const orch = new FinalizeOrchestrator();
+    const orch = makeOrchestrator();
     const config = makeConfig();
     const planPaths = makePlanPaths("/tmp/test-plan");
     const { onMessage } = collectMessages();
@@ -380,7 +370,7 @@ describe("Error handling: push rejection, gh auth failure, network error", () =>
       return makeSpawnHandle(makeSpawnResult());
     };
 
-    const orch = new FinalizeOrchestrator();
+    const orch = makeOrchestrator();
     const config = makeConfig();
     const planPaths = makePlanPaths("/tmp/test-plan");
     const { onMessage } = collectMessages();
@@ -412,7 +402,7 @@ describe("Error handling: push rejection, gh auth failure, network error", () =>
       return makeSpawnHandle(makeSpawnResult());
     };
 
-    const orch = new FinalizeOrchestrator();
+    const orch = makeOrchestrator();
     const config = makeConfig();
     const planPaths = makePlanPaths("/tmp/test-plan");
     const { onMessage } = collectMessages();
@@ -447,12 +437,12 @@ describe("PR URL surfaced on success", () => {
   });
 
   test("getPrUrl returns null before PR creation", () => {
-    const orch = new FinalizeOrchestrator();
+    const orch = makeOrchestrator();
     expect(orch.getPrUrl()).toBeNull();
   });
 
   test("getPrUrl returns URL after successful PR creation", async () => {
-    const orch = new FinalizeOrchestrator();
+    const orch = makeOrchestrator();
     const config = makeConfig();
     const planPaths = makePlanPaths("/tmp/test-plan");
     const { onMessage } = collectMessages();
@@ -463,7 +453,7 @@ describe("PR URL surfaced on success", () => {
   });
 
   test("success message contains the PR URL", async () => {
-    const orch = new FinalizeOrchestrator();
+    const orch = makeOrchestrator();
     const config = makeConfig();
     const planPaths = makePlanPaths("/tmp/test-plan");
     const { onMessage } = collectMessages();
@@ -487,7 +477,7 @@ describe("PR URL surfaced on success", () => {
       return makeSpawnHandle(makeSpawnResult());
     };
 
-    const orch = new FinalizeOrchestrator();
+    const orch = makeOrchestrator();
     const config = makeConfig();
     const planPaths = makePlanPaths("/tmp/test-plan");
     const { onMessage } = collectMessages();
@@ -499,7 +489,7 @@ describe("PR URL surfaced on success", () => {
   });
 
   test("phase is complete after successful PR creation", async () => {
-    const orch = new FinalizeOrchestrator();
+    const orch = makeOrchestrator();
     const config = makeConfig();
     const planPaths = makePlanPaths("/tmp/test-plan");
     const { onMessage } = collectMessages();

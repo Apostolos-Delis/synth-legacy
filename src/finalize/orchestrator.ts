@@ -20,8 +20,12 @@ import {
 import { writeJson, readJson, ensureDir, fileExists, readText } from "../utils/fs.js";
 import { spawn } from "../utils/process.js";
 import { createPr, classifyPrError, classifyPrErrorDetail, generatePrBody, getDiffStats } from "./pr.js";
-import { getCurrentBranch } from "../utils/git.js";
+import { getCurrentBranch as defaultGetCurrentBranch } from "../utils/git.js";
 import { loadTasks } from "../tasks/store.js";
+
+export interface GitOps {
+  getCurrentBranch(cwd: string): Promise<string>;
+}
 
 const MAX_HISTORY = 20;
 const OPTION_CLOSED_RE = /\[OPTION(\*?)\]([^[]*)\[\/OPTION\]/g;
@@ -163,6 +167,11 @@ export class FinalizeOrchestrator {
   private startTime = 0;
   private baseBranch = "";
   private planPaths: PlanPaths | null = null;
+  private gitOps: GitOps;
+
+  constructor(options?: { gitOps?: GitOps }) {
+    this.gitOps = options?.gitOps ?? { getCurrentBranch: defaultGetCurrentBranch };
+  }
 
   getCurrentPhase(): FinalizePhase {
     return this.phase;
@@ -781,12 +790,12 @@ export class FinalizeOrchestrator {
 
     const combinedDiff = [diff, unstagedDiff].filter(Boolean).join("\n");
 
-    const recheckPrompt =
-      `${this.systemPrompt}\n\n` +
+    const recheckPrompt = this.buildConversationPrompt(
       `You just applied fixes to the codebase. Do a quick re-check of the current diff to see if the fixes introduced any new issues.\n\n` +
       `## Current Diff\n\n\`\`\`diff\n${combinedDiff.slice(0, 30_000)}\n\`\`\`\n\n` +
       `If you find new issues, describe them briefly and propose fixes using [FIX]description[/FIX] markers.\n` +
-      `If everything looks clean, just say so. Be concise.`;
+      `If everything looks clean, just say so. Be concise.`,
+    );
 
     const recheckResponse = await this.sendToAgent(agent, recheckPrompt);
     const parsed = parseAIResponse(recheckResponse);
@@ -841,7 +850,7 @@ export class FinalizeOrchestrator {
     // Skip PR creation if on base branch
     let branch: string;
     try {
-      branch = await getCurrentBranch(this.cwd);
+      branch = await this.gitOps.getCurrentBranch(this.cwd);
     } catch (err) {
       const raw = `Failed to detect branch: ${err instanceof Error ? err.message : String(err)}`;
       return this.prError(raw, onMessage);
