@@ -797,10 +797,28 @@ async function resumeInterview(
   ]);
 
   const agent = getAgent(config.agent.name);
-  const interviewer = new interviewMod.Interviewer(agent, cwd, config.agent.model);
-  interviewer.restoreHistory(savedState.interviewerHistory);
 
   let prd: import("./interview/types.js").GeneratedPrd | null = null;
+  const { id, paths } = { id: plan.metadata.id, paths: plan.paths };
+
+  const saveInterviewState = async () => {
+    const state: import("./interview/types.js").InterviewState = {
+      messages: interviewer.getHistory(),
+      interviewerHistory: interviewer.getHistory(),
+      prdPending: !prd,
+    };
+    await writeJson(paths.interview, state);
+  };
+
+  const interviewer = new interviewMod.Interviewer(agent, cwd, config.agent.model, async (messages) => {
+    const state: import("./interview/types.js").InterviewState = {
+      messages: messages as import("./interview/types.js").InterviewMessage[],
+      interviewerHistory: messages as import("./interview/types.js").InterviewMessage[],
+      prdPending: !prd,
+    };
+    await writeJson(paths.interview, state);
+  });
+  interviewer.restoreHistory(savedState.interviewerHistory);
 
   if (tuiEnabled) {
     const tui = await loadTui();
@@ -813,17 +831,6 @@ async function resumeInterview(
     const cleanup = () => {
       planRoot.unmount();
       planRenderer.destroy();
-    };
-
-    const { id, paths } = { id: plan.metadata.id, paths: plan.paths };
-
-    const saveInterviewState = async () => {
-      const state: import("./interview/types.js").InterviewState = {
-        messages: interviewer.getHistory(),
-        interviewerHistory: interviewer.getHistory(),
-        prdPending: !prd,
-      };
-      await writeJson(paths.interview, state);
     };
 
     const sigintHandler = () => {
@@ -956,17 +963,6 @@ async function resumeInterview(
     cleanup();
   } else {
     // Non-TUI resume path
-    const { id, paths } = { id: plan.metadata.id, paths: plan.paths };
-
-    const saveCliInterviewState = async () => {
-      const state: import("./interview/types.js").InterviewState = {
-        messages: interviewer.getHistory(),
-        interviewerHistory: interviewer.getHistory(),
-        prdPending: !prd,
-      };
-      await writeJson(paths.interview, state);
-    };
-
     // Show restored conversation
     log(`\n${ansi.muted}--- Restored conversation (${savedState.interviewerHistory.length} messages) ---${ansi.reset}`);
     for (const msg of savedState.interviewerHistory) {
@@ -997,7 +993,7 @@ async function resumeInterview(
     while (!prd) {
       const userInput = await askQuestion();
       if (userInput === null) {
-        await saveCliInterviewState();
+        await saveInterviewState();
         agent.dispose();
         return;
       }
@@ -1011,7 +1007,7 @@ async function resumeInterview(
         log(`\n${ansi.primary}Does this all look good? Press Enter to generate the PRD and tasks, or type feedback to refine.${ansi.reset}`);
         const confirmation = await askQuestion();
         if (confirmation === null) {
-          await saveCliInterviewState();
+          await saveInterviewState();
           agent.dispose();
           return;
         }
@@ -1130,10 +1126,29 @@ async function cmdPlan(planIdOrFlag?: string): Promise<void> {
   ]);
 
   const agent = getAgent(config.agent.name);
-  const interviewer = new interviewMod.Interviewer(agent, cwd, config.agent.model);
 
   let prd: import("./interview/types.js").GeneratedPrd | null = null;
-  let cliSessionInfo: { id: string; paths: import("./sessions/types.js").SessionPaths } | null = null;
+
+  // Create session early so we have paths for interview state persistence
+  const { id, paths } = await createSession(cwd, "");
+
+  const saveInterviewState = async () => {
+    const state: import("./interview/types.js").InterviewState = {
+      messages: interviewer.getHistory(),
+      interviewerHistory: interviewer.getHistory(),
+      prdPending: !prd,
+    };
+    await writeJson(paths.interview, state);
+  };
+
+  const interviewer = new interviewMod.Interviewer(agent, cwd, config.agent.model, async (messages) => {
+    const state: import("./interview/types.js").InterviewState = {
+      messages: messages as import("./interview/types.js").InterviewMessage[],
+      interviewerHistory: messages as import("./interview/types.js").InterviewMessage[],
+      prdPending: !prd,
+    };
+    await writeJson(paths.interview, state);
+  });
 
   if (tuiEnabled) {
     const tui = await loadTui();
@@ -1146,18 +1161,6 @@ async function cmdPlan(planIdOrFlag?: string): Promise<void> {
     const cleanup = () => {
       planRoot.unmount();
       planRenderer.destroy();
-    };
-
-    // Create session early so we have paths to write interview state to
-    const { id, paths } = await createSession(cwd, "");
-
-    const saveInterviewState = async () => {
-      const state: import("./interview/types.js").InterviewState = {
-        messages: interviewer.getHistory(),
-        interviewerHistory: interviewer.getHistory(),
-        prdPending: !prd,
-      };
-      await writeJson(paths.interview, state);
     };
 
     const sigintHandler = () => {
@@ -1289,18 +1292,6 @@ async function cmdPlan(planIdOrFlag?: string): Promise<void> {
     cleanup();
     return;
   } else {
-    // Create plan early for non-TUI path too
-    cliSessionInfo = await createSession(cwd, "");
-
-    const saveCliInterviewState = async () => {
-      const state: import("./interview/types.js").InterviewState = {
-        messages: interviewer.getHistory(),
-        interviewerHistory: interviewer.getHistory(),
-        prdPending: !prd,
-      };
-      await writeJson(cliSessionInfo!.paths.interview, state);
-    };
-
     log(`\n${ansi.magenta}Synth:${ansi.reset}`);
     log(interviewMod.WELCOME_MESSAGE);
 
@@ -1322,7 +1313,7 @@ async function cmdPlan(planIdOrFlag?: string): Promise<void> {
     while (!prd) {
       const userInput = await askQuestion();
       if (userInput === null) {
-        await saveCliInterviewState();
+        await saveInterviewState();
         agent.dispose();
         return;
       }
@@ -1336,7 +1327,7 @@ async function cmdPlan(planIdOrFlag?: string): Promise<void> {
         log(`\n${ansi.primary}Does this all look good? Press Enter to generate the PRD and tasks, or type feedback to refine.${ansi.reset}`);
         const confirmation = await askQuestion();
         if (confirmation === null) {
-          await saveCliInterviewState();
+          await saveInterviewState();
           agent.dispose();
           return;
         }
@@ -1352,12 +1343,11 @@ async function cmdPlan(planIdOrFlag?: string): Promise<void> {
   }
 
   // Non-TUI path continues here (TUI path returns early above)
-  if (!prd || !cliSessionInfo) {
+  if (!prd) {
     agent.dispose();
     return;
   }
 
-  const { id, paths } = cliSessionInfo;
   await writeText(paths.prd, interviewMod.prdToMarkdown(prd));
   await updateSessionMetadata(cwd, id, { description: prd.title });
 

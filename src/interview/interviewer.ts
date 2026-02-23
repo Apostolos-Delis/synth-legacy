@@ -1,25 +1,35 @@
 import type { AgentAdapter } from "../agents/types.js";
 import type { InterviewMessage, GeneratedPrd } from "./types.js";
+import type { ConversationMessage } from "../conversation/types.js";
+import { ConversationEngine } from "../conversation/engine.js";
 import { INTERVIEWER_SYSTEM_PROMPT } from "./prompts.js";
-import { globalTrace } from "../utils/perf.js";
 
 export const WELCOME_MESSAGE =
   "I'll help you create a PRD. What do you want to build? " +
   "Describe it in a few sentences, and I'll ask clarifying questions.";
 
 export class Interviewer {
-  private history: InterviewMessage[] = [];
+  private engine: ConversationEngine;
 
-  constructor(private agent: AgentAdapter, private cwd: string, private model?: string) {}
+  constructor(
+    agent: AgentAdapter,
+    cwd: string,
+    model?: string,
+    persist?: (messages: ConversationMessage[]) => void | Promise<void>,
+  ) {
+    this.engine = new ConversationEngine({
+      agent,
+      cwd,
+      model,
+      systemPrompt: INTERVIEWER_SYSTEM_PROMPT,
+      promptSuffix: "Continue the interview. If you have enough information, output the PRD JSON.",
+      maxHistoryWindow: 16,
+      persist,
+    });
+  }
 
   async respond(userMessage: string, onChunk?: (chunk: string) => void): Promise<string> {
-    this.history.push({ role: "user", content: userMessage });
-
-    const prompt = this.buildPromptWithHistory();
-    const response = await this.sendToAgent(prompt, onChunk);
-    this.history.push({ role: "assistant", content: response });
-
-    return response;
+    return this.engine.send(userMessage, onChunk);
   }
 
   extractPrd(response: string): GeneratedPrd | null {
@@ -34,51 +44,11 @@ export class Interviewer {
   }
 
   restoreHistory(messages: InterviewMessage[]): void {
-    this.history = [...messages];
+    this.engine.restoreHistory(messages);
   }
 
   getHistory(): InterviewMessage[] {
-    return [...this.history];
-  }
-
-  private buildPromptWithHistory(): string {
-    const trace = globalTrace();
-
-    // Sliding window: keep last 16 messages (8 turns) to prevent context overflow
-    trace.startPhase("interview:history-assembly");
-    const MAX_HISTORY = 16;
-    const recentHistory = this.history.slice(-MAX_HISTORY);
-    const truncated = this.history.length > MAX_HISTORY;
-
-    const turns = recentHistory
-      .map((m) => `${m.role === "user" ? "User" : "Assistant"}: ${m.content}`)
-      .join("\n\n");
-    trace.endPhase("interview:history-assembly");
-
-    trace.startPhase("interview:system-prompt-construction");
-    const prefix = truncated
-      ? `${INTERVIEWER_SYSTEM_PROMPT}\n\n[Earlier conversation truncated — ${this.history.length - MAX_HISTORY} messages omitted]\n\nRecent conversation:\n\n`
-      : `${INTERVIEWER_SYSTEM_PROMPT}\n\nConversation so far:\n\n`;
-
-    const result = `${prefix}${turns}\n\nContinue the interview. If you have enough information, output the PRD JSON.`;
-    trace.endPhase("interview:system-prompt-construction");
-
-    return result;
-  }
-
-  private async sendToAgent(prompt: string, onChunk?: (chunk: string) => void): Promise<string> {
-    let output = "";
-    const handle = this.agent.execute(prompt, {
-      cwd: this.cwd,
-      model: this.model,
-      skipPermissions: false,
-      onStdout: (chunk) => {
-        output += chunk;
-        onChunk?.(chunk);
-      },
-    });
-    await handle.promise;
-    return output;
+    return this.engine.getHistory() as InterviewMessage[];
   }
 }
 
