@@ -21,7 +21,8 @@ Each iteration follows this sequence:
 ├─────────────────────────────────────────────────┤
 │  5. Mark task "in_progress", save               │
 ├─────────────────────────────────────────────────┤
-│  6. buildPrompt(task, planPaths, cwd, iteration)│
+│  6. buildPrompt(task, planPaths, cwd, iteration,│
+│     agentName)                                  │
 ├─────────────────────────────────────────────────┤
 │  7. agent.execute(prompt) — stream stdout/stderr│
 ├─────────────────────────────────────────────────┤

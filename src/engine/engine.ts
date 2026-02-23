@@ -262,6 +262,12 @@ export class Engine {
       const freshTaskFile = await loadTasks(this.planPaths.tasks);
 
       if (success) {
+        // Snapshot observed criteria before bulk-completing
+        const criteriaCount = task.acceptanceCriteria.length;
+        const criteriaDone = task.criteriaCompleted
+          ? task.criteriaCompleted.filter(Boolean).length
+          : 0;
+
         // Mark all criteria as complete on successful task completion
         if (task.criteriaCompleted) {
           for (let i = 0; i < task.criteriaCompleted.length; i++) {
@@ -301,13 +307,9 @@ export class Engine {
           await commitResult.promise;
         }
 
-        // Append progress
+        // Append progress (criteriaDone reflects markers observed, not bulk-complete)
         const durationSec = Math.round(duration / 1000);
-        const criteriaCount = task.acceptanceCriteria.length;
-        const criteriaDone = task.criteriaCompleted
-          ? task.criteriaCompleted.filter(Boolean).length
-          : 0;
-        const progressEntry = `## Iteration ${this.iteration} - ${task.id}: ${task.title}\n- Status: done\n- Duration: ${durationSec}s\n- Criteria: ${criteriaDone}/${criteriaCount} completed\n---\n`;
+        const progressEntry = `## Iteration ${this.iteration} - ${task.id}: ${task.title}\n- Status: done\n- Duration: ${durationSec}s\n- Criteria: ${criteriaDone}/${criteriaCount} observed\n---\n`;
         await appendText(this.planPaths.progress, progressEntry);
       } else {
         const failNotes = !backpressurePassed

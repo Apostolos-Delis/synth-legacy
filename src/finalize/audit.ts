@@ -25,6 +25,19 @@ export interface AuditResult {
   summary: string;
 }
 
+export function validateFinding(obj: unknown): AuditFinding | null {
+  if (!obj || typeof obj !== "object") return null;
+  const o = obj as Record<string, unknown>;
+  if (typeof o.file !== "string" || typeof o.description !== "string" || typeof o.severity !== "string") return null;
+  return {
+    severity: o.severity as FindingSeverity,
+    file: o.file,
+    line: typeof o.line === "number" ? o.line : Number(o.line) || 0,
+    description: o.description,
+    suggestedFix: typeof o.suggestedFix === "string" ? o.suggestedFix : "",
+  };
+}
+
 const AUDIT_PROMPT = `You are auditing code changes against a Product Requirements Document (PRD).
 
 Compare the git diff against the PRD goals and user stories below. For each user story in the PRD, determine whether the code changes satisfy it. Also identify any bugs, regressions, or missing tests in the changed code.
@@ -96,7 +109,9 @@ export async function prdAudit(
     return {
       overall: parsed.overall ?? "warn",
       stories: Array.isArray(parsed.stories) ? parsed.stories : [],
-      findings: Array.isArray(parsed.findings) ? parsed.findings : [],
+      findings: Array.isArray(parsed.findings)
+        ? parsed.findings.map(validateFinding).filter((f: AuditFinding | null): f is AuditFinding => f !== null)
+        : [],
       summary: parsed.summary ?? "",
     };
   } catch {
