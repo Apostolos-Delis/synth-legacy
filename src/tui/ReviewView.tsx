@@ -225,7 +225,7 @@ function TaskDetailPane({ task, taskIdMap, width, height }: TaskDetailPaneProps)
             </text>
             {task.acceptanceCriteria.map((criterion, i) => (
               <text key={`ac-${i}`}>
-                <span fg={colors.fg.muted}>  {"  "}\u25CB </span>
+                <span fg={colors.fg.muted}>  {"  "}{"\u25CB"} </span>
                 <span fg={colors.fg.secondary}>#{i + 1} </span>
                 <span fg={colors.fg.primary}>{wordWrap(criterion, innerWidth - 8)}</span>
               </text>
@@ -245,7 +245,7 @@ function TaskDetailPane({ task, taskIdMap, width, height }: TaskDetailPaneProps)
               const depTitle = taskIdMap.get(depId) ?? "Unknown";
               return (
                 <text key={depId}>
-                  <span fg={colors.fg.muted}>  {"  "}\u2192 </span>
+                  <span fg={colors.fg.muted}>  {"  "}{"\u2192"} </span>
                   <span fg={colors.accent.secondary}>{depId}</span>
                   <span fg={colors.fg.muted}> {depTitle}</span>
                 </text>
