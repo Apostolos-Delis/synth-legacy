@@ -1,6 +1,6 @@
-import { useMemo, type ReactNode } from "react";
+import type { ReactNode } from "react";
 import type { Task } from "../../tasks/types.js";
-import { colors } from "../theme.js";
+import { colors, markdownSyntaxStyle } from "../theme.js";
 import { PhaseIndicator } from "./PhaseIndicator.js";
 import { TaskDetailHeader } from "./TaskDetailHeader.js";
 
@@ -24,8 +24,6 @@ export function OutputPane({ output, width, height, isThinking = false, currentP
   const headerHeight = task ? HEADER_HEIGHT : 0;
   const outputHeight = height - headerHeight;
   const waiting = isThinking && !output;
-
-  const lines = useMemo(() => output.split("\n"), [output]);
 
   return (
     <box width={width} height={height} flexDirection="column">
@@ -55,11 +53,7 @@ export function OutputPane({ output, width, height, isThinking = false, currentP
               </text>
             )
           ) : (
-            lines.map((line, i) => (
-              <text key={i}>
-                <span fg={colors.fg.secondary}>{line}</span>
-              </text>
-            ))
+            <markdown content={output} syntaxStyle={markdownSyntaxStyle()} />
           )}
         </scrollbox>
       </box>
