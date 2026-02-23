@@ -19,9 +19,14 @@ export interface ReviewIssue {
   suggestedFix?: string;
 }
 
+export type FixTaskStatus = "proposed" | "accepted" | "rejected" | "modified";
+
 export interface FixTask {
   id: string;
   description: string;
+  acceptanceCriteria: string[];
+  priority: 1 | 2 | 3;
+  status: FixTaskStatus;
   sourceIssue: ReviewIssue;
 }
 

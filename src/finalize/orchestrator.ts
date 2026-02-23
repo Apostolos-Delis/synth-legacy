@@ -6,6 +6,7 @@ import type {
   FinalizeMessage,
   ChatOption,
   FixTask,
+  FixTaskStatus,
 } from "./chat-types.js";
 import {
   buildAuditContext,
@@ -15,17 +16,20 @@ import {
 
 const MAX_HISTORY = 20;
 const OPTION_RE = /\[OPTION\]([^|]+)\|([^[]+)\[\/OPTION\]/g;
+const FIX_RE = /\[FIX\]([\s\S]*?)\[\/FIX\]/g;
 const REVIEW_COMPLETE_RE = /\[REVIEW_COMPLETE\]/;
 const PROCEED_COMMANDS = new Set(["proceed", "done"]);
 
 export interface ParsedResponse {
   content: string;
   options: ChatOption[];
+  fixDescriptions: string[];
   reviewComplete: boolean;
 }
 
 export function parseAIResponse(raw: string): ParsedResponse {
   const options: ChatOption[] = [];
+  const fixDescriptions: string[] = [];
 
   for (const match of raw.matchAll(OPTION_RE)) {
     const label = match[1].trim();
@@ -37,18 +41,24 @@ export function parseAIResponse(raw: string): ParsedResponse {
     });
   }
 
+  for (const match of raw.matchAll(FIX_RE)) {
+    const desc = match[1].trim();
+    if (desc) fixDescriptions.push(desc);
+  }
+
   const reviewComplete = REVIEW_COMPLETE_RE.test(raw);
 
   // Strip markers from displayed content
   let content = raw
     .replace(OPTION_RE, "")
+    .replace(FIX_RE, "")
     .replace(REVIEW_COMPLETE_RE, "")
     .trim();
 
   // Collapse leftover blank lines from stripped markers
   content = content.replace(/\n{3,}/g, "\n\n");
 
-  return { content, options, reviewComplete };
+  return { content, options, fixDescriptions, reviewComplete };
 }
 
 export type PhaseChangeListener = (phase: FinalizePhase) => void;
@@ -61,6 +71,9 @@ export class FinalizeOrchestrator {
   private phase: FinalizePhase = "auditing";
   private messages: FinalizeMessage[] = [];
   private fixes: FixTask[] = [];
+  private confirmedFixes: FixTask[] = [];
+  private fixCounter = 0;
+  private reviewIndex = 0;
   private systemPrompt = "";
   private cwd = "";
   private model?: string;
@@ -72,6 +85,10 @@ export class FinalizeOrchestrator {
 
   getCollectedFixes(): FixTask[] {
     return [...this.fixes];
+  }
+
+  getConfirmedFixes(): FixTask[] {
+    return [...this.confirmedFixes];
   }
 
   getMessages(): FinalizeMessage[] {
@@ -117,6 +134,9 @@ export class FinalizeOrchestrator {
     // Send to AI and get the initial review
     const response = await this.sendToAgent(agent, userPrompt, onChunk);
     const parsed = parseAIResponse(response);
+
+    // Extract any fix proposals from the initial audit
+    this.extractFixesFromParsed(parsed);
 
     const assistantMsg: FinalizeMessage = {
       role: "assistant",
@@ -192,20 +212,14 @@ export class FinalizeOrchestrator {
   ): Promise<OrchestratorResponse> {
     // Check for user shortcut to skip remaining Q&A
     if (PROCEED_COMMANDS.has(text.trim().toLowerCase())) {
-      this.setPhase("collecting-fixes");
-      const assistantMsg: FinalizeMessage = {
-        role: "assistant",
-        content:
-          "Understood — moving on to collect fixes. Let me summarize the issues found and recommend which ones to address.",
-      };
-      this.messages.push(assistantMsg);
-      return { message: assistantMsg };
+      return this.transitionToCollectingFixes();
     }
 
     const prompt = this.buildConversationPrompt(
       `The user is in the discussion phase of a code review. They said:\n\n"${text}"\n\n` +
         `Continue the code review discussion by asking your next follow-up question on a single topic. ` +
         `If you want to offer choices, use [OPTION]label|description[/OPTION] markers (2-4 options). ` +
+        `If you want to propose a fix, use [FIX]description of fix[/FIX] markers. ` +
         `If you have no more concerns, end with [REVIEW_COMPLETE]. ` +
         `Ask one question at a time. Be concise.`,
     );
@@ -220,35 +234,26 @@ export class FinalizeOrchestrator {
     onChunk?: (chunk: string) => void,
   ): Promise<OrchestratorResponse> {
     if (option.value === "collect-fixes" || option.value === "fix") {
-      this.setPhase("collecting-fixes");
+      return this.transitionToCollectingFixes();
     }
 
     const prompt = this.buildConversationPrompt(
       `The user selected the option: "${option.label}" (${option.description}).\n\n` +
         `Respond based on their choice, then ask your next follow-up question on a single topic. ` +
         `If you want to offer choices, use [OPTION]label|description[/OPTION] markers (2-4 options). ` +
+        `If you want to propose a fix, use [FIX]description of fix[/FIX] markers. ` +
         `If you have no more concerns, end with [REVIEW_COMPLETE]. Be concise.`,
     );
 
     const response = await this.sendToAgent(agent, prompt, onChunk);
-
-    // If we already transitioned to collecting-fixes, don't re-process for discussion
-    if (this.phase === "collecting-fixes") {
-      const parsed = parseAIResponse(response);
-      const assistantMsg: FinalizeMessage = {
-        role: "assistant",
-        content: parsed.content,
-        ...(parsed.options.length > 0 ? { options: parsed.options } : {}),
-      };
-      this.messages.push(assistantMsg);
-      return { message: assistantMsg };
-    }
-
     return this.processDiscussingResponse(response);
   }
 
   private processDiscussingResponse(response: string): OrchestratorResponse {
     const parsed = parseAIResponse(response);
+
+    // Extract any [FIX] markers from the AI response
+    this.extractFixesFromParsed(parsed);
 
     const assistantMsg: FinalizeMessage = {
       role: "assistant",
@@ -259,58 +264,185 @@ export class FinalizeOrchestrator {
 
     // AI signalled review is complete — transition to collecting-fixes
     if (parsed.reviewComplete) {
-      this.setPhase("collecting-fixes");
+      return this.transitionToCollectingFixes();
     }
 
     return { message: assistantMsg };
+  }
+
+  private transitionToCollectingFixes(): OrchestratorResponse {
+    this.setPhase("collecting-fixes");
+
+    // No fixes proposed — skip directly to PR creation
+    if (this.fixes.length === 0) {
+      this.setPhase("creating-pr");
+      const skipMsg: FinalizeMessage = {
+        role: "assistant",
+        content: "No fixes were identified during the review. Moving on to PR creation.",
+      };
+      this.messages.push(skipMsg);
+      return { message: skipMsg };
+    }
+
+    // Present the collected fixes with options
+    const fixListMsg = this.buildFixListMessage();
+    this.messages.push(fixListMsg);
+    return { message: fixListMsg };
   }
 
   private async handleCollectingFixes(
-    agent: AgentAdapter,
+    _agent: AgentAdapter,
     text: string,
-    onChunk?: (chunk: string) => void,
+    _onChunk?: (chunk: string) => void,
   ): Promise<OrchestratorResponse> {
-    const prompt = this.buildConversationPrompt(
-      `The user is selecting which fixes to apply. They said:\n\n"${text}"\n\n` +
-        `Help them select fixes. If they've confirmed their selections, summarize ` +
-        `the fix plan and ask for final confirmation before proceeding.`,
-    );
+    // Check if we're in modify mode for the current review fix
+    if (
+      this.reviewIndex < this.fixes.length &&
+      this.fixes[this.reviewIndex].status === "modified"
+    ) {
+      this.fixes[this.reviewIndex].description = text;
+      this.fixes[this.reviewIndex].acceptanceCriteria = [`Fix applied: ${text}`];
+      this.fixes[this.reviewIndex].status = "accepted";
+      this.confirmedFixes.push({ ...this.fixes[this.reviewIndex] });
+      return this.advanceIndividualReview();
+    }
 
-    const response = await this.sendToAgent(agent, prompt, onChunk);
-
-    const assistantMsg: FinalizeMessage = {
-      role: "assistant",
-      content: response,
+    // User typed a custom fix description in freeform
+    this.fixCounter++;
+    const customFix: FixTask = {
+      id: `FIX-${String(this.fixCounter).padStart(3, "0")}`,
+      description: text,
+      acceptanceCriteria: [`Fix applied: ${text}`],
+      priority: 2,
+      status: "proposed",
+      sourceIssue: {
+        severity: "major",
+        category: "custom",
+        description: text,
+      },
     };
-    this.messages.push(assistantMsg);
+    this.fixes.push(customFix);
 
-    return { message: assistantMsg };
+    // Re-present the full list with options
+    const fixListMsg = this.buildFixListMessage();
+    this.messages.push(fixListMsg);
+    return { message: fixListMsg };
   }
 
   private async handleFixOption(
-    agent: AgentAdapter,
+    _agent: AgentAdapter,
     option: ChatOption,
-    onChunk?: (chunk: string) => void,
+    _onChunk?: (chunk: string) => void,
   ): Promise<OrchestratorResponse> {
-    if (option.value === "execute-fixes" || option.value === "confirm") {
+    switch (option.value) {
+      case "accept-all": {
+        this.confirmedFixes = this.fixes.map((f) => ({ ...f, status: "accepted" as FixTaskStatus }));
+        this.setPhase("executing-fixes");
+        const msg: FinalizeMessage = {
+          role: "assistant",
+          content: `All ${this.confirmedFixes.length} fixes accepted. Moving to execution phase.`,
+        };
+        this.messages.push(msg);
+        return { message: msg };
+      }
+
+      case "review-individually": {
+        this.reviewIndex = 0;
+        this.confirmedFixes = [];
+        const reviewMsg = this.buildIndividualReviewMessage();
+        this.messages.push(reviewMsg);
+        return { message: reviewMsg };
+      }
+
+      case "skip-fixes": {
+        this.confirmedFixes = [];
+        this.setPhase("creating-pr");
+        const skipMsg: FinalizeMessage = {
+          role: "assistant",
+          content: "Skipping all fixes. Moving on to PR creation.",
+        };
+        this.messages.push(skipMsg);
+        return { message: skipMsg };
+      }
+
+      case "add-custom-fix": {
+        const promptMsg: FinalizeMessage = {
+          role: "assistant",
+          content: "Describe the fix you'd like to add:",
+        };
+        this.messages.push(promptMsg);
+        return { message: promptMsg };
+      }
+
+      case "accept-fix": {
+        const accepted = { ...this.fixes[this.reviewIndex], status: "accepted" as FixTaskStatus };
+        this.confirmedFixes.push(accepted);
+        return this.advanceIndividualReview();
+      }
+
+      case "reject-fix": {
+        // Mark as rejected but don't add to confirmedFixes
+        this.fixes[this.reviewIndex].status = "rejected";
+        return this.advanceIndividualReview();
+      }
+
+      case "modify-fix": {
+        const modifyMsg: FinalizeMessage = {
+          role: "assistant",
+          content: `Current: ${this.fixes[this.reviewIndex].description}\n\nType the updated description:`,
+        };
+        this.messages.push(modifyMsg);
+        // Stay in collecting-fixes, next freeform text will be handled as modification
+        this.fixes[this.reviewIndex].status = "modified";
+        return { message: modifyMsg };
+      }
+
+      default:
+        return this.handleGenericFixOption(option);
+    }
+  }
+
+  private advanceIndividualReview(): OrchestratorResponse {
+    this.reviewIndex++;
+    if (this.reviewIndex >= this.fixes.length) {
+      // Finished individual review
+      if (this.confirmedFixes.length === 0) {
+        this.setPhase("creating-pr");
+        const doneMsg: FinalizeMessage = {
+          role: "assistant",
+          content: "No fixes were accepted. Moving on to PR creation.",
+        };
+        this.messages.push(doneMsg);
+        return { message: doneMsg };
+      }
+
       this.setPhase("executing-fixes");
+      const summary = this.confirmedFixes
+        .map((f, i) => `${i + 1}. ${f.description}`)
+        .join("\n");
+      const doneMsg: FinalizeMessage = {
+        role: "assistant",
+        content: `Review complete. ${this.confirmedFixes.length} fix(es) accepted:\n\n${summary}\n\nMoving to execution phase.`,
+      };
+      this.messages.push(doneMsg);
+      return { message: doneMsg };
     }
 
-    const prompt = this.buildConversationPrompt(
-      `The user selected: "${option.label}" (${option.description}) during fix collection.\n\n` +
-        `Respond appropriately. If they confirmed execution, acknowledge and describe ` +
-        `what will happen next.`,
-    );
+    // Show next fix
+    const nextMsg = this.buildIndividualReviewMessage();
+    this.messages.push(nextMsg);
+    return { message: nextMsg };
+  }
 
-    const response = await this.sendToAgent(agent, prompt, onChunk);
-
-    const assistantMsg: FinalizeMessage = {
+  private async handleGenericFixOption(
+    option: ChatOption,
+  ): Promise<OrchestratorResponse> {
+    const msg: FinalizeMessage = {
       role: "assistant",
-      content: response,
+      content: `Selected: ${option.label}. Use the available options to manage fixes.`,
     };
-    this.messages.push(assistantMsg);
-
-    return { message: assistantMsg };
+    this.messages.push(msg);
+    return { message: msg };
   }
 
   private async handleGenericResponse(
@@ -343,6 +475,63 @@ export class FinalizeOrchestrator {
 
   removeFix(fixId: string): void {
     this.fixes = this.fixes.filter((f) => f.id !== fixId);
+  }
+
+  private extractFixesFromParsed(parsed: ParsedResponse): void {
+    for (const desc of parsed.fixDescriptions) {
+      this.fixCounter++;
+      const fix: FixTask = {
+        id: `FIX-${String(this.fixCounter).padStart(3, "0")}`,
+        description: desc,
+        acceptanceCriteria: [`Fix applied: ${desc}`],
+        priority: 2,
+        status: "proposed",
+        sourceIssue: {
+          severity: "major",
+          category: "code-review",
+          description: desc,
+        },
+      };
+      this.fixes.push(fix);
+    }
+  }
+
+  private buildFixListMessage(): FinalizeMessage {
+    const lines: string[] = ["Here are the fixes identified during the review:\n"];
+    for (let i = 0; i < this.fixes.length; i++) {
+      lines.push(`${i + 1}. ${this.fixes[i].description}`);
+    }
+    lines.push("");
+
+    const options: ChatOption[] = [
+      { label: "Accept all", description: "Accept all fixes and proceed to execution", value: "accept-all" },
+      { label: "Review individually", description: "Review each fix one by one", value: "review-individually" },
+      { label: "Skip fixes", description: "Skip all fixes and go straight to PR creation", value: "skip-fixes" },
+      { label: "Add custom fix", description: "Add a custom fix to the list", value: "add-custom-fix" },
+    ];
+
+    return {
+      role: "assistant",
+      content: lines.join("\n"),
+      options,
+    };
+  }
+
+  private buildIndividualReviewMessage(): FinalizeMessage {
+    const fix = this.fixes[this.reviewIndex];
+    const progress = `(${this.reviewIndex + 1}/${this.fixes.length})`;
+
+    const options: ChatOption[] = [
+      { label: "Accept", description: "Accept this fix", value: "accept-fix" },
+      { label: "Reject", description: "Reject this fix", value: "reject-fix" },
+      { label: "Modify", description: "Modify this fix description", value: "modify-fix" },
+    ];
+
+    return {
+      role: "assistant",
+      content: `**Fix ${progress}**: ${fix.description}`,
+      options,
+    };
   }
 
   // ---------------------------------------------------------------------------

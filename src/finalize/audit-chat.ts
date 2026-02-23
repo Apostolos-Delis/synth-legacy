@@ -121,6 +121,23 @@ Rules for options:
 - Options should represent meaningfully different approaches
 - Not every question needs options — use them when there are clear distinct choices
 
+## Proposing Fixes
+
+When you identify an actionable fix during the review, propose it using these markers:
+
+[FIX]Concise description of the fix to apply[/FIX]
+
+Example:
+I noticed the error handler in \`processOrder\` swallows exceptions silently.
+
+[FIX]Add error logging to processOrder catch block[/FIX]
+
+Rules for fixes:
+- Each [FIX] marker describes one discrete, actionable change
+- Be specific enough that a developer could implement it from the description alone
+- You can propose fixes at any point during the review discussion
+- Multiple fixes can appear in a single message
+
 When you have no more concerns or questions, end your message with:
 
 [REVIEW_COMPLETE]
@@ -169,6 +186,7 @@ export function buildInitialAuditPrompt(context: AuditContext): string {
   parts.push("5. **Test Coverage** — presence and quality of tests\n");
   parts.push(
     "Categorize each issue as **critical**, **major**, or **minor**. Start with a brief summary, then list findings grouped by dimension. End with an overall assessment.\n\n" +
+      "For each actionable issue found, propose a fix using [FIX]description[/FIX] markers.\n\n" +
       "After the assessment, ask your first follow-up question about the most important topic. " +
       "Focus on one topic at a time. You may include [OPTION]label|description[/OPTION] markers " +
       "if the question has clear distinct choices.",
