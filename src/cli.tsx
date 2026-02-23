@@ -405,6 +405,7 @@ async function cmdRun(planId?: string, startIteration = 0, tuiContext?: TuiConte
       root = tuiContext.root;
     } else {
       renderer = await tui.createCliRenderer({
+        useMouse: false,
         useKittyKeyboard: { disambiguate: true, alternateKeys: true },
       });
       root = tui.createRoot(renderer);
@@ -806,6 +807,7 @@ async function resumeInterview(
     const tui = await loadTui();
     const planRenderer = await tui.createCliRenderer({
       exitOnCtrlC: false,
+      useMouse: false,
       useKittyKeyboard: { disambiguate: true, alternateKeys: true },
     });
     const planRoot = tui.createRoot(planRenderer);
@@ -1132,6 +1134,7 @@ async function cmdPlan(planIdOrFlag?: string): Promise<void> {
     const tui = await loadTui();
     const planRenderer = await tui.createCliRenderer({
       exitOnCtrlC: false,
+      useMouse: false,
       useKittyKeyboard: { disambiguate: true, alternateKeys: true },
     });
     const planRoot = tui.createRoot(planRenderer);
@@ -1435,6 +1438,7 @@ async function cmdFinalize(
     if (!renderer || !root) {
       renderer = await tui.createCliRenderer({
         exitOnCtrlC: false,
+        useMouse: false,
         useKittyKeyboard: { disambiguate: true, alternateKeys: true },
       });
       root = tui.createRoot(renderer);
