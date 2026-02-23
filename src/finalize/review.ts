@@ -42,7 +42,13 @@ export async function selfReview(
       output += chunk;
     },
   });
-  await handle.promise;
+  const result = await handle.promise;
+  if (result.timedOut) {
+    throw new Error("Review agent timed out");
+  }
+  if (result.exitCode !== 0) {
+    throw new Error(`Review agent exited with code ${result.exitCode}: ${result.stderr}`);
+  }
 
   // Try fenced JSON first, then greedy match
   const fencedMatch = output.match(/```json\s*(\[[\s\S]*?\])\s*```/);

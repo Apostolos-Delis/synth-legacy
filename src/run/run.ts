@@ -12,14 +12,14 @@ function generateRunId(): string {
 
 export async function createRun(
   sessionPaths: SessionPaths,
-  planId: string,
+  sessionId: string,
   agent: string,
   maxIterations: number,
   cwd: string,
 ): Promise<RunMetadata> {
   const run: RunMetadata = {
     id: generateRunId(),
-    planId,
+    sessionId,
     status: "running",
     startedAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
@@ -37,7 +37,16 @@ export async function loadRun(
   sessionPaths: SessionPaths,
 ): Promise<RunMetadata | null> {
   if (!(await fileExists(sessionPaths.run))) return null;
-  return readJson<RunMetadata>(sessionPaths.run);
+  const raw = await readJson<RunMetadata & { planId?: string }>(sessionPaths.run);
+
+  // Migrate legacy planId → sessionId
+  if ("planId" in raw && !raw.sessionId) {
+    raw.sessionId = raw.planId!;
+    delete raw.planId;
+    await writeJson(sessionPaths.run, raw);
+  }
+
+  return raw as RunMetadata;
 }
 
 export async function updateRun(

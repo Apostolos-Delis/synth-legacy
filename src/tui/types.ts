@@ -12,7 +12,7 @@ export interface TuiContext {
 
 export interface CompletionSummary {
   projectName: string;
-  planId: string;
+  sessionId: string;
   agentName: string;
   totalDurationMs: number;
   totalIterations: number;
@@ -31,7 +31,7 @@ export interface TuiEngineData {
   output: string;
   agentName: string;
   projectName: string;
-  planId: string;
+  sessionId: string;
   startTime: number;
   interviewMessages: InterviewMessage[];
   isThinking: boolean;

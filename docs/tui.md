@@ -40,7 +40,7 @@ interface TuiState {
   currentTaskId: string | null;
   output: string;
   agentName: string;
-  planId: string;
+  sessionId: string;
   startTime: number;
   isThinking: boolean;
   interviewMessages: InterviewMessage[];

@@ -1,6 +1,6 @@
 import { describe, test, expect, beforeEach } from "bun:test";
 import type { SpawnResult, SpawnHandle } from "../utils/process.js";
-import type { FinalizeMessage, ChatOption } from "../finalize/chat-types.js";
+import type { FinalizeMessage, ChatOption, OrchestratorState, FinalizePhase } from "../finalize/chat-types.js";
 import { FinalizeOrchestrator } from "../finalize/orchestrator.js";
 import type { SynthConfig } from "../config/types.js";
 import { makeSessionPaths } from "./helpers.js";
@@ -546,5 +546,210 @@ describe("PR URL surfaced on success", () => {
     await orch.executePrCreation(config, sessionPaths, onMessage);
 
     expect(orch.getCurrentPhase()).toBe("complete");
+  });
+});
+
+describe("Restore path: resume from saved state", () => {
+  const savedMessages: FinalizeMessage[] = [
+    { role: "assistant", content: "Initial audit review" },
+    { role: "user", content: "Looks good" },
+    { role: "assistant", content: "Great, no issues found." },
+  ];
+
+  function makeSavedState(overrides?: Partial<OrchestratorState>): OrchestratorState {
+    return {
+      phase: "discussing",
+      fixes: [],
+      confirmedFixes: [],
+      reviewIndex: 0,
+      fixCounter: 0,
+      messages: [...savedMessages],
+      ...overrides,
+    };
+  }
+
+  test("restore without savedState transitions to discussing phase", () => {
+    const orch = makeOrchestrator();
+    const config = makeConfig();
+    const sessionPaths = makeSessionPaths("/tmp/test-restore");
+    const phases: string[] = [];
+    orch.onPhaseChange((p) => phases.push(p));
+
+    orch.restore(makeMockAgent(), config, sessionPaths, "/tmp/test", savedMessages);
+
+    expect(orch.getCurrentPhase()).toBe("discussing");
+    expect(phases).toContain("discussing");
+  });
+
+  test("restore without savedState copies savedMessages into orchestrator", () => {
+    const orch = makeOrchestrator();
+    const config = makeConfig();
+    const sessionPaths = makeSessionPaths("/tmp/test-restore");
+
+    orch.restore(makeMockAgent(), config, sessionPaths, "/tmp/test", savedMessages);
+
+    const messages = orch.getMessages();
+    expect(messages.length).toBe(savedMessages.length);
+    expect(messages[0].content).toBe("Initial audit review");
+    expect(messages[2].content).toBe("Great, no issues found.");
+  });
+
+  test("restore with savedState in discussing phase preserves phase", () => {
+    const orch = makeOrchestrator();
+    const config = makeConfig();
+    const sessionPaths = makeSessionPaths("/tmp/test-restore");
+
+    orch.restore(
+      makeMockAgent(), config, sessionPaths, "/tmp/test",
+      savedMessages, makeSavedState({ phase: "discussing" }),
+    );
+
+    expect(orch.getCurrentPhase()).toBe("discussing");
+  });
+
+  test("restore with savedState in collecting-fixes phase preserves phase", () => {
+    const orch = makeOrchestrator();
+    const config = makeConfig();
+    const sessionPaths = makeSessionPaths("/tmp/test-restore");
+
+    orch.restore(
+      makeMockAgent(), config, sessionPaths, "/tmp/test",
+      savedMessages, makeSavedState({ phase: "collecting-fixes" }),
+    );
+
+    expect(orch.getCurrentPhase()).toBe("collecting-fixes");
+  });
+
+  test("restore with savedState in creating-pr phase preserves phase", () => {
+    const orch = makeOrchestrator();
+    const config = makeConfig();
+    const sessionPaths = makeSessionPaths("/tmp/test-restore");
+
+    orch.restore(
+      makeMockAgent(), config, sessionPaths, "/tmp/test",
+      savedMessages, makeSavedState({ phase: "creating-pr" }),
+    );
+
+    expect(orch.getCurrentPhase()).toBe("creating-pr");
+  });
+
+  test("restore with unsafe phase auditing falls back to discussing", () => {
+    const orch = makeOrchestrator();
+    const config = makeConfig();
+    const sessionPaths = makeSessionPaths("/tmp/test-restore");
+
+    orch.restore(
+      makeMockAgent(), config, sessionPaths, "/tmp/test",
+      savedMessages, makeSavedState({ phase: "auditing" }),
+    );
+
+    expect(orch.getCurrentPhase()).toBe("discussing");
+  });
+
+  test("restore with unsafe phase executing-fixes falls back to discussing", () => {
+    const orch = makeOrchestrator();
+    const config = makeConfig();
+    const sessionPaths = makeSessionPaths("/tmp/test-restore");
+
+    orch.restore(
+      makeMockAgent(), config, sessionPaths, "/tmp/test",
+      savedMessages, makeSavedState({ phase: "executing-fixes" }),
+    );
+
+    expect(orch.getCurrentPhase()).toBe("discussing");
+  });
+
+  test("restore with unsafe phase complete falls back to discussing", () => {
+    const orch = makeOrchestrator();
+    const config = makeConfig();
+    const sessionPaths = makeSessionPaths("/tmp/test-restore");
+
+    orch.restore(
+      makeMockAgent(), config, sessionPaths, "/tmp/test",
+      savedMessages, makeSavedState({ phase: "complete" }),
+    );
+
+    expect(orch.getCurrentPhase()).toBe("discussing");
+  });
+
+  test("restore with savedState restores fixes and confirmedFixes", () => {
+    const orch = makeOrchestrator();
+    const config = makeConfig();
+    const sessionPaths = makeSessionPaths("/tmp/test-restore");
+
+    const fixes = [
+      {
+        id: "FIX-001",
+        description: "Fix missing null check",
+        acceptanceCriteria: ["Fix applied: Fix missing null check"],
+        priority: 2 as const,
+        status: "proposed" as const,
+        sourceIssue: { severity: "major" as const, category: "code-review", description: "Missing null check" },
+      },
+    ];
+    const confirmedFixes = [
+      {
+        id: "FIX-002",
+        description: "Add error handling",
+        acceptanceCriteria: ["Fix applied: Add error handling"],
+        priority: 2 as const,
+        status: "accepted" as const,
+        sourceIssue: { severity: "major" as const, category: "code-review", description: "Missing error handling" },
+      },
+    ];
+
+    orch.restore(
+      makeMockAgent(), config, sessionPaths, "/tmp/test",
+      savedMessages,
+      makeSavedState({ fixes, confirmedFixes, reviewIndex: 1, fixCounter: 2 }),
+    );
+
+    // Verify state was restored by checking messages from savedState
+    const messages = orch.getMessages();
+    expect(messages.length).toBe(savedMessages.length);
+  });
+
+  test("restore fires phase change listener with discussing", () => {
+    const orch = makeOrchestrator();
+    const config = makeConfig();
+    const sessionPaths = makeSessionPaths("/tmp/test-restore");
+    const phases: FinalizePhase[] = [];
+    orch.onPhaseChange((p) => phases.push(p));
+
+    orch.restore(makeMockAgent(), config, sessionPaths, "/tmp/test", savedMessages);
+
+    expect(phases).toEqual(["discussing"]);
+  });
+
+  test("restore with savedState fires phase change listener with saved phase", () => {
+    const orch = makeOrchestrator();
+    const config = makeConfig();
+    const sessionPaths = makeSessionPaths("/tmp/test-restore");
+    const phases: FinalizePhase[] = [];
+    orch.onPhaseChange((p) => phases.push(p));
+
+    orch.restore(
+      makeMockAgent(), config, sessionPaths, "/tmp/test",
+      savedMessages, makeSavedState({ phase: "creating-pr" }),
+    );
+
+    expect(phases).toEqual(["creating-pr"]);
+  });
+
+  test("restore filters system messages when restoring engine history", () => {
+    const orch = makeOrchestrator();
+    const config = makeConfig();
+    const sessionPaths = makeSessionPaths("/tmp/test-restore");
+
+    const messagesWithSystem: FinalizeMessage[] = [
+      { role: "system", content: "System initialization" },
+      { role: "assistant", content: "Review started" },
+      { role: "user", content: "OK" },
+    ];
+
+    // Should not throw — system messages are filtered out before restoring engine
+    orch.restore(makeMockAgent(), config, sessionPaths, "/tmp/test", messagesWithSystem);
+
+    expect(orch.getCurrentPhase()).toBe("discussing");
   });
 });

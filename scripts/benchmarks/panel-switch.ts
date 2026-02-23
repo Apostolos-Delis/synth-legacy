@@ -43,7 +43,7 @@ function makeMockProps() {
     output: "Building project...\nRunning tests...\nAll tests passed.",
     agentName: "claude",
     projectName: "bench-test",
-    planId: "bench-001",
+    sessionId: "bench-001",
     startTime: Date.now(),
     interviewMessages: [],
     isThinking: false,

@@ -101,8 +101,12 @@ export function InterviewApp({ onSendMessage, onComplete, onQuit, initialMessage
       if (done) {
         setPendingConfirmation(true);
       }
-    } catch {
+    } catch (err) {
       setStreamingText("");
+      setMessages((prev) => [
+        ...prev,
+        { role: "assistant", content: `Error: ${err instanceof Error ? err.message : "Agent failed to respond"}` },
+      ]);
       setIsLoading(false);
     }
   }, [isLoading, pendingConfirmation, onSendMessage, onComplete, onQuit]);
@@ -272,7 +276,7 @@ export function InterviewApp({ onSendMessage, onComplete, onQuit, initialMessage
         }}
       >
         <box style={{ flexDirection: "row", gap: 2 }}>
-          <text fg={colors.accent.primary} attributes={boldAttr()}>synth plan</text>
+          <text fg={colors.accent.primary} attributes={boldAttr()}>synth session</text>
           <text fg={colors.fg.muted}>PRD Interview</text>
         </box>
         <text fg={colors.fg.muted}>

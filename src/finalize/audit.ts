@@ -93,7 +93,13 @@ export async function prdAudit(
       output += chunk;
     },
   });
-  await handle.promise;
+  const result = await handle.promise;
+  if (result.timedOut) {
+    throw new Error("Audit agent timed out");
+  }
+  if (result.exitCode !== 0) {
+    throw new Error(`Audit agent exited with code ${result.exitCode}: ${result.stderr}`);
+  }
 
   const fencedMatch = output.match(/```json\s*(\{[\s\S]*?\})\s*```/);
   const raw = fencedMatch?.[1] ?? output.match(/\{[\s\S]*\}/)?.[0];

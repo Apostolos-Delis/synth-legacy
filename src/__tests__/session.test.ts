@@ -19,7 +19,7 @@ describe("run lifecycle", () => {
       const paths = makeSessionPaths(dir);
       const run = await createRun(paths, "plan-1", "claude", 10, "/tmp");
       expect(run.id).toMatch(/^run-/);
-      expect(run.planId).toBe("plan-1");
+      expect(run.sessionId).toBe("plan-1");
       expect(run.status).toBe("running");
       expect(run.agent).toBe("claude");
       expect(run.currentIteration).toBe(0);
@@ -37,7 +37,7 @@ describe("run lifecycle", () => {
       const loaded = await loadRun(paths);
       expect(loaded).not.toBeNull();
       expect(loaded!.id).toBe(created.id);
-      expect(loaded!.planId).toBe("plan-1");
+      expect(loaded!.sessionId).toBe("plan-1");
       expect(loaded!.status).toBe("running");
     });
   });

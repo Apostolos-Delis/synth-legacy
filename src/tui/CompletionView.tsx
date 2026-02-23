@@ -23,7 +23,7 @@ export function CompletionView({ summary, showFinalizePrompt }: CompletionViewPr
           <span fg={colors.fg.muted}>{" | "}</span>
           <span fg={colors.fg.secondary}>{summary.projectName}</span>
           <span fg={colors.fg.muted}>{" ("}</span>
-          <span fg={colors.accent.primary}>{summary.planId}</span>
+          <span fg={colors.accent.primary}>{summary.sessionId}</span>
           <span fg={colors.fg.muted}>{")"}</span>
         </text>
       </box>

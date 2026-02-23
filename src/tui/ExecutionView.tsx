@@ -58,7 +58,7 @@ export function ExecutionView({ state, selectedTaskIndex, navMode }: ExecutionVi
     <box width={width} height={height} flexDirection="column">
       <Header
         projectName={state.projectName}
-        planId={state.planId}
+        sessionId={state.sessionId}
         iteration={state.iteration}
         maxIterations={state.maxIterations}
         agentName={state.agentName}

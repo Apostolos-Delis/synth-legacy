@@ -8,7 +8,7 @@ export type RunState =
 
 export interface RunMetadata {
   id: string;
-  planId: string;
+  sessionId: string;
   status: RunState;
   startedAt: string;
   endedAt?: string;

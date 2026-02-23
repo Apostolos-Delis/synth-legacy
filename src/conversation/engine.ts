@@ -79,7 +79,13 @@ export class ConversationEngine {
         onChunk?.(chunk);
       },
     });
-    await handle.promise;
+    const result = await handle.promise;
+    if (result.timedOut) {
+      throw new Error("Agent execution timed out");
+    }
+    if (result.exitCode !== 0) {
+      throw new Error(`Agent exited with code ${result.exitCode}: ${result.stderr}`);
+    }
     return output;
   }
 }

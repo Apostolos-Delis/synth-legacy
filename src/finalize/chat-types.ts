@@ -60,3 +60,12 @@ export interface CompletionSummary {
   durationMs: number;
 }
 
+export interface OrchestratorState {
+  phase: FinalizePhase;
+  fixes: FixTask[];
+  confirmedFixes: FixTask[];
+  reviewIndex: number;
+  fixCounter: number;
+  messages: FinalizeMessage[];
+}
+

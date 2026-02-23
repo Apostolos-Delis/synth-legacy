@@ -2,7 +2,7 @@ import { join } from "node:path";
 import type { AgentAdapter, AgentExecuteOptions } from "../agents/types.js";
 import type { SynthConfig } from "../config/types.js";
 import type { SessionPaths, SessionMetadata } from "../sessions/types.js";
-import type { Task, TaskFile } from "../tasks/types.js";
+import type { TaskFile } from "../tasks/types.js";
 import type {
   FinalizePhase,
   FinalizeMessage,
@@ -11,6 +11,7 @@ import type {
   CompletionSummary,
   FixTask,
   FixTaskStatus,
+  OrchestratorState,
 } from "./chat-types.js";
 import {
   buildAuditContext,
@@ -241,14 +242,34 @@ export class FinalizeOrchestrator {
     };
   }
 
+  private async persistState(): Promise<void> {
+    if (!this.sessionPaths) return;
+    const statePath = join(this.sessionPaths.root, "finalize-state.json");
+    const convPath = join(this.sessionPaths.root, "finalize-conversation.json");
+    const state: OrchestratorState = {
+      phase: this.phase,
+      fixes: this.fixes,
+      confirmedFixes: this.confirmedFixes,
+      reviewIndex: this.reviewIndex,
+      fixCounter: this.fixCounter,
+      messages: this.messages,
+    };
+    await writeJson(statePath, state);
+    await writeJson(convPath, this.messages);
+  }
+
   private setPhase(phase: FinalizePhase): void {
     if (this.phase === phase) return;
     this.phase = phase;
     for (const listener of this.phaseListeners) {
       listener(phase);
     }
+    // Persist on every phase transition for crash safety
+    this.persistState().catch(() => {});
     if (phase === "complete" && this.sessionPaths) {
-      this.updateMetadataToFinalized();
+      this.updateMetadataToFinalized().catch((err) => {
+        console.error("Failed to update metadata to finalized:", err);
+      });
     }
   }
 
@@ -269,38 +290,55 @@ export class FinalizeOrchestrator {
 
   /**
    * Restore orchestrator from previously-saved conversation state.
-   * Sets phase to "discussing" so the user can continue the conversation.
+   * When savedState is provided, restores fixes, confirmedFixes, reviewIndex,
+   * fixCounter, and phase. Otherwise falls back to "discussing" phase.
    */
   restore(
     agent: AgentAdapter,
     config: SynthConfig,
     sessionPaths: SessionPaths,
     cwd: string,
-    savedMessages: ConversationMessage[],
+    savedMessages: FinalizeMessage[],
+    savedState?: OrchestratorState,
   ): void {
     this.cwd = cwd;
     this.startTime = Date.now();
     this.baseBranch = config.project.base_branch;
     this.sessionPaths = sessionPaths;
 
-    const persistPath = join(sessionPaths.root, "finalize-conversation.json");
     this.engine = new ConversationEngine({
       agent,
       cwd,
       model: config.agent.model,
       systemPrompt: buildAuditSystemPrompt(),
       maxHistoryWindow: MAX_HISTORY,
-      persist: async (msgs: ConversationMessage[]) => {
+      persist: async () => {
         await ensureDir(sessionPaths.root);
-        await writeJson(persistPath, msgs);
+        await this.persistState();
       },
     });
 
-    this.engine.restoreHistory(savedMessages);
-    for (const msg of savedMessages) {
-      this.messages.push({ role: msg.role, content: msg.content });
+    // Convert FinalizeMessage[] to ConversationMessage[] for the engine
+    // (engine only needs role + content for prompt reconstruction)
+    const engineMessages: ConversationMessage[] = savedMessages
+      .filter((m): m is FinalizeMessage & { role: "user" | "assistant" } =>
+        m.role === "user" || m.role === "assistant")
+      .map((m) => ({ role: m.role, content: m.content }));
+    this.engine.restoreHistory(engineMessages);
+
+    if (savedState) {
+      this.fixes = savedState.fixes;
+      this.confirmedFixes = savedState.confirmedFixes;
+      this.reviewIndex = savedState.reviewIndex;
+      this.fixCounter = savedState.fixCounter;
+      this.messages = savedState.messages;
+
+      const safePhases = new Set<FinalizePhase>(["discussing", "collecting-fixes", "creating-pr"]);
+      this.setPhase(safePhases.has(savedState.phase) ? savedState.phase : "discussing");
+    } else {
+      this.messages = [...savedMessages];
+      this.setPhase("discussing");
     }
-    this.setPhase("discussing");
   }
 
   async start(
@@ -316,16 +354,15 @@ export class FinalizeOrchestrator {
     this.sessionPaths = sessionPaths;
     this.setPhase("auditing");
 
-    const persistPath = join(sessionPaths.root, "finalize-conversation.json");
     this.engine = new ConversationEngine({
       agent,
       cwd,
       model: config.agent.model,
       systemPrompt: buildAuditSystemPrompt(),
       maxHistoryWindow: MAX_HISTORY,
-      persist: async (msgs: ConversationMessage[]) => {
+      persist: async () => {
         await ensureDir(sessionPaths.root);
-        await writeJson(persistPath, msgs);
+        await this.persistState();
       },
     });
 
@@ -366,18 +403,25 @@ export class FinalizeOrchestrator {
     const userMsg: FinalizeMessage = { role: "user", content: text };
     this.messages.push(userMsg);
 
+    let response: OrchestratorResponse;
     switch (this.phase) {
       case "discussing":
-        return this.handleDiscussing(agent, text, onChunk);
+        response = await this.handleDiscussing(agent, text, onChunk);
+        break;
       case "collecting-fixes":
-        return this.handleCollectingFixes(agent, text, onChunk);
+        response = await this.handleCollectingFixes(agent, text, onChunk);
+        break;
       case "executing-fixes":
       case "creating-pr":
       case "complete":
-        return this.handleGenericResponse(agent, text, onChunk);
+        response = await this.handleGenericResponse(agent, text, onChunk);
+        break;
       default:
-        return this.handleGenericResponse(agent, text, onChunk);
+        response = await this.handleGenericResponse(agent, text, onChunk);
+        break;
     }
+    await this.persistState();
+    return response;
   }
 
   async handleOptionSelect(
@@ -392,28 +436,24 @@ export class FinalizeOrchestrator {
     };
     this.messages.push(userMsg);
 
+    let response: OrchestratorResponse;
     if (this.phase === "discussing") {
-      return this.handleDiscussionOption(agent, option, onChunk);
+      response = await this.handleDiscussionOption(agent, option, onChunk);
+    } else if (this.phase === "collecting-fixes") {
+      response = await this.handleFixOption(agent, option, onChunk);
+    } else if (this.phase === "executing-fixes") {
+      response = this.handleExecutingFixesOption(option);
+    } else if (this.phase === "creating-pr") {
+      response = this.handleCreatingPrOption(option);
+    } else {
+      response = await this.handleGenericResponse(
+        agent,
+        `The user selected: "${option.label}" — ${option.description}`,
+        onChunk,
+      );
     }
-
-    if (this.phase === "collecting-fixes") {
-      return this.handleFixOption(agent, option, onChunk);
-    }
-
-    if (this.phase === "executing-fixes") {
-      return this.handleExecutingFixesOption(option);
-    }
-
-    if (this.phase === "creating-pr") {
-      return this.handleCreatingPrOption(option);
-    }
-
-    // Default: treat as a conversational message
-    return this.handleGenericResponse(
-      agent,
-      `The user selected: "${option.label}" — ${option.description}`,
-      onChunk,
-    );
+    await this.persistState();
+    return response;
   }
 
   // ---------------------------------------------------------------------------
@@ -620,6 +660,8 @@ export class FinalizeOrchestrator {
 
   private advanceIndividualReview(): OrchestratorResponse {
     this.reviewIndex++;
+    // Persist after each fix confirmation for crash safety
+    this.persistState().catch(() => {});
     if (this.reviewIndex >= this.fixes.length) {
       // Finished individual review
       if (this.confirmedFixes.length === 0) {
@@ -753,25 +795,11 @@ export class FinalizeOrchestrator {
         content: "No confirmed fixes to execute. Moving on to PR creation.",
       };
       this.messages.push(skipMsg);
+      await this.persistState();
       return { message: skipMsg };
     }
 
     const total = this.confirmedFixes.length;
-
-    // AC #1: Convert FixTasks to Task[] and write temporary tasks file
-    const fixTasks = this.confirmedFixes.map((fix, i) =>
-      fixTaskToEngineTask(fix, i),
-    );
-    const fixTaskFile: TaskFile = {
-      project: config.project.name,
-      branchName: config.project.branch,
-      description: "Fix tasks from code review",
-      tasks: fixTasks,
-    };
-
-    const fixTasksPath = join(sessionPaths.root, "fix-tasks.json");
-    await ensureDir(sessionPaths.root);
-    await writeJson(fixTasksPath, fixTaskFile);
 
     // AC #2 & #3: Execute each fix using the same agent, reporting progress
     for (let i = 0; i < total; i++) {
@@ -898,6 +926,20 @@ export class FinalizeOrchestrator {
     sessionPaths: SessionPaths,
     onMessage: (msg: FinalizeMessage) => void,
   ): Promise<OrchestratorResponse> {
+    let response: OrchestratorResponse;
+    try {
+      response = await this.executePrCreationInner(config, sessionPaths, onMessage);
+    } finally {
+      await this.persistState();
+    }
+    return response;
+  }
+
+  private async executePrCreationInner(
+    config: SynthConfig,
+    sessionPaths: SessionPaths,
+    onMessage: (msg: FinalizeMessage) => void,
+  ): Promise<OrchestratorResponse> {
     const baseBranch = config.project.base_branch;
 
     // Skip PR creation if on base branch
@@ -909,18 +951,7 @@ export class FinalizeOrchestrator {
       return this.prError(raw, onMessage);
     }
 
-    if (branch === baseBranch) {
-      this.setPhase("complete");
-      const skipMsg: FinalizeMessage = {
-        role: "assistant",
-        content: `Skipping PR creation: already on base branch '${branch}'`,
-      };
-      this.messages.push(skipMsg);
-      onMessage(skipMsg);
-      return { message: skipMsg };
-    }
-
-    // AC #1: Stage any uncommitted changes and commit
+    // AC #1: Stage any uncommitted changes and commit (even on base branch)
     const addHandle = this._spawn({ cmd: ["git", "add", "-A"], cwd: this.cwd });
     await addHandle.promise;
 
@@ -932,7 +963,12 @@ export class FinalizeOrchestrator {
 
     if (hasStagedResult.exitCode !== 0) {
       // There are staged changes — commit them
-      const taskFile = await this._loadTasks(sessionPaths.tasks);
+      let taskFile;
+      try {
+        taskFile = await this._loadTasks(sessionPaths.tasks);
+      } catch {
+        taskFile = { description: "", tasks: [] };
+      }
       const commitMsg = `feat: ${taskFile.description || config.project.name}`;
       const commitHandle = this._spawn({
         cmd: ["git", "commit", "-m", commitMsg],
@@ -950,6 +986,21 @@ export class FinalizeOrchestrator {
       };
       this.messages.push(commitInfo);
       onMessage(commitInfo);
+    }
+
+    // Skip PR creation if on base branch (changes are already committed above)
+    if (branch === baseBranch) {
+      this.setPhase("complete");
+      const hasCommit = hasStagedResult.exitCode !== 0;
+      const skipMsg: FinalizeMessage = {
+        role: "assistant",
+        content: hasCommit
+          ? `Changes committed to '${branch}'. Skipping PR creation (already on base branch).`
+          : `No uncommitted changes. Skipping PR creation (already on base branch).`,
+      };
+      this.messages.push(skipMsg);
+      onMessage(skipMsg);
+      return { message: skipMsg };
     }
 
     // AC #2: Push branch with upstream tracking
@@ -1145,7 +1196,13 @@ export class FinalizeOrchestrator {
     };
 
     const handle = agent.execute(prompt, options);
-    await handle.promise;
+    const result = await handle.promise;
+    if (result.timedOut) {
+      throw new Error("Agent execution timed out");
+    }
+    if (result.exitCode !== 0) {
+      throw new Error(`Agent exited with code ${result.exitCode}: ${result.stderr}`);
+    }
     return output;
   }
 }
@@ -1153,20 +1210,6 @@ export class FinalizeOrchestrator {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-function fixTaskToEngineTask(fix: FixTask, _index: number): Task {
-  return {
-    id: fix.id,
-    title: fix.description.length > 100
-      ? fix.description.slice(0, 97) + "..."
-      : fix.description,
-    description: fix.description,
-    acceptanceCriteria: fix.acceptanceCriteria,
-    priority: fix.priority as 1 | 2 | 3 | 4 | 5,
-    status: "open",
-    iterationCount: 0,
-  };
-}
 
 function buildFixPrompt(fix: FixTask, cwd: string): string {
   return [

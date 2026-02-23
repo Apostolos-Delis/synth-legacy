@@ -1,10 +1,7 @@
 import { describe, test, expect } from "bun:test";
 import { formatDuration } from "../utils/format.js";
-
-// buildSummaryMarkdown is a module-level function in cli.tsx.
-// We test it indirectly by re-implementing the logic here to validate the format contract,
-// or we can import it if exported. Since it's not exported, we test the shared utility
-// and validate the markdown format via a local copy of the logic.
+import { buildSummaryMarkdown } from "../cli.js";
+import type { Task } from "../tasks/types.js";
 
 describe("formatDuration", () => {
   test("formats seconds", () => {
@@ -30,62 +27,18 @@ describe("formatDuration", () => {
 });
 
 describe("buildSummaryMarkdown format", () => {
-  // Since buildSummaryMarkdown is not exported from cli.tsx, we replicate
-  // its logic here to validate the contract. If the function is ever extracted
-  // to a shared module, these tests should import it directly.
-
-  function buildSummaryMarkdown(data: {
-    projectName: string;
-    planId: string;
-    agentName: string;
-    totalDurationMs: number;
-    totalIterations: number;
-    tasks: { id: string; title: string; status: string }[];
-    progress: { total: number; done: number; failed: number; open: number; inProgress: number };
-    commits: string[];
-  }): string {
-    const dur = formatDuration(data.totalDurationMs);
-    const lines: string[] = [
-      `# Completion Summary`,
-      ``,
-      `| Field | Value |`,
-      `|-------|-------|`,
-      `| Project | ${data.projectName} |`,
-      `| Session | ${data.planId} |`,
-      `| Agent | ${data.agentName} |`,
-      `| Duration | ${dur} |`,
-      `| Iterations | ${data.totalIterations} |`,
-      `| Tasks | ${data.progress.done}/${data.progress.total} done, ${data.progress.failed} failed, ${data.progress.open} open |`,
-      ``,
-      `## Tasks`,
-      ``,
-    ];
-    for (const task of data.tasks) {
-      const icon = task.status === "done" ? "[x]" : task.status === "failed" ? "[-]" : "[ ]";
-      lines.push(`- ${icon} **${task.id}** ${task.title} — \`${task.status}\``);
-    }
-    if (data.commits.length > 0) {
-      lines.push(``, `## Commits`, ``);
-      for (const c of data.commits) {
-        lines.push(`- ${c}`);
-      }
-    }
-    lines.push(``);
-    return lines.join("\n");
-  }
-
   const baseSummary = {
     projectName: "test-project",
-    planId: "abc-123",
+    sessionId: "abc-123",
     agentName: "claude",
     totalDurationMs: 125_000,
     totalIterations: 5,
     tasks: [
-      { id: "T1", title: "Setup database", status: "done" },
-      { id: "T2", title: "Add API routes", status: "done" },
-      { id: "T3", title: "Write tests", status: "failed" },
-      { id: "T4", title: "Deploy", status: "open" },
-    ],
+      { id: "T1", title: "Setup database", status: "done", description: "", acceptanceCriteria: [], priority: 1, iterationCount: 1 },
+      { id: "T2", title: "Add API routes", status: "done", description: "", acceptanceCriteria: [], priority: 2, iterationCount: 1 },
+      { id: "T3", title: "Write tests", status: "failed", description: "", acceptanceCriteria: [], priority: 3, iterationCount: 1 },
+      { id: "T4", title: "Deploy", status: "open", description: "", acceptanceCriteria: [], priority: 4, iterationCount: 0 },
+    ] as Task[],
     progress: { total: 4, done: 2, failed: 1, open: 1, inProgress: 0 },
     commits: [],
   };

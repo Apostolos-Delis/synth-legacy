@@ -6,7 +6,7 @@ import { Footer } from "./components/Footer.js";
 
 interface ReviewViewProps {
   tasks: Task[];
-  planId: string;
+  sessionId: string;
   onConfirm: () => void;
   onDecline: () => void;
 }
@@ -25,7 +25,7 @@ function buildTaskIdMap(tasks: Task[]): Map<string, string> {
   return map;
 }
 
-export function ReviewView({ tasks, planId, onConfirm, onDecline }: ReviewViewProps): ReactNode {
+export function ReviewView({ tasks, sessionId, onConfirm, onDecline }: ReviewViewProps): ReactNode {
   const { width, height } = useTerminalDimensions();
   const [selectedIndex, setSelectedIndex] = useState(0);
 
@@ -65,7 +65,7 @@ export function ReviewView({ tasks, planId, onConfirm, onDecline }: ReviewViewPr
           <span fg={colors.fg.muted}>{" \u2502 "}</span>
           <span fg={colors.fg.secondary}>{depCount} dependencies</span>
           <span fg={colors.fg.muted}>{" \u2502 "}</span>
-          <span fg={colors.fg.muted}>{planId}</span>
+          <span fg={colors.fg.muted}>{sessionId}</span>
         </text>
       </box>
 

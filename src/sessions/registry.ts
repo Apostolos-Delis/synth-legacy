@@ -12,21 +12,25 @@ const SESSIONS_DIR = join(SYNTH_HOME, "sessions");
 
 let migrationDone: Promise<void> | null = null;
 
-async function migrateStorage(): Promise<void> {
-  const plansExist = await dirExists(LEGACY_PLANS_DIR);
-  const sessionsExist = await dirExists(SESSIONS_DIR);
+export async function migrateStorageAt(
+  legacyPlansDir: string,
+  sessionsDir: string,
+): Promise<void> {
+  const plansExist = await dirExists(legacyPlansDir);
+  const sessionsExist = await dirExists(sessionsDir);
 
   if (!plansExist && !sessionsExist) return;
 
   if (plansExist && !sessionsExist) {
-    await rename(LEGACY_PLANS_DIR, SESSIONS_DIR);
-    console.error(`[synth] Migrated ${LEGACY_PLANS_DIR} → ${SESSIONS_DIR}`);
+    await rename(legacyPlansDir, sessionsDir);
+    console.error(`[synth] Migrated ${legacyPlansDir} → ${sessionsDir}`);
   } else if (plansExist && sessionsExist) {
-    const entries = await readdir(LEGACY_PLANS_DIR, { withFileTypes: true });
+    let skippedCount = 0;
+    const entries = await readdir(legacyPlansDir, { withFileTypes: true });
     for (const entry of entries) {
       if (!entry.isDirectory()) continue;
-      const src = join(LEGACY_PLANS_DIR, entry.name);
-      const dest = join(SESSIONS_DIR, entry.name);
+      const src = join(legacyPlansDir, entry.name);
+      const dest = join(sessionsDir, entry.name);
       if (await dirExists(dest)) {
         // Merge: copy subdirectories (session IDs) that don't already exist
         const subEntries = await readdir(src, { withFileTypes: true });
@@ -36,29 +40,36 @@ async function migrateStorage(): Promise<void> {
           const subDest = join(dest, sub.name);
           if (!(await dirExists(subDest))) {
             await rename(subSrc, subDest);
-            console.error(`[synth] Merged session ${entry.name}/${sub.name} → ${SESSIONS_DIR}`);
+            console.error(`[synth] Merged session ${entry.name}/${sub.name} → ${sessionsDir}`);
+          } else {
+            console.error(`warn: skipping migration of ${entry.name}/${sub.name} — already exists in sessions/`);
+            skippedCount++;
           }
         }
       } else {
         await rename(src, dest);
-        console.error(`[synth] Merged repo ${entry.name} → ${SESSIONS_DIR}`);
+        console.error(`[synth] Merged repo ${entry.name} → ${sessionsDir}`);
       }
     }
-    // Clean up empty legacy dir
-    try {
-      await rm(LEGACY_PLANS_DIR, { recursive: true });
-      console.error(`[synth] Removed empty legacy directory ${LEGACY_PLANS_DIR}`);
-    } catch {
-      // Not empty or already gone — fine
+    // Clean up legacy dir only if no entries were skipped
+    if (skippedCount === 0) {
+      try {
+        await rm(legacyPlansDir, { recursive: true });
+        console.error(`[synth] Removed empty legacy directory ${legacyPlansDir}`);
+      } catch {
+        // Not empty or already gone — fine
+      }
+    } else {
+      console.error(`[synth] ${skippedCount} entries skipped during migration. Please manually resolve the remaining entries in ${legacyPlansDir}`);
     }
   }
 
   // Rename session.json → run.json in all session directories
-  if (await dirExists(SESSIONS_DIR)) {
-    const repos = await readdir(SESSIONS_DIR, { withFileTypes: true });
+  if (await dirExists(sessionsDir)) {
+    const repos = await readdir(sessionsDir, { withFileTypes: true });
     for (const repo of repos) {
       if (!repo.isDirectory()) continue;
-      const repoDir = join(SESSIONS_DIR, repo.name);
+      const repoDir = join(sessionsDir, repo.name);
       const sessions = await readdir(repoDir, { withFileTypes: true });
       for (const session of sessions) {
         if (!session.isDirectory()) continue;
@@ -73,9 +84,16 @@ async function migrateStorage(): Promise<void> {
   }
 }
 
+async function migrateStorage(): Promise<void> {
+  return migrateStorageAt(LEGACY_PLANS_DIR, SESSIONS_DIR);
+}
+
 function ensureMigration(): Promise<void> {
   if (!migrationDone) {
-    migrationDone = migrateStorage();
+    migrationDone = migrateStorage().catch((err) => {
+      migrationDone = null;
+      throw err;
+    });
   }
   return migrationDone;
 }

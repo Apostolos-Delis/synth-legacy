@@ -16,7 +16,7 @@ export function GeneratingView({ output, taskCount }: GeneratingViewProps): Reac
     <box width={width} height={height} flexDirection="column">
       <box height={1} style={{ backgroundColor: colors.bg.secondary, paddingLeft: 1 }}>
         <text>
-          <span fg={colors.accent.primary} attributes={boldAttr()}>synth plan</span>
+          <span fg={colors.accent.primary} attributes={boldAttr()}>synth session</span>
           <span fg={colors.fg.muted}>{" │ "}</span>
           <span fg={colors.status.info}>Generating tasks...</span>
         </text>

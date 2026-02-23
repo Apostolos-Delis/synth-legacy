@@ -163,7 +163,13 @@ async function resolvePlanId(input?: string): Promise<string | undefined> {
     const plans = allPlans.filter((p) => p.status !== "completed" && p.status !== "finalized");
     const idx = parseInt(input, 10) - 1;
     if (idx < 0 || idx >= plans.length) {
-      logError(`Session #${input} not found. Run 'synth ls' to see available sessions.`);
+      // Check if the index refers to a completed/finalized session
+      if (idx >= 0 && idx < allPlans.length) {
+        const session = allPlans[idx];
+        logError(`Session #${input} is already ${session.status}. Run 'synth ls --all' to see all sessions.`);
+      } else {
+        logError(`Session #${input} not found. Run 'synth ls' to see available sessions.`);
+      }
       process.exit(1);
     }
     return plans[idx].id;
@@ -214,10 +220,10 @@ async function cmdLs(): Promise<void> {
   }
 }
 
-async function cmdShow(planId: string): Promise<void> {
-  const plan = await getSession(cwd, planId);
+async function cmdShow(sessionId: string): Promise<void> {
+  const plan = await getSession(cwd, sessionId);
   if (!plan) {
-    logError(`Session '${planId}' not found`);
+    logError(`Session '${sessionId}' not found`);
     process.exit(1);
   }
 
@@ -247,10 +253,10 @@ async function cmdShow(planId: string): Promise<void> {
   }
 }
 
-async function cmdStatus(planId?: string): Promise<void> {
+async function cmdStatus(sessionId?: string): Promise<void> {
   let plan;
-  if (planId) {
-    plan = await getSession(cwd, planId);
+  if (sessionId) {
+    plan = await getSession(cwd, sessionId);
   } else {
     plan = await getMostRecentSession(cwd);
   }
@@ -324,12 +330,12 @@ async function cmdThemes(): Promise<void> {
   }
 }
 
-async function cmdRun(planId?: string, startIteration = 0, tuiContext?: TuiContext): Promise<void> {
+async function cmdRun(sessionId?: string, startIteration = 0, tuiContext?: TuiContext): Promise<void> {
   const config = await applyTheme();
 
   let plan;
-  if (planId) {
-    plan = await getSession(cwd, planId);
+  if (sessionId) {
+    plan = await getSession(cwd, sessionId);
   } else {
     plan = await getMostRecentSession(cwd);
   }
@@ -418,7 +424,7 @@ async function cmdRun(planId?: string, startIteration = 0, tuiContext?: TuiConte
       output: "",
       agentName: config.agent.name,
       projectName: config.project.name,
-      planId: plan.metadata.id,
+      sessionId: plan.metadata.id,
       startTime: Date.now(),
       interviewMessages: [],
       isThinking: false,
@@ -651,7 +657,7 @@ async function cmdRun(planId?: string, startIteration = 0, tuiContext?: TuiConte
 
       const summaryData: CompletionSummary = {
         projectName: config.project.name,
-        planId: plan.metadata.id,
+        sessionId: plan.metadata.id,
         agentName: config.agent.name,
         totalDurationMs: durationMs,
         totalIterations: engine.getIteration(),
@@ -744,10 +750,10 @@ async function cmdRun(planId?: string, startIteration = 0, tuiContext?: TuiConte
   }
 }
 
-async function cmdResume(planId?: string): Promise<void> {
+async function cmdResume(sessionId?: string): Promise<void> {
   let plan;
-  if (planId) {
-    plan = await getSession(cwd, planId);
+  if (sessionId) {
+    plan = await getSession(cwd, sessionId);
   } else {
     plan = await getMostRecentSession(cwd);
   }
@@ -762,13 +768,14 @@ async function cmdResume(planId?: string): Promise<void> {
 
   switch (status) {
     case "interviewing": {
-      if (!(await fileExists(plan.paths.interview))) {
-        logError(`Interview state file missing for session ${id}. The interview conversation could not be found at ${plan.paths.interview}.`);
-        process.exit(1);
-      }
-      const savedState = await readJson<import("./interview/types.js").InterviewState>(plan.paths.interview);
-      if (savedState.prdPending && savedState.interviewerHistory.length > 0) {
-        log(fmt.info(`Resuming interview for session ${id} (${savedState.interviewerHistory.length} messages saved)`));
+      const savedState: import("./interview/types.js").InterviewState = (await fileExists(plan.paths.interview))
+        ? await readJson<import("./interview/types.js").InterviewState>(plan.paths.interview)
+        : { messages: [], interviewerHistory: [], prdPending: true };
+      if (savedState.prdPending) {
+        const msgCount = savedState.interviewerHistory.length;
+        log(fmt.info(msgCount > 0
+          ? `Resuming interview for session ${id} (${msgCount} messages saved)`
+          : `Starting fresh interview for session ${id}`));
         await resumeInterview(plan, savedState);
         return;
       }
@@ -782,9 +789,13 @@ async function cmdResume(planId?: string): Promise<void> {
         logError(`Finalize conversation state missing for session ${id}. Run 'synth finalize ${id}' to start a fresh review.`);
         process.exit(1);
       }
-      const savedConversation = await readJson<import("./conversation/types.js").ConversationMessage[]>(finalizePath);
+      const savedConversation = await readJson<import("./finalize/chat-types.js").FinalizeMessage[]>(finalizePath);
+      const statePath = join(plan.paths.root, "finalize-state.json");
+      const savedState = (await fileExists(statePath))
+        ? await readJson<import("./finalize/chat-types.js").OrchestratorState>(statePath)
+        : undefined;
       log(fmt.info(`Resuming finalize review for session ${id} (${savedConversation.length} messages)`));
-      await cmdFinalize(id, undefined, undefined, savedConversation);
+      await cmdFinalize(id, undefined, undefined, savedConversation, savedState);
       return;
     }
 
@@ -858,15 +869,6 @@ async function resumeInterview(
   let prd: import("./interview/types.js").GeneratedPrd | null = null;
   const { id, paths } = { id: plan.metadata.id, paths: plan.paths };
 
-  const saveInterviewState = async () => {
-    const state: import("./interview/types.js").InterviewState = {
-      messages: interviewer.getHistory(),
-      interviewerHistory: interviewer.getHistory(),
-      prdPending: !prd,
-    };
-    await writeJson(paths.interview, state);
-  };
-
   const interviewer = new interviewMod.Interviewer(agent, cwd, config.agent.model, async (messages) => {
     const state: import("./interview/types.js").InterviewState = {
       messages: messages as import("./interview/types.js").InterviewMessage[],
@@ -915,7 +917,6 @@ async function resumeInterview(
     });
 
     if (!interviewResult) {
-      await saveInterviewState();
       process.off("SIGINT", sigintHandler);
       cleanup();
       agent.dispose();
@@ -923,7 +924,6 @@ async function resumeInterview(
     }
 
     if (!prd) {
-      await saveInterviewState();
       process.off("SIGINT", sigintHandler);
       cleanup();
       agent.dispose();
@@ -998,7 +998,7 @@ async function resumeInterview(
       planRoot.render(
         <tui.ReviewView
           tasks={taskFile.tasks}
-          planId={id}
+          sessionId={id}
           onConfirm={() => resolve(true)}
           onDecline={() => resolve(false)}
         />,
@@ -1050,7 +1050,6 @@ async function resumeInterview(
     while (!prd) {
       const userInput = await askQuestion();
       if (userInput === null) {
-        await saveInterviewState();
         agent.dispose();
         return;
       }
@@ -1064,7 +1063,6 @@ async function resumeInterview(
         log(`\n${ansi.primary}Does this all look good? Press Enter to generate the PRD and tasks, or type feedback to refine.${ansi.reset}`);
         const confirmation = await askQuestion();
         if (confirmation === null) {
-          await saveInterviewState();
           agent.dispose();
           return;
         }
@@ -1116,7 +1114,7 @@ async function resumeInterview(
   }
 }
 
-async function cmdPlan(planIdOrFlag?: string): Promise<void> {
+async function cmdPlan(sessionIdOrFlag?: string): Promise<void> {
   const config = await applyTheme();
 
   const prdIndex = args.indexOf("--prd");
@@ -1167,11 +1165,11 @@ async function cmdPlan(planIdOrFlag?: string): Promise<void> {
     return;
   }
 
-  if (planIdOrFlag && planIdOrFlag !== "plan") {
-    const plan = await getSession(cwd, planIdOrFlag);
+  if (sessionIdOrFlag && sessionIdOrFlag !== "plan") {
+    const plan = await getSession(cwd, sessionIdOrFlag);
     if (plan) {
-      await cmdShow(planIdOrFlag);
-      log(`\nTo execute: ${fmt.bold(`synth run ${planIdOrFlag}`)}`);
+      await cmdShow(sessionIdOrFlag);
+      log(`\nTo execute: ${fmt.bold(`synth run ${sessionIdOrFlag}`)}`);
       return;
     }
   }
@@ -1188,15 +1186,6 @@ async function cmdPlan(planIdOrFlag?: string): Promise<void> {
 
   // Create session early so we have paths for interview state persistence
   const { id, paths } = await createSession(cwd, "");
-
-  const saveInterviewState = async () => {
-    const state: import("./interview/types.js").InterviewState = {
-      messages: interviewer.getHistory(),
-      interviewerHistory: interviewer.getHistory(),
-      prdPending: !prd,
-    };
-    await writeJson(paths.interview, state);
-  };
 
   const interviewer = new interviewMod.Interviewer(agent, cwd, config.agent.model, async (messages) => {
     const state: import("./interview/types.js").InterviewState = {
@@ -1244,7 +1233,6 @@ async function cmdPlan(planIdOrFlag?: string): Promise<void> {
     });
 
     if (!interviewResult) {
-      await saveInterviewState();
       process.off("SIGINT", sigintHandler);
       cleanup();
       agent.dispose();
@@ -1252,7 +1240,6 @@ async function cmdPlan(planIdOrFlag?: string): Promise<void> {
     }
 
     if (!prd) {
-      await saveInterviewState();
       process.off("SIGINT", sigintHandler);
       cleanup();
       agent.dispose();
@@ -1327,7 +1314,7 @@ async function cmdPlan(planIdOrFlag?: string): Promise<void> {
       planRoot.render(
         <tui.ReviewView
           tasks={taskFile.tasks}
-          planId={id}
+          sessionId={id}
           onConfirm={() => resolve(true)}
           onDecline={() => resolve(false)}
         />,
@@ -1370,7 +1357,6 @@ async function cmdPlan(planIdOrFlag?: string): Promise<void> {
     while (!prd) {
       const userInput = await askQuestion();
       if (userInput === null) {
-        await saveInterviewState();
         agent.dispose();
         return;
       }
@@ -1384,7 +1370,6 @@ async function cmdPlan(planIdOrFlag?: string): Promise<void> {
         log(`\n${ansi.primary}Does this all look good? Press Enter to generate the PRD and tasks, or type feedback to refine.${ansi.reset}`);
         const confirmation = await askQuestion();
         if (confirmation === null) {
-          await saveInterviewState();
           agent.dispose();
           return;
         }
@@ -1454,16 +1439,17 @@ interface FinalizeRunContext {
 }
 
 async function cmdFinalize(
-  planId?: string,
+  sessionId?: string,
   tuiContext?: TuiContext,
   runContext?: FinalizeRunContext,
-  savedConversation?: import("./conversation/types.js").ConversationMessage[],
+  savedConversation?: import("./finalize/chat-types.js").FinalizeMessage[],
+  savedState?: import("./finalize/chat-types.js").OrchestratorState,
 ): Promise<void> {
   const config = runContext?.config ?? await applyTheme();
 
   let plan;
-  if (planId) {
-    plan = await getSession(cwd, planId);
+  if (sessionId) {
+    plan = await getSession(cwd, sessionId);
   } else {
     plan = await getMostRecentSession(cwd);
   }
@@ -1497,7 +1483,7 @@ async function cmdFinalize(
 
     // Restore from saved conversation if resuming an interrupted finalize
     if (savedConversation?.length) {
-      orchestrator.restore(agent, config, plan.paths, cwd, savedConversation);
+      orchestrator.restore(agent, config, plan.paths, cwd, savedConversation, savedState);
     }
 
     const ownsRenderer = !tuiContext;
@@ -1587,27 +1573,27 @@ async function cmdFinalize(
   }
 }
 
-async function cmdSpawn(planIdOrFlag?: string): Promise<void> {
+async function cmdSpawn(sessionIdOrFlag?: string): Promise<void> {
   await applyTheme();
-  let planId: string | undefined;
+  let sessionId: string | undefined;
   let doPlan = false;
 
-  if (planIdOrFlag === "--plan") {
+  if (sessionIdOrFlag === "--plan") {
     doPlan = true;
   } else {
-    planId = planIdOrFlag;
+    sessionId = sessionIdOrFlag;
   }
 
-  if (!planId && !doPlan) {
+  if (!sessionId && !doPlan) {
     const plan = await getMostRecentSession(cwd);
     if (!plan) {
       logError("No session found. Use 'synth spawn --plan' to start a new session.");
       process.exit(1);
     }
-    planId = plan.metadata.id;
+    sessionId = plan.metadata.id;
   }
 
-  const wtName = planId ?? `synth-${Date.now().toString(36)}`;
+  const wtName = sessionId ?? `synth-${Date.now().toString(36)}`;
   if (!/^[\w./-]+$/.test(wtName)) {
     logError(`Invalid session ID: ${wtName}`);
     process.exit(1);
@@ -1640,7 +1626,7 @@ async function cmdSpawn(planIdOrFlag?: string): Promise<void> {
     }
   }
 
-  const cmd = doPlan ? "synth plan" : `synth run ${planId}`;
+  const cmd = doPlan ? "synth plan" : `synth run ${sessionId}`;
   log(fmt.info(`Starting: cd ${wtPath} && ${cmd}`));
 
   const runHandle = spawn({
@@ -1756,7 +1742,7 @@ async function cmdUpdate(): Promise<void> {
   }
 }
 
-function buildSummaryMarkdown(data: Omit<CompletionSummary, "summaryFilePath">): string {
+export function buildSummaryMarkdown(data: Omit<CompletionSummary, "summaryFilePath">): string {
   const dur = formatDuration(data.totalDurationMs);
   const lines: string[] = [
     `# Completion Summary`,
@@ -1764,7 +1750,7 @@ function buildSummaryMarkdown(data: Omit<CompletionSummary, "summaryFilePath">):
     `| Field | Value |`,
     `|-------|-------|`,
     `| Project | ${data.projectName} |`,
-    `| Session | ${data.planId} |`,
+    `| Session | ${data.sessionId} |`,
     `| Agent | ${data.agentName} |`,
     `| Duration | ${dur} |`,
     `| Iterations | ${data.totalIterations} |`,
@@ -1794,7 +1780,7 @@ function printCompletionSummary(data: CompletionSummary): void {
   const dur = formatDuration(data.totalDurationMs);
   log("");
   log(`${ansi.bold}${"─".repeat(60)}${ansi.reset}`);
-  log(`${ansi.bold}Completion Summary${ansi.reset}  ${ansi.muted}${data.projectName} (${data.planId})${ansi.reset}`);
+  log(`${ansi.bold}Completion Summary${ansi.reset}  ${ansi.muted}${data.projectName} (${data.sessionId})${ansi.reset}`);
   log(`${ansi.bold}${"─".repeat(60)}${ansi.reset}`);
   log(`${fmt.label("Duration:", dur)}  ${fmt.label("Iterations:", String(data.totalIterations))}  ${fmt.label("Agent:", data.agentName)}`);
   log(`${ansi.success}✔ ${data.progress.done} done${ansi.reset}  ${ansi.error}✘ ${data.progress.failed} failed${ansi.reset}  ${ansi.muted}○ ${data.progress.open} open${ansi.reset}`);

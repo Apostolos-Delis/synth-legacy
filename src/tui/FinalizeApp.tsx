@@ -206,9 +206,15 @@ export function FinalizeApp({ orchestrator, agent, config, sessionPaths, cwd, on
         }
         activeExecRef.current = null;
         if (!destroyedRef.current) setIsLoading(false);
-      }).catch(() => {
+      }).catch((err) => {
         activeExecRef.current = null;
-        if (!destroyedRef.current) setIsLoading(false);
+        if (!destroyedRef.current) {
+          setMessages((prev) => [
+            ...prev,
+            { role: "system", content: `Fix execution error: ${err instanceof Error ? err.message : String(err)}` },
+          ]);
+          setIsLoading(false);
+        }
       });
     } else if (currentPhase === "creating-pr") {
       runPrCreation();
@@ -557,6 +563,7 @@ export function FinalizeApp({ orchestrator, agent, config, sessionPaths, cwd, on
             width: "100%",
             height: optionSelectorHeight,
             flexDirection: "column",
+            backgroundColor: colors.bg.secondary,
             border: true,
             borderColor: colors.border.active,
             paddingLeft: 1,

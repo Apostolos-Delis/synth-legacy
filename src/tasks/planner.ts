@@ -66,7 +66,13 @@ ${prd}`;
       onProgress?.(chunk);
     },
   });
-  await handle.promise;
+  const result = await handle.promise;
+  if (result.timedOut) {
+    throw new Error("Planner agent timed out");
+  }
+  if (result.exitCode !== 0) {
+    throw new Error(`Planner agent exited with code ${result.exitCode}: ${result.stderr}`);
+  }
 
   const taskFile = extractAndValidateTaskFile(output);
 

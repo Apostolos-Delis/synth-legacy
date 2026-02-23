@@ -95,7 +95,13 @@ export function PrdReviewView({
             if (!destroyedRef.current) setStreamingText((prev) => prev + chunk);
           },
         });
-        await handle.promise;
+        const result = await handle.promise;
+        if (result.timedOut) {
+          throw new Error("PRD revision agent timed out");
+        }
+        if (result.exitCode !== 0) {
+          throw new Error(`PRD revision agent exited with code ${result.exitCode}: ${result.stderr}`);
+        }
 
         if (!destroyedRef.current) {
           const revisedPrd = extractMarkdownPrd(output) || output;
@@ -255,7 +261,7 @@ export function PrdReviewView({
         }}
       >
         <box style={{ flexDirection: "row", gap: 2 }}>
-          <text fg={colors.accent.primary} attributes={boldAttr()}>synth plan</text>
+          <text fg={colors.accent.primary} attributes={boldAttr()}>synth session</text>
           <text fg={colors.fg.muted}>PRD Review</text>
         </box>
         <text fg={colors.fg.muted}>

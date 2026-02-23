@@ -176,7 +176,7 @@ Each `synth run` or `synth resume` creates a session tracked in `session.json`:
 ```typescript
 interface SessionMetadata {
   id: string;              // "sess-<timestamp36>-<random6>"
-  planId: string;
+  sessionId: string;
   status: SessionState;    // running | paused | completed | interrupted | failed | blocked
   startedAt: string;
   endedAt?: string;

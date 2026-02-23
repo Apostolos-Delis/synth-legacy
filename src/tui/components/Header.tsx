@@ -3,7 +3,7 @@ import { boldAttr, colors } from "../theme.js";
 
 interface HeaderProps {
   projectName: string;
-  planId: string;
+  sessionId: string;
   iteration: number;
   maxIterations: number;
   agentName: string;
@@ -31,7 +31,7 @@ function miniProgressBar(done: number, total: number, width: number): string {
 
 export const Header = memo(function Header({
   projectName,
-  planId,
+  sessionId,
   iteration,
   maxIterations,
   agentName,
@@ -53,7 +53,7 @@ export const Header = memo(function Header({
         <span fg={colors.accent.primary} attributes={boldAttr()}>synth</span>
         <span fg={colors.fg.muted}>{" │ "}</span>
         <span fg={colors.fg.primary}>{projectName}</span>
-        <span fg={colors.fg.muted}> ({planId})</span>
+        <span fg={colors.fg.muted}> ({sessionId})</span>
       </text>
       <box flexGrow={1} />
       <text>
@@ -69,7 +69,7 @@ export const Header = memo(function Header({
   );
 }, (prev, next) =>
   prev.projectName === next.projectName &&
-  prev.planId === next.planId &&
+  prev.sessionId === next.sessionId &&
   prev.iteration === next.iteration &&
   prev.maxIterations === next.maxIterations &&
   prev.agentName === next.agentName &&
