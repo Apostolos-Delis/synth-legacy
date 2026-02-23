@@ -89,7 +89,7 @@ export function App({
   );
 
   const handleKeyboard = useCallback(
-    (key: { name: string; ctrl?: boolean }) => {
+    (key: { name: string; ctrl?: boolean; meta?: boolean }) => {
       // Help overlay takes precedence
       if (showHelpRef.current) {
         if (key.name === "?" || key.name === "escape") {
@@ -114,6 +114,11 @@ export function App({
         if (key.name === "q" || key.name === "escape") {
           onQuit?.();
         }
+        return;
+      }
+
+      // Cmd+C — allow system copy, do not treat as quit
+      if (key.name === "c" && key.meta) {
         return;
       }
 

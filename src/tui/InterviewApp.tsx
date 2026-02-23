@@ -6,11 +6,13 @@ import { WELCOME_MESSAGE } from "../interview/interviewer.js";
 import { boldAttr, colors, markdownSyntaxStyle } from "./theme.js";
 import { PhaseIndicator } from "./components/PhaseIndicator.js";
 import { openInEditor } from "../utils/editor.js";
+import { copyToClipboard } from "../utils/clipboard.js";
 
 interface InterviewAppProps {
   onSendMessage: (msg: string, onChunk: (chunk: string) => void) => Promise<{ response: string; done: boolean }>;
   onComplete: () => void;
   onQuit: () => void;
+  initialMessages?: InterviewMessage[];
 }
 
 function MessageBubble({ message }: { message: InterviewMessage }): ReactNode {
@@ -30,10 +32,12 @@ function MessageBubble({ message }: { message: InterviewMessage }): ReactNode {
   );
 }
 
-export function InterviewApp({ onSendMessage, onComplete, onQuit }: InterviewAppProps): ReactNode {
-  const [messages, setMessages] = useState<InterviewMessage[]>([
-    { role: "assistant", content: WELCOME_MESSAGE },
-  ]);
+export function InterviewApp({ onSendMessage, onComplete, onQuit, initialMessages }: InterviewAppProps): ReactNode {
+  const [messages, setMessages] = useState<InterviewMessage[]>(
+    initialMessages && initialMessages.length > 0
+      ? [{ role: "assistant", content: WELCOME_MESSAGE }, ...initialMessages]
+      : [{ role: "assistant", content: WELCOME_MESSAGE }],
+  );
   const [isLoading, setIsLoading] = useState(false);
   const [loadingStartTime, setLoadingStartTime] = useState(0);
   const [streamingText, setStreamingText] = useState("");
@@ -94,7 +98,8 @@ export function InterviewApp({ onSendMessage, onComplete, onQuit }: InterviewApp
         setStreamingText((prev) => prev + chunk);
       });
       setStreamingText("");
-      const assistantMsg: InterviewMessage = { role: "assistant", content: response };
+      const elapsedSecs = Math.floor((Date.now() - loadingStartTime) / 1000);
+      const assistantMsg: InterviewMessage = { role: "assistant", content: `${response}\n\n_Generated in ${elapsedSecs}s_` };
       setMessages((prev) => [...prev, assistantMsg]);
       setIsLoading(false);
 
@@ -128,6 +133,19 @@ export function InterviewApp({ onSendMessage, onComplete, onQuit }: InterviewApp
     if (key.name === "return" && !key.shift && !key.ctrl && !key.meta) {
       key.preventDefault?.();
       handleSubmit();
+      return;
+    }
+
+    // Cmd+C — copy selected text (or last assistant message) to clipboard
+    if (key.name === "c" && key.meta) {
+      key.preventDefault?.();
+      const selected = textarea?.hasSelection() ? textarea.getSelectedText() : null;
+      if (selected) {
+        copyToClipboard(selected);
+      } else {
+        const lastAssistant = messages.filter((m) => m.role === "assistant").at(-1);
+        if (lastAssistant) copyToClipboard(lastAssistant.content);
+      }
       return;
     }
 
@@ -237,7 +255,7 @@ export function InterviewApp({ onSendMessage, onComplete, onQuit }: InterviewApp
         return;
       }
     }
-  }, [handleSubmit, onQuit, isLoading, syncLineCount, renderer]));
+  }, [handleSubmit, onQuit, isLoading, syncLineCount, renderer, messages]));
 
   // Sync line count after every key event (runs after textarea processes the key)
   useKeyboard(useCallback(() => {
@@ -252,8 +270,7 @@ export function InterviewApp({ onSendMessage, onComplete, onQuit }: InterviewApp
   const MIN_INPUT_HEIGHT = 6;
   const maxInputHeight = Math.max(MIN_INPUT_HEIGHT, termHeight - HEADER_HEIGHT - MIN_MESSAGES_VISIBLE);
   const inputHeight = Math.min(Math.max(inputLineCount + BORDER, MIN_INPUT_HEIGHT), maxInputHeight);
-  // Explicit textarea height: total box minus borders, minus 1 row buffer so cursor never touches border
-  const textareaHeight = inputHeight - BORDER - 1;
+  const textareaHeight = inputHeight - BORDER;
 
   return (
     <box style={{ width: "100%", height: "100%", flexDirection: "column" }}>
@@ -352,32 +369,31 @@ export function InterviewApp({ onSendMessage, onComplete, onQuit }: InterviewApp
           />
         </box>
 
-        {/* Hint bar - positioned on bottom border */}
-        <box
-          style={{
-            position: "absolute",
-            bottom: 0,
-            left: 2,
-            right: 2,
-            height: 1,
-            flexDirection: "row",
-            justifyContent: "center",
-            alignItems: "center",
-            gap: 1,
-            backgroundColor: colors.bg.secondary,
-          }}
-        >
-          {isLoading ? (
-            <PhaseIndicator
-              phase={streamingText ? "Streaming response..." : "Generating response..."}
-              startTime={loadingStartTime}
-            />
-          ) : pendingConfirmation ? (
-            <text fg={colors.status.info}>Enter:confirm & generate  Type feedback to refine  Esc:quit</text>
-          ) : (
-            <text fg={colors.fg.muted}>Enter:send  Shift+Enter:newline  Ctrl+G:editor  Ctrl+W:del word  Esc:quit</text>
-          )}
-        </box>
+      </box>
+
+      {/* Hint bar - below the input area */}
+      <box
+        style={{
+          width: "100%",
+          height: 1,
+          flexDirection: "row",
+          justifyContent: "center",
+          alignItems: "center",
+          gap: 1,
+          paddingLeft: 2,
+          paddingRight: 2,
+        }}
+      >
+        {isLoading ? (
+          <PhaseIndicator
+            phase={streamingText ? "Streaming response..." : "Generating response..."}
+            startTime={loadingStartTime}
+          />
+        ) : pendingConfirmation ? (
+          <text fg={colors.status.info}>Enter:confirm & generate  Type feedback to refine  Esc:quit</text>
+        ) : (
+          <text fg={colors.fg.muted}>Enter:send  Shift+Enter:newline  Ctrl+G:editor  Ctrl+W:del word  Esc:quit</text>
+        )}
       </box>
     </box>
   );

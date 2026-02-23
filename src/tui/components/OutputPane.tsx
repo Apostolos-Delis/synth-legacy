@@ -23,32 +23,7 @@ export function OutputPane({ output, width, height, isThinking = false, currentP
 
   const headerHeight = task ? HEADER_HEIGHT : 0;
   const outputHeight = height - headerHeight;
-
-  if (isThinking && !output) {
-    return (
-      <box width={width} height={height} flexDirection="column">
-        {task && <TaskDetailHeader task={task} width={width} height={HEADER_HEIGHT} />}
-        <box
-          width={width}
-          height={outputHeight}
-          border={true}
-          borderColor={colors.border.normal}
-          title="Output"
-          flexDirection="column"
-          justifyContent="center"
-          alignItems="center"
-        >
-          {currentPhase && phaseStartTime ? (
-            <PhaseIndicator phase={currentPhase} startTime={phaseStartTime} />
-          ) : (
-            <text>
-              <span fg={colors.fg.muted}>Agent is working...</span>
-            </text>
-          )}
-        </box>
-      </box>
-    );
-  }
+  const waiting = isThinking && !output;
 
   const lines = useMemo(() => output.split("\n"), [output]);
 
@@ -71,11 +46,21 @@ export function OutputPane({ output, width, height, isThinking = false, currentP
           viewportCulling={true}
           style={{ flexDirection: "column" }}
         >
-          {lines.map((line, i) => (
-            <text key={i}>
-              <span fg={colors.fg.secondary}>{line}</span>
-            </text>
-          ))}
+          {waiting ? (
+            currentPhase && phaseStartTime ? (
+              <PhaseIndicator phase={currentPhase} startTime={phaseStartTime} />
+            ) : (
+              <text>
+                <span fg={colors.fg.muted}>Agent is working...</span>
+              </text>
+            )
+          ) : (
+            lines.map((line, i) => (
+              <text key={i}>
+                <span fg={colors.fg.secondary}>{line}</span>
+              </text>
+            ))
+          )}
         </scrollbox>
       </box>
     </box>

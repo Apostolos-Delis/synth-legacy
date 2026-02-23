@@ -3,6 +3,12 @@ export interface InterviewMessage {
   content: string;
 }
 
+export interface InterviewState {
+  messages: InterviewMessage[];
+  interviewerHistory: InterviewMessage[];
+  prdPending: boolean;
+}
+
 export interface GeneratedPrd {
   title: string;
   problemStatement: string;

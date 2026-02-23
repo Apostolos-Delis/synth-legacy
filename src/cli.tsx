@@ -12,7 +12,7 @@ import {
   deletePlan,
 } from "./plans/registry.js";
 import { loadTasks, saveTasks, getProgress, resetOrphanedTasks } from "./tasks/store.js";
-import { writeText, readText, fileExists } from "./utils/fs.js";
+import { writeText, readText, readJson, fileExists, writeJson } from "./utils/fs.js";
 import { spawn } from "./utils/process.js";
 import { loadTaskOutput, buildIterationMap } from "./engine/output-index.js";
 import { ansi, fmt, STATUS_ICONS, STATUS_COLORS, PRIORITY_COLORS, initTheme } from "./tui/theme.js";
@@ -463,6 +463,8 @@ async function cmdRun(planId?: string, startIteration = 0, tuiContext?: TuiConte
     }
   };
 
+  const taskStartTimes = new Map<string, number>();
+
   if (tuiEnabled) {
     engine.on((event) => {
       if (!tuiData) return;
@@ -477,7 +479,10 @@ async function cmdRun(planId?: string, startIteration = 0, tuiContext?: TuiConte
           tuiData.isThinking = true;
           tuiData.currentPhase = "Starting task...";
           tuiData.phaseStartTime = event.timestamp ?? Date.now();
-          if (event.taskId) tuiData.taskOutputMap[event.taskId] = "";
+          if (event.taskId) {
+            tuiData.taskOutputMap[event.taskId] = "";
+            taskStartTimes.set(event.taskId, Date.now());
+          }
           break;
         case "task:complete":
         case "task:failed": {
@@ -486,6 +491,19 @@ async function cmdRun(planId?: string, startIteration = 0, tuiContext?: TuiConte
           tuiData.phaseStartTime = null;
           const task = tuiData.tasks.find((t) => t.id === event.taskId);
           if (task) task.status = event.type === "task:complete" ? "done" : "failed";
+          if (event.taskId) {
+            const startTime = taskStartTimes.get(event.taskId);
+            if (startTime) {
+              const elapsedSecs = Math.floor((Date.now() - startTime) / 1000);
+              const label = event.type === "task:complete" ? "Completed" : "Failed";
+              const suffix = `\n${label} in ${elapsedSecs}s`;
+              tuiData.taskOutputMap[event.taskId] = (tuiData.taskOutputMap[event.taskId] ?? "") + suffix;
+              if (tuiData.currentTaskId === event.taskId) {
+                tuiData.output += suffix;
+              }
+              taskStartTimes.delete(event.taskId);
+            }
+          }
           break;
         }
         case "phase:scanning":
@@ -513,7 +531,7 @@ async function cmdRun(planId?: string, startIteration = 0, tuiContext?: TuiConte
           const renderStart = event.isFirstChunk ? performance.now() : 0;
           if (event.isFirstChunk) {
             tuiData.currentPhase = "Streaming response...";
-            tuiData.phaseStartTime = renderStart;
+            tuiData.phaseStartTime = Date.now();
           }
           const stripped = event.message ? stripAnsi(event.message) : "";
           if (stripped) {
@@ -710,6 +728,17 @@ async function cmdResume(planId?: string): Promise<void> {
     process.exit(1);
   }
 
+  // Detect incomplete interview: status is "interviewing" and interview state file exists
+  if (plan.metadata.status === "interviewing" && await fileExists(plan.paths.interview)) {
+    const savedState = await readJson<import("./interview/types.js").InterviewState>(plan.paths.interview);
+
+    if (savedState.prdPending && savedState.interviewerHistory.length > 0) {
+      log(fmt.info(`Resuming interview for plan ${plan.metadata.id} (${savedState.interviewerHistory.length} messages saved)`));
+      await resumeInterview(plan, savedState);
+      return;
+    }
+  }
+
   const { loadSession: loadSess } = await loadSessionModule();
   const session = await loadSess(plan.paths);
   if (!session) {
@@ -724,6 +753,258 @@ async function cmdResume(planId?: string): Promise<void> {
 
   log(fmt.info(`Resuming plan ${plan.metadata.id} from iteration ${session.currentIteration}`));
   await cmdRun(plan.metadata.id, session.currentIteration);
+}
+
+async function resumeInterview(
+  plan: NonNullable<Awaited<ReturnType<typeof getPlan>>>,
+  savedState: import("./interview/types.js").InterviewState,
+): Promise<void> {
+  const config = await applyTheme();
+
+  const [{ getAgent }, interviewMod, { generateTasks }] = await Promise.all([
+    loadAgentRegistry(),
+    loadInterviewer(),
+    loadPlanner(),
+  ]);
+
+  const agent = getAgent(config.agent.name);
+  const interviewer = new interviewMod.Interviewer(agent, cwd, config.agent.model);
+  interviewer.restoreHistory(savedState.interviewerHistory);
+
+  let prd: import("./interview/types.js").GeneratedPrd | null = null;
+
+  if (tuiEnabled) {
+    const tui = await loadTui();
+    const planRenderer = await tui.createCliRenderer({
+      exitOnCtrlC: false,
+      useKittyKeyboard: { disambiguate: true, alternateKeys: true },
+    });
+    const planRoot = tui.createRoot(planRenderer);
+
+    const cleanup = () => {
+      planRoot.unmount();
+      planRenderer.destroy();
+    };
+
+    const { id, paths } = { id: plan.metadata.id, paths: plan.paths };
+
+    const saveInterviewState = async () => {
+      const state: import("./interview/types.js").InterviewState = {
+        messages: interviewer.getHistory(),
+        interviewerHistory: interviewer.getHistory(),
+        prdPending: !prd,
+      };
+      await writeJson(paths.interview, state);
+    };
+
+    const sigintHandler = () => {
+      cleanup();
+      agent.dispose();
+      process.exit(0);
+    };
+    process.on("SIGINT", sigintHandler);
+
+    // Resume interview with saved messages
+    const interviewResult = await new Promise<boolean>((resolve) => {
+      planRoot.render(
+        <tui.InterviewApp
+          initialMessages={savedState.interviewerHistory}
+          onSendMessage={async (msg, onChunk) => {
+            const response = await interviewer.respond(msg, onChunk);
+            const extracted = interviewer.extractPrd(response);
+            if (extracted) prd = extracted;
+            return { response, done: !!extracted };
+          }}
+          onComplete={() => resolve(true)}
+          onQuit={() => resolve(false)}
+        />,
+      );
+    });
+
+    if (!interviewResult) {
+      await saveInterviewState();
+      process.off("SIGINT", sigintHandler);
+      cleanup();
+      agent.dispose();
+      return;
+    }
+
+    if (!prd) {
+      await saveInterviewState();
+      process.off("SIGINT", sigintHandler);
+      cleanup();
+      agent.dispose();
+      return;
+    }
+
+    // Continue with task generation (same flow as cmdPlan Phase 2+)
+    const extractedPrd = prd as import("./interview/types.js").GeneratedPrd;
+    const prdMarkdown = interviewMod.prdToMarkdown(extractedPrd);
+    await writeText(paths.prd, prdMarkdown);
+    await updatePlanMetadata(cwd, id, { description: extractedPrd.title });
+
+    let streamOutput = "";
+    let taskCount = 0;
+    planRoot.render(<tui.GeneratingView output={streamOutput} />);
+
+    let taskFile;
+    try {
+      taskFile = await generateTasks(
+        agent, prdMarkdown, config.project.name, config.project.branch || `synth/${id}`, cwd, config.agent.model,
+        (chunk) => {
+          streamOutput += chunk;
+          const ids = streamOutput.match(/US-\d{3}/g);
+          taskCount = ids ? new Set(ids).size : 0;
+          planRoot.render(<tui.GeneratingView output={streamOutput} taskCount={taskCount} />);
+        },
+      );
+    } catch (err) {
+      process.off("SIGINT", sigintHandler);
+      cleanup();
+      agent.dispose();
+      throw err;
+    }
+
+    await saveTasks(paths.tasks, taskFile);
+    await writeText(paths.progress, "## Codebase Patterns\n\n---\n\n");
+    await updatePlanMetadata(cwd, id, {
+      status: "planning",
+      taskCount: taskFile.tasks.length,
+    });
+
+    // Phase 3: Task Review
+    const confirmed = await new Promise<boolean>((resolve) => {
+      planRoot.render(
+        <tui.ReviewView
+          tasks={taskFile.tasks}
+          planId={id}
+          onConfirm={() => resolve(true)}
+          onDecline={() => resolve(false)}
+        />,
+      );
+    });
+
+    process.off("SIGINT", sigintHandler);
+
+    if (!confirmed) {
+      cleanup();
+      agent.dispose();
+      log(`\nPlan saved. Run later with: ${fmt.bold(`synth run ${id}`)}`);
+      return;
+    }
+
+    // Phase 4: Execution (reuse renderer+root)
+    agent.dispose();
+    await cmdRun(id, 0, { renderer: planRenderer, root: planRoot });
+    cleanup();
+  } else {
+    // Non-TUI resume path
+    const { id, paths } = { id: plan.metadata.id, paths: plan.paths };
+
+    const saveCliInterviewState = async () => {
+      const state: import("./interview/types.js").InterviewState = {
+        messages: interviewer.getHistory(),
+        interviewerHistory: interviewer.getHistory(),
+        prdPending: !prd,
+      };
+      await writeJson(paths.interview, state);
+    };
+
+    // Show restored conversation
+    log(`\n${ansi.muted}--- Restored conversation (${savedState.interviewerHistory.length} messages) ---${ansi.reset}`);
+    for (const msg of savedState.interviewerHistory) {
+      const label = msg.role === "user" ? `${ansi.primary}You` : `${ansi.magenta}Synth`;
+      log(`\n${label}:${ansi.reset}`);
+      log(msg.content);
+    }
+    log(`${ansi.muted}--- End of restored conversation ---${ansi.reset}\n`);
+
+    log(`${ansi.magenta}Synth:${ansi.reset}`);
+    log("Continuing the interview from where we left off. What else would you like to add?\n");
+
+    const readline = await import("node:readline");
+    const askQuestion = (): Promise<string | null> => {
+      const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+      return new Promise((resolve) => {
+        rl.question(`\n${ansi.primary}You:${ansi.reset} `, (answer) => {
+          rl.close();
+          if (answer.toLowerCase() === "q" || answer.toLowerCase() === "quit") {
+            resolve(null);
+          } else {
+            resolve(answer);
+          }
+        });
+      });
+    };
+
+    while (!prd) {
+      const userInput = await askQuestion();
+      if (userInput === null) {
+        await saveCliInterviewState();
+        agent.dispose();
+        return;
+      }
+
+      const response = await interviewer.respond(userInput);
+      log(`\n${ansi.magenta}Synth:${ansi.reset}`);
+      log(response);
+      prd = interviewer.extractPrd(response);
+
+      if (prd) {
+        log(`\n${ansi.primary}Does this all look good? Press Enter to generate the PRD and tasks, or type feedback to refine.${ansi.reset}`);
+        const confirmation = await askQuestion();
+        if (confirmation === null) {
+          await saveCliInterviewState();
+          agent.dispose();
+          return;
+        }
+        if (confirmation.trim()) {
+          prd = null;
+          const refinement = await interviewer.respond(confirmation);
+          log(`\n${ansi.magenta}Synth:${ansi.reset}`);
+          log(refinement);
+          prd = interviewer.extractPrd(refinement);
+        }
+      }
+    }
+
+    // Continue with task generation
+    const prdMarkdown = interviewMod.prdToMarkdown(prd);
+    await writeText(paths.prd, prdMarkdown);
+    await updatePlanMetadata(cwd, id, { description: prd.title });
+
+    logSuccess(`PRD saved to ${paths.prd}`);
+
+    log("Generating tasks...\n");
+    const taskFile = await generateTasks(agent, prdMarkdown, config.project.name, config.project.branch || `synth/${id}`, cwd, config.agent.model);
+
+    await saveTasks(paths.tasks, taskFile);
+    await writeText(paths.progress, "## Codebase Patterns\n\n---\n\n");
+    await updatePlanMetadata(cwd, id, {
+      status: "planning",
+      taskCount: taskFile.tasks.length,
+    });
+
+    log(fmt.bold(`Generated ${taskFile.tasks.length} tasks:`) + "\n");
+    for (const task of taskFile.tasks) {
+      const priorityColor = PRIORITY_COLORS[task.priority] ?? ansi.muted;
+      log(`  ${priorityColor}P${task.priority}${ansi.reset} ${task.id} ${task.title}`);
+    }
+
+    const rl2 = readline.createInterface({ input: process.stdin, output: process.stdout });
+    const answer = await new Promise<string>((resolve) => {
+      rl2.question(`\nStart executing? (Y/n) `, resolve);
+    });
+    rl2.close();
+
+    agent.dispose();
+
+    if (!answer || answer.toLowerCase() === "y" || answer.toLowerCase() === "yes") {
+      await cmdRun(id);
+    } else {
+      log(`\nPlan saved. Run later with: ${fmt.bold(`synth run ${id}`)}`);
+    }
+  }
 }
 
 async function cmdPlan(planIdOrFlag?: string): Promise<void> {
@@ -796,6 +1077,7 @@ async function cmdPlan(planIdOrFlag?: string): Promise<void> {
   const interviewer = new interviewMod.Interviewer(agent, cwd, config.agent.model);
 
   let prd: import("./interview/types.js").GeneratedPrd | null = null;
+  let cliPlanInfo: { id: string; paths: import("./plans/types.js").PlanPaths } | null = null;
 
   if (tuiEnabled) {
     const tui = await loadTui();
@@ -808,6 +1090,18 @@ async function cmdPlan(planIdOrFlag?: string): Promise<void> {
     const cleanup = () => {
       planRoot.unmount();
       planRenderer.destroy();
+    };
+
+    // Create plan early so we have a planPaths to write interview state to
+    const { id, paths } = await createPlan(cwd, "");
+
+    const saveInterviewState = async () => {
+      const state: import("./interview/types.js").InterviewState = {
+        messages: interviewer.getHistory(),
+        interviewerHistory: interviewer.getHistory(),
+        prdPending: !prd,
+      };
+      await writeJson(paths.interview, state);
     };
 
     const sigintHandler = () => {
@@ -834,6 +1128,7 @@ async function cmdPlan(planIdOrFlag?: string): Promise<void> {
     });
 
     if (!interviewResult) {
+      await saveInterviewState();
       process.off("SIGINT", sigintHandler);
       cleanup();
       agent.dispose();
@@ -841,20 +1136,21 @@ async function cmdPlan(planIdOrFlag?: string): Promise<void> {
     }
 
     if (!prd) {
+      await saveInterviewState();
       process.off("SIGINT", sigintHandler);
       cleanup();
       agent.dispose();
       return;
     }
 
-    // Phase 2: Task Generation (keep renderer alive)
+    // Phase 2: Task Generation (keep renderer alive, reuse early-created plan)
     const extractedPrd = prd as import("./interview/types.js").GeneratedPrd;
-    const { id, paths } = await createPlan(cwd, "");
     const prdMarkdown = interviewMod.prdToMarkdown(extractedPrd);
     await writeText(paths.prd, prdMarkdown);
     await updatePlanMetadata(cwd, id, { description: extractedPrd.title });
 
     let streamOutput = "";
+    let taskCount = 0;
     planRoot.render(<tui.GeneratingView output={streamOutput} />);
 
     let taskFile;
@@ -863,7 +1159,9 @@ async function cmdPlan(planIdOrFlag?: string): Promise<void> {
         agent, prdMarkdown, config.project.name, config.project.branch || `synth/${id}`, cwd, config.agent.model,
         (chunk) => {
           streamOutput += chunk;
-          planRoot.render(<tui.GeneratingView output={streamOutput} />);
+          const ids = streamOutput.match(/US-\d{3}/g);
+          taskCount = ids ? new Set(ids).size : 0;
+          planRoot.render(<tui.GeneratingView output={streamOutput} taskCount={taskCount} />);
         },
       );
     } catch (err) {
@@ -907,6 +1205,18 @@ async function cmdPlan(planIdOrFlag?: string): Promise<void> {
     cleanup();
     return;
   } else {
+    // Create plan early for non-TUI path too
+    cliPlanInfo = await createPlan(cwd, "");
+
+    const saveCliInterviewState = async () => {
+      const state: import("./interview/types.js").InterviewState = {
+        messages: interviewer.getHistory(),
+        interviewerHistory: interviewer.getHistory(),
+        prdPending: !prd,
+      };
+      await writeJson(cliPlanInfo!.paths.interview, state);
+    };
+
     log(`\n${ansi.magenta}Synth:${ansi.reset}`);
     log(interviewMod.WELCOME_MESSAGE);
 
@@ -928,6 +1238,7 @@ async function cmdPlan(planIdOrFlag?: string): Promise<void> {
     while (!prd) {
       const userInput = await askQuestion();
       if (userInput === null) {
+        await saveCliInterviewState();
         agent.dispose();
         return;
       }
@@ -941,6 +1252,7 @@ async function cmdPlan(planIdOrFlag?: string): Promise<void> {
         log(`\n${ansi.primary}Does this all look good? Press Enter to generate the PRD and tasks, or type feedback to refine.${ansi.reset}`);
         const confirmation = await askQuestion();
         if (confirmation === null) {
+          await saveCliInterviewState();
           agent.dispose();
           return;
         }
@@ -956,12 +1268,12 @@ async function cmdPlan(planIdOrFlag?: string): Promise<void> {
   }
 
   // Non-TUI path continues here (TUI path returns early above)
-  if (!prd) {
+  if (!prd || !cliPlanInfo) {
     agent.dispose();
     return;
   }
 
-  const { id, paths } = await createPlan(cwd, "");
+  const { id, paths } = cliPlanInfo;
   const prdMarkdown = interviewMod.prdToMarkdown(prd);
   await writeText(paths.prd, prdMarkdown);
   await updatePlanMetadata(cwd, id, { description: prd.title });

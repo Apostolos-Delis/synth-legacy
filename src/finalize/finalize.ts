@@ -6,11 +6,14 @@ import { selfReview, type ReviewFinding } from "./review.js";
 import { runFormatters } from "./formatter.js";
 import { analyzeAndSplit, splitCommit } from "./splitter.js";
 import { createPr, generatePrBody, getDiffStats } from "./pr.js";
+import { prdAudit, formatAuditReport, type AuditResult } from "./audit.js";
 import { spawn } from "../utils/process.js";
 import { fileExists, readText } from "../utils/fs.js";
+import { getCurrentBranch } from "../utils/git.js";
 
 export interface FinalizeResult {
   findings: ReviewFinding[];
+  audit: AuditResult | null;
   formatted: boolean;
   commitCount: number;
   prUrl: string | null;
@@ -45,6 +48,7 @@ export async function finalize(
       if (criticals.length > 0) {
         return {
           findings,
+          audit: null,
           formatted: false,
           commitCount: 0,
           prUrl: null,
@@ -55,7 +59,38 @@ export async function finalize(
     }
   }
 
-  // 2. Auto-format
+  // 2. PRD audit
+  let audit: AuditResult | null = null;
+  const prdExists = await fileExists(planPaths.prd);
+  if (prdExists) {
+    const prdContent = await readText(planPaths.prd);
+    const diffHandle = spawn({
+      cmd: ["git", "diff", `${config.project.base_branch}...HEAD`],
+      cwd,
+    });
+    const diffResult = await diffHandle.promise;
+
+    if (diffResult.stdout.trim()) {
+      audit = await prdAudit(agent, prdContent, diffResult.stdout, cwd, config.agent.model);
+
+      // Display audit results
+      console.log("\n" + formatAuditReport(audit));
+
+      if (audit.overall === "fail") {
+        return {
+          findings,
+          audit,
+          formatted: false,
+          commitCount: 0,
+          prUrl: null,
+          blocked: true,
+          blockReason: `PRD audit failed: ${audit.summary}`,
+        };
+      }
+    }
+  }
+
+  // 3. Auto-format (was step 2)
   if (config.finalize.auto_format) {
     const formatResults = await runFormatters(cwd);
     formatted = formatResults.some((r) => r.success);
@@ -78,7 +113,7 @@ export async function finalize(
     }
   }
 
-  // 3. Split commits (if not already committed atomically by engine)
+  // 4. Split commits (if not already committed atomically by engine)
   if (config.finalize.split_commits) {
     const addHandle = spawn({ cmd: ["git", "add", "-A"], cwd });
     await addHandle.promise;
@@ -90,27 +125,28 @@ export async function finalize(
     }
   }
 
-  // 4. Create PR
+  // 5. Create PR
   let prUrl: string | null = null;
   if (config.finalize.create_pr) {
-    const prdContent = (await fileExists(planPaths.prd))
-      ? await readText(planPaths.prd)
-      : null;
+    const prdContent = prdExists ? await readText(planPaths.prd) : null;
     const diffStats = await getDiffStats(cwd, config.project.base_branch);
     const body = generatePrBody(
       taskFile,
       prdContent,
       findings,
       diffStats,
+      audit,
     );
 
     const title = taskFile.description || config.project.name;
-    const result = await createPr(cwd, config.project.branch, title, body);
+    const branch = await getCurrentBranch(cwd);
+    const result = await createPr(cwd, branch, title, body);
     prUrl = result.url;
   }
 
   return {
     findings,
+    audit,
     formatted,
     commitCount,
     prUrl,
