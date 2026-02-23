@@ -219,12 +219,12 @@ export function FinalizeApp({ orchestrator, agent, config, planPaths, cwd, onQui
     ? Math.min(
         optionGroups.reduce((sum, g) => {
           const optionCount = g.options.length + 1; // +1 for "Other..."
-          return sum + optionCount * 3; // name + description + spacing per option
+          return sum + optionCount * 2; // name + description per option
         }, 0)
         + (optionGroups[0]?.question ? 2 : 0) // question header
         + (optionGroups.length > 1 ? 2 : 0)   // tab bar
         + 1                                     // hint bar
-        + 4,                                    // border + padding
+        + 2,                                    // border (no vertical padding)
         Math.floor(termHeight * 0.5),
       )
     : 0;
@@ -550,13 +550,10 @@ export function FinalizeApp({ orchestrator, agent, config, planPaths, cwd, onQui
             width: "100%",
             height: optionSelectorHeight,
             flexDirection: "column",
-            backgroundColor: colors.bg.secondary,
             border: true,
-            borderColor: colors.border.active,
+            borderColor: colors.border.normal,
             paddingLeft: 1,
             paddingRight: 1,
-            paddingTop: 1,
-            paddingBottom: 1,
           }}
         >
           <OptionSelector groups={optionGroups} onSelect={handleOptionSelect} />

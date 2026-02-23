@@ -64,8 +64,9 @@ export function OptionSelector({ groups, onSelect, showOther = true }: OptionSel
   const selectOptions = toSelectOptions(currentGroup.options, showOther);
   const isMultiQuestion = groups.length > 1;
 
-  // Each option = 1 (name) + 1 (description) + 1 (itemSpacing) = 3 lines, minus trailing spacing
-  const selectHeight = selectOptions.length * 3 - 1;
+  // The native <select> computes maxVisibleItems = floor(height / linesPerItem).
+  // With showDescription + itemSpacing=0, linesPerItem=2. Give it exactly N*2 so all items are visible.
+  const selectHeight = selectOptions.length * 2;
 
   const trySubmit = useCallback((updatedAnswers: (ChatOption | null)[]) => {
     const allAnswered = updatedAnswers.every((a) => a !== null);
@@ -219,13 +220,11 @@ export function OptionSelector({ groups, onSelect, showOther = true }: OptionSel
           selectedIndex={selectedIndices[activeTab] ?? 0}
           focused={true}
           showDescription={true}
-          itemSpacing={1}
           wrapSelection={true}
-          focusedBackgroundColor={colors.bg.highlight}
           focusedTextColor={colors.accent.primary}
-          textColor={colors.fg.primary}
+          textColor={colors.fg.secondary}
           descriptionColor={colors.fg.muted}
-          selectedDescriptionColor={colors.fg.secondary}
+          selectedDescriptionColor={colors.fg.muted}
           onSelect={handleSelect}
           onChange={handleChange}
           style={{ height: selectHeight }}
@@ -255,8 +254,8 @@ export function OptionSelector({ groups, onSelect, showOther = true }: OptionSel
 
       {/* Hint bar */}
       {mode === "selecting" && (
-        <box style={{ marginTop: 1 }}>
-          <text fg={colors.fg.muted}>
+        <box>
+          <text fg={colors.fg.dim}>
             {"\u2191/\u2193:navigate  Enter:select  1-" + allOptions.length + ":jump"}
             {isMultiQuestion ? "  Tab:next question" : ""}
           </text>
