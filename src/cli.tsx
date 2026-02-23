@@ -871,22 +871,24 @@ async function resumeInterview(
     const prdMarkdown = interviewMod.prdToMarkdown(extractedPrd);
     await updatePlanMetadata(cwd, id, { description: extractedPrd.title });
 
-    const prdApproved = await new Promise<boolean>((resolve, reject) => {
+    let approvedPrdContent: string | null = null;
+    const prdApproved = await new Promise<boolean>((resolve) => {
       planRoot.render(
         <tui.PrdReviewView
           prdMarkdown={prdMarkdown}
           agent={agent}
-          planPaths={paths}
           cwd={cwd}
           model={config.agent.model}
-          onApprove={() => resolve(true)}
-          onError={(err) => reject(err)}
+          onApprove={(finalizedPrd) => {
+            approvedPrdContent = finalizedPrd;
+            resolve(true);
+          }}
           onQuit={() => resolve(false)}
         />,
       );
     });
 
-    if (!prdApproved) {
+    if (!prdApproved || !approvedPrdContent) {
       process.off("SIGINT", sigintHandler);
       cleanup();
       agent.dispose();
@@ -894,6 +896,10 @@ async function resumeInterview(
       return;
     }
 
+    // Pipeline: write finalized PRD to disk before task generation
+    await writeText(paths.prd, approvedPrdContent);
+
+    // Pipeline: generate tasks only after PRD is finalized and persisted
     let streamOutput = "";
     let taskCount = 0;
     planRoot.render(<tui.GeneratingView output={streamOutput} />);
@@ -1198,22 +1204,24 @@ async function cmdPlan(planIdOrFlag?: string): Promise<void> {
     const prdMarkdown = interviewMod.prdToMarkdown(extractedPrd);
     await updatePlanMetadata(cwd, id, { description: extractedPrd.title });
 
-    const prdApproved = await new Promise<boolean>((resolve, reject) => {
+    let approvedPrdContent: string | null = null;
+    const prdApproved = await new Promise<boolean>((resolve) => {
       planRoot.render(
         <tui.PrdReviewView
           prdMarkdown={prdMarkdown}
           agent={agent}
-          planPaths={paths}
           cwd={cwd}
           model={config.agent.model}
-          onApprove={() => resolve(true)}
-          onError={(err) => reject(err)}
+          onApprove={(finalizedPrd) => {
+            approvedPrdContent = finalizedPrd;
+            resolve(true);
+          }}
           onQuit={() => resolve(false)}
         />,
       );
     });
 
-    if (!prdApproved) {
+    if (!prdApproved || !approvedPrdContent) {
       process.off("SIGINT", sigintHandler);
       cleanup();
       agent.dispose();
@@ -1221,6 +1229,10 @@ async function cmdPlan(planIdOrFlag?: string): Promise<void> {
       return;
     }
 
+    // Pipeline: write finalized PRD to disk before task generation
+    await writeText(paths.prd, approvedPrdContent);
+
+    // Pipeline: generate tasks only after PRD is finalized and persisted
     let streamOutput = "";
     let taskCount = 0;
     planRoot.render(<tui.GeneratingView output={streamOutput} />);

@@ -2,7 +2,6 @@ import { useState, useCallback, useRef, useEffect, type ReactNode } from "react"
 import { useKeyboard, useTerminalDimensions, useRenderer } from "@opentui/react";
 import type { TextareaRenderable } from "@opentui/core";
 import type { AgentAdapter } from "../agents/types.js";
-import type { PlanPaths } from "../plans/types.js";
 import { boldAttr, colors, markdownSyntaxStyle } from "./theme.js";
 import { PhaseIndicator } from "./components/PhaseIndicator.js";
 import { OptionSelector } from "./components/OptionSelector.js";
@@ -10,16 +9,13 @@ import { ToastContainer } from "./components/Toast.js";
 import { useToast } from "./hooks/useToast.js";
 import type { ChatOption, QuestionGroup } from "../finalize/chat-types.js";
 import { openInEditor } from "../utils/editor.js";
-import { writeText } from "../utils/fs.js";
 
 interface PrdReviewViewProps {
   prdMarkdown: string;
   agent: AgentAdapter;
-  planPaths: PlanPaths;
   cwd: string;
   model?: string;
-  onApprove: () => void;
-  onError?: (err: Error) => void;
+  onApprove: (finalizedPrd: string) => void;
   onQuit: () => void;
 }
 
@@ -33,11 +29,9 @@ const REVIEW_GROUPS: QuestionGroup[] = [{ question: "", options: REVIEW_OPTIONS 
 export function PrdReviewView({
   prdMarkdown,
   agent,
-  planPaths,
   cwd,
   model,
   onApprove,
-  onError,
   onQuit,
 }: PrdReviewViewProps): ReactNode {
   const [prdContent, setPrdContent] = useState(prdMarkdown);
@@ -69,21 +63,11 @@ export function PrdReviewView({
   const handleOptionSelect = useCallback(async (selectedAnswers: ChatOption[]) => {
     const option = selectedAnswers[0];
     if (option.value === "approve") {
-      try {
-        await writeText(planPaths.prd, prdContent);
-        onApprove();
-      } catch (err) {
-        const error = err instanceof Error ? err : new Error(String(err));
-        if (onError) {
-          onError(error);
-        } else {
-          throw error;
-        }
-      }
+      onApprove(prdContent);
     } else if (option.value === "revise") {
       setShowTextInput(true);
     }
-  }, [planPaths.prd, prdContent, onApprove, onError]);
+  }, [prdContent, onApprove]);
 
   const handleSubmit = useCallback(async () => {
     if (isLoading) return;
