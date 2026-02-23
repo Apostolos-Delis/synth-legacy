@@ -1,10 +1,10 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import type { PlanPaths } from "../plans/types.js";
+import type { SessionPaths } from "../sessions/types.js";
 import type { Task, TaskFile } from "../tasks/types.js";
 
-export function makePlanPaths(root: string): PlanPaths {
+export function makeSessionPaths(root: string): SessionPaths {
   return {
     root,
     prd: join(root, "prd.md"),

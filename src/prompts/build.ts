@@ -1,7 +1,7 @@
 import { join } from "node:path";
 import { stat } from "node:fs/promises";
 import type { Task } from "../tasks/types.js";
-import type { PlanPaths } from "../plans/types.js";
+import type { SessionPaths } from "../sessions/types.js";
 import { ITERATION_INSTRUCTIONS } from "./instructions.js";
 import { fileExists, readText } from "../utils/fs.js";
 import { globalTrace } from "../utils/perf.js";
@@ -62,7 +62,7 @@ function getAgentSpecificInstructions(agentName: string): string | null {
 
 export async function buildPrompt(
   task: Task,
-  planPaths: PlanPaths,
+  sessionPaths: SessionPaths,
   cwd: string,
   iteration: number,
   agentName?: string,
@@ -86,7 +86,7 @@ export async function buildPrompt(
   const agentsPath = join(cwd, "AGENTS.md");
   const [agents, progress] = await Promise.all([
     cachedReadText(agentsPath),
-    safeReadText(planPaths.progress),
+    safeReadText(sessionPaths.progress),
   ]);
   trace.endPhase("build:read-files");
 

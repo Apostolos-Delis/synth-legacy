@@ -1,4 +1,4 @@
-import type { PlanPaths } from "../plans/types.js";
+import type { SessionPaths } from "../sessions/types.js";
 import type { TaskFile } from "../tasks/types.js";
 import { spawn } from "../utils/process.js";
 import { loadTasks } from "../tasks/store.js";
@@ -14,7 +14,7 @@ export interface AuditContext {
 }
 
 export async function buildAuditContext(
-  planPaths: PlanPaths,
+  sessionPaths: SessionPaths,
   cwd: string,
   baseBranch: string,
 ): Promise<AuditContext> {
@@ -28,10 +28,10 @@ export async function buildAuditContext(
 
   // Load task file
   let taskFile: TaskFile | null = null;
-  const tasksExist = await fileExists(planPaths.tasks);
+  const tasksExist = await fileExists(sessionPaths.tasks);
   if (tasksExist) {
     try {
-      taskFile = await loadTasks(planPaths.tasks);
+      taskFile = await loadTasks(sessionPaths.tasks);
     } catch {
       taskFile = null;
     }

@@ -77,7 +77,7 @@ afterAll(() => {
 
 import { FinalizeOrchestrator } from "../finalize/orchestrator.js";
 import type { SynthConfig } from "../config/types.js";
-import { makePlanPaths } from "./helpers.js";
+import { makeSessionPaths } from "./helpers.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -189,10 +189,10 @@ describe("Auto-finalize flow: review completion → PR creation", () => {
   test("executePrCreation commits staged changes, pushes, and creates PR", async () => {
     const orch = makeOrchestrator();
     const config = makeConfig();
-    const planPaths = makePlanPaths("/tmp/test-plan");
+    const sessionPaths = makeSessionPaths("/tmp/test-plan");
     const { messages, onMessage } = collectMessages();
 
-    const result = await orch.executePrCreation(config, planPaths, onMessage);
+    const result = await orch.executePrCreation(config, sessionPaths, onMessage);
 
     // Should complete successfully
     expect(orch.getCurrentPhase()).toBe("complete");
@@ -217,10 +217,10 @@ describe("Auto-finalize flow: review completion → PR creation", () => {
 
     const orch = makeOrchestrator();
     const config = makeConfig();
-    const planPaths = makePlanPaths("/tmp/test-plan");
+    const sessionPaths = makeSessionPaths("/tmp/test-plan");
     const { messages, onMessage } = collectMessages();
 
-    const result = await orch.executePrCreation(config, planPaths, onMessage);
+    const result = await orch.executePrCreation(config, sessionPaths, onMessage);
 
     expect(orch.getCurrentPhase()).toBe("complete");
     expect(result.message.content).toContain("PR created successfully");
@@ -231,10 +231,10 @@ describe("Auto-finalize flow: review completion → PR creation", () => {
   test("executePrCreation skips when on base branch", async () => {
     const orch = makeOrchestrator("main");
     const config = makeConfig();
-    const planPaths = makePlanPaths("/tmp/test-plan");
+    const sessionPaths = makeSessionPaths("/tmp/test-plan");
     const { onMessage } = collectMessages();
 
-    const result = await orch.executePrCreation(config, planPaths, onMessage);
+    const result = await orch.executePrCreation(config, sessionPaths, onMessage);
 
     expect(orch.getCurrentPhase()).toBe("complete");
     expect(result.message.content).toContain("Skipping PR creation");
@@ -244,12 +244,12 @@ describe("Auto-finalize flow: review completion → PR creation", () => {
   test("phase transitions are reported to listeners", async () => {
     const orch = makeOrchestrator();
     const config = makeConfig();
-    const planPaths = makePlanPaths("/tmp/test-plan");
+    const sessionPaths = makeSessionPaths("/tmp/test-plan");
     const { onMessage } = collectMessages();
     const phases: string[] = [];
     orch.onPhaseChange((p) => phases.push(p));
 
-    await orch.executePrCreation(config, planPaths, onMessage);
+    await orch.executePrCreation(config, sessionPaths, onMessage);
 
     expect(phases).toContain("complete");
   });
@@ -275,10 +275,10 @@ describe("Error handling: push rejection, gh auth failure, network error", () =>
 
     const orch = makeOrchestrator();
     const config = makeConfig();
-    const planPaths = makePlanPaths("/tmp/test-plan");
+    const sessionPaths = makeSessionPaths("/tmp/test-plan");
     const { onMessage } = collectMessages();
 
-    const result = await orch.executePrCreation(config, planPaths, onMessage);
+    const result = await orch.executePrCreation(config, sessionPaths, onMessage);
 
     // The error propagates through createPr which throws, then prError is called
     expect(result.message.content).toContain("**Finalize failed**");
@@ -313,10 +313,10 @@ describe("Error handling: push rejection, gh auth failure, network error", () =>
 
     const orch = makeOrchestrator();
     const config = makeConfig();
-    const planPaths = makePlanPaths("/tmp/test-plan");
+    const sessionPaths = makeSessionPaths("/tmp/test-plan");
     const { onMessage } = collectMessages();
 
-    const result = await orch.executePrCreation(config, planPaths, onMessage);
+    const result = await orch.executePrCreation(config, sessionPaths, onMessage);
 
     expect(result.message.content).toContain("**Finalize failed**");
     expect(result.message.content).toContain("Not authenticated");
@@ -345,10 +345,10 @@ describe("Error handling: push rejection, gh auth failure, network error", () =>
 
     const orch = makeOrchestrator();
     const config = makeConfig();
-    const planPaths = makePlanPaths("/tmp/test-plan");
+    const sessionPaths = makeSessionPaths("/tmp/test-plan");
     const { onMessage } = collectMessages();
 
-    const result = await orch.executePrCreation(config, planPaths, onMessage);
+    const result = await orch.executePrCreation(config, sessionPaths, onMessage);
 
     expect(result.message.content).toContain("**Finalize failed**");
     expect(result.message.content).toContain("Network error");
@@ -372,10 +372,10 @@ describe("Error handling: push rejection, gh auth failure, network error", () =>
 
     const orch = makeOrchestrator();
     const config = makeConfig();
-    const planPaths = makePlanPaths("/tmp/test-plan");
+    const sessionPaths = makeSessionPaths("/tmp/test-plan");
     const { onMessage } = collectMessages();
 
-    const result = await orch.executePrCreation(config, planPaths, onMessage);
+    const result = await orch.executePrCreation(config, sessionPaths, onMessage);
 
     expect(result.message.content).toContain("**Finalize failed**");
     expect(result.message.questionGroups).toBeDefined();
@@ -404,10 +404,10 @@ describe("Error handling: push rejection, gh auth failure, network error", () =>
 
     const orch = makeOrchestrator();
     const config = makeConfig();
-    const planPaths = makePlanPaths("/tmp/test-plan");
+    const sessionPaths = makeSessionPaths("/tmp/test-plan");
     const { onMessage } = collectMessages();
 
-    const result = await orch.executePrCreation(config, planPaths, onMessage);
+    const result = await orch.executePrCreation(config, sessionPaths, onMessage);
 
     expect(result.message.error).toBeDefined();
     expect(result.message.error!.errorType).toBe("permission-denied");
@@ -451,7 +451,7 @@ describe("Retry-pr flow: failure then success", () => {
 
     const orch = makeOrchestrator();
     const config = makeConfig();
-    const planPaths = makePlanPaths("/tmp/test-plan");
+    const sessionPaths = makeSessionPaths("/tmp/test-plan");
     const { onMessage } = collectMessages();
 
     // Walk the orchestrator into creating-pr phase via the discussion → skip-fixes path.
@@ -467,7 +467,7 @@ describe("Retry-pr flow: failure then success", () => {
     expect(orch.getCurrentPhase()).toBe("creating-pr");
 
     // First attempt: should fail with retry option
-    const firstResult = await orch.executePrCreation(config, planPaths, onMessage);
+    const firstResult = await orch.executePrCreation(config, sessionPaths, onMessage);
     expect(firstResult.message.content).toContain("**Finalize failed**");
     expect(orch.getCurrentPhase()).toBe("creating-pr");
     expect(firstResult.message.questionGroups).toBeDefined();
@@ -483,7 +483,7 @@ describe("Retry-pr flow: failure then success", () => {
     expect(orch.getCurrentPhase()).toBe("creating-pr");
 
     // Second attempt: should succeed
-    const secondResult = await orch.executePrCreation(config, planPaths, onMessage);
+    const secondResult = await orch.executePrCreation(config, sessionPaths, onMessage);
     expect(secondResult.message.content).toContain("PR created successfully");
     expect(secondResult.message.content).toContain("https://github.com/org/repo/pull/77");
     expect(orch.getCurrentPhase()).toBe("complete");
@@ -518,10 +518,10 @@ describe("PR URL surfaced on success", () => {
   test("getPrUrl returns URL after successful PR creation", async () => {
     const orch = makeOrchestrator();
     const config = makeConfig();
-    const planPaths = makePlanPaths("/tmp/test-plan");
+    const sessionPaths = makeSessionPaths("/tmp/test-plan");
     const { onMessage } = collectMessages();
 
-    await orch.executePrCreation(config, planPaths, onMessage);
+    await orch.executePrCreation(config, sessionPaths, onMessage);
 
     expect(orch.getPrUrl()).toBe("https://github.com/org/repo/pull/99");
   });
@@ -529,10 +529,10 @@ describe("PR URL surfaced on success", () => {
   test("success message contains the PR URL", async () => {
     const orch = makeOrchestrator();
     const config = makeConfig();
-    const planPaths = makePlanPaths("/tmp/test-plan");
+    const sessionPaths = makeSessionPaths("/tmp/test-plan");
     const { onMessage } = collectMessages();
 
-    const result = await orch.executePrCreation(config, planPaths, onMessage);
+    const result = await orch.executePrCreation(config, sessionPaths, onMessage);
 
     expect(result.message.content).toContain("https://github.com/org/repo/pull/99");
     expect(result.message.content).toContain("PR created successfully");
@@ -553,10 +553,10 @@ describe("PR URL surfaced on success", () => {
 
     const orch = makeOrchestrator();
     const config = makeConfig();
-    const planPaths = makePlanPaths("/tmp/test-plan");
+    const sessionPaths = makeSessionPaths("/tmp/test-plan");
     const { onMessage } = collectMessages();
 
-    await orch.executePrCreation(config, planPaths, onMessage);
+    await orch.executePrCreation(config, sessionPaths, onMessage);
 
     expect(orch.getPrUrl()).toBeNull();
     expect(orch.getCurrentPhase()).not.toBe("complete");
@@ -565,10 +565,10 @@ describe("PR URL surfaced on success", () => {
   test("phase is complete after successful PR creation", async () => {
     const orch = makeOrchestrator();
     const config = makeConfig();
-    const planPaths = makePlanPaths("/tmp/test-plan");
+    const sessionPaths = makeSessionPaths("/tmp/test-plan");
     const { onMessage } = collectMessages();
 
-    await orch.executePrCreation(config, planPaths, onMessage);
+    await orch.executePrCreation(config, sessionPaths, onMessage);
 
     expect(orch.getCurrentPhase()).toBe("complete");
   });

@@ -5,7 +5,7 @@ import type { FinalizeMessage, FinalizePhase, ChatOption, CompletionSummary } fr
 import type { FinalizeOrchestrator } from "../finalize/orchestrator.js";
 import type { AgentAdapter } from "../agents/types.js";
 import type { SynthConfig } from "../config/types.js";
-import type { PlanPaths } from "../plans/types.js";
+import type { SessionPaths } from "../sessions/types.js";
 import { boldAttr, colors, markdownSyntaxStyle } from "./theme.js";
 import { PhaseIndicator } from "./components/PhaseIndicator.js";
 import { OptionSelector } from "./components/OptionSelector.js";
@@ -20,7 +20,7 @@ interface FinalizeAppProps {
   orchestrator: FinalizeOrchestrator;
   agent: AgentAdapter;
   config: SynthConfig;
-  planPaths: PlanPaths;
+  sessionPaths: SessionPaths;
   cwd: string;
   onQuit: () => void;
   onComplete?: (summary: CompletionSummary) => void;
@@ -70,7 +70,7 @@ function MessageBubble({ message }: { message: FinalizeMessage }): ReactNode {
   );
 }
 
-export function FinalizeApp({ orchestrator, agent, config, planPaths, cwd, onQuit, onComplete }: FinalizeAppProps): ReactNode {
+export function FinalizeApp({ orchestrator, agent, config, sessionPaths, cwd, onQuit, onComplete }: FinalizeAppProps): ReactNode {
   const [messages, setMessages] = useState<FinalizeMessage[]>(() => orchestrator.getMessages());
   const [currentPhase, setCurrentPhase] = useState<FinalizePhase>(() => orchestrator.getCurrentPhase());
   const [isLoading, setIsLoading] = useState(true);
@@ -111,15 +111,15 @@ export function FinalizeApp({ orchestrator, agent, config, planPaths, cwd, onQui
     });
 
     // Read PRD markdown for the completion screen
-    fileExists(planPaths.prd).then((exists) => {
+    fileExists(sessionPaths.prd).then((exists) => {
       if (!exists || destroyedRef.current) return;
-      return readText(planPaths.prd);
+      return readText(sessionPaths.prd);
     }).then((content) => {
       if (content && !destroyedRef.current) setPrdContent(content);
     }).catch(() => {
       // PRD file read is best-effort
     });
-  }, [currentPhase, orchestrator, onComplete, planPaths.prd]);
+  }, [currentPhase, orchestrator, onComplete, sessionPaths.prd]);
 
   // Auto-start: trigger orchestrator.start() on mount
   const startedRef = useRef(false);
@@ -130,7 +130,7 @@ export function FinalizeApp({ orchestrator, agent, config, planPaths, cwd, onQui
     setIsLoading(true);
     setLoadingStartTime(Date.now());
 
-    orchestrator.start(agent, config, planPaths, cwd, (chunk) => {
+    orchestrator.start(agent, config, sessionPaths, cwd, (chunk) => {
       if (!destroyedRef.current) setStreamingText((prev) => prev + chunk);
     }).then(() => {
       if (!destroyedRef.current) {
@@ -148,7 +148,7 @@ export function FinalizeApp({ orchestrator, agent, config, planPaths, cwd, onQui
         setIsLoading(false);
       }
     });
-  }, [orchestrator, agent, config, planPaths, cwd]);
+  }, [orchestrator, agent, config, sessionPaths, cwd]);
 
   // Execute fixes when phase transitions to "executing-fixes"
   const activeExecRef = useRef<string | null>(null);
@@ -159,7 +159,7 @@ export function FinalizeApp({ orchestrator, agent, config, planPaths, cwd, onQui
     setIsLoading(true);
     setLoadingStartTime(Date.now());
 
-    orchestrator.executePrCreation(config, planPaths, () => {
+    orchestrator.executePrCreation(config, sessionPaths, () => {
       if (!destroyedRef.current) setMessages([...orchestrator.getMessages()]);
     }).then(() => {
       activeExecRef.current = null;
@@ -177,7 +177,7 @@ export function FinalizeApp({ orchestrator, agent, config, planPaths, cwd, onQui
         setIsLoading(false);
       }
     });
-  }, [orchestrator, config, planPaths]);
+  }, [orchestrator, config, sessionPaths]);
   useEffect(() => {
     if (activeExecRef.current) return;
 
@@ -186,7 +186,7 @@ export function FinalizeApp({ orchestrator, agent, config, planPaths, cwd, onQui
       setIsLoading(true);
       setLoadingStartTime(Date.now());
 
-      orchestrator.executeFixes(agent, config, planPaths, () => {
+      orchestrator.executeFixes(agent, config, sessionPaths, () => {
         if (!destroyedRef.current) setMessages([...orchestrator.getMessages()]);
       }).then(() => {
         if (!destroyedRef.current) {
@@ -206,7 +206,7 @@ export function FinalizeApp({ orchestrator, agent, config, planPaths, cwd, onQui
     } else if (currentPhase === "creating-pr") {
       runPrCreation();
     }
-  }, [currentPhase, orchestrator, agent, config, planPaths, runPrCreation]);
+  }, [currentPhase, orchestrator, agent, config, sessionPaths, runPrCreation]);
 
   // Determine if the last assistant message has options
   const lastMessage = messages.length > 0 ? messages[messages.length - 1] : null;

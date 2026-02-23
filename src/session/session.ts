@@ -2,7 +2,7 @@ import { hostname } from "node:os";
 import { open, unlink } from "node:fs/promises";
 import { dirname } from "node:path";
 import type { LockFile, SessionMetadata, SessionState } from "./types.js";
-import type { PlanPaths } from "../plans/types.js";
+import type { SessionPaths } from "../sessions/types.js";
 import { ensureDir, fileExists, readJson, writeJson } from "../utils/fs.js";
 import { isProcessRunning } from "../utils/process.js";
 
@@ -11,7 +11,7 @@ function generateSessionId(): string {
 }
 
 export async function createSession(
-  planPaths: PlanPaths,
+  sessionPaths: SessionPaths,
   planId: string,
   agent: string,
   maxIterations: number,
@@ -29,22 +29,22 @@ export async function createSession(
     cwd,
   };
 
-  await writeJson(planPaths.session, session);
+  await writeJson(sessionPaths.session, session);
   return session;
 }
 
 export async function loadSession(
-  planPaths: PlanPaths,
+  sessionPaths: SessionPaths,
 ): Promise<SessionMetadata | null> {
-  if (!(await fileExists(planPaths.session))) return null;
-  return readJson<SessionMetadata>(planPaths.session);
+  if (!(await fileExists(sessionPaths.session))) return null;
+  return readJson<SessionMetadata>(sessionPaths.session);
 }
 
 export async function updateSession(
-  planPaths: PlanPaths,
+  sessionPaths: SessionPaths,
   updates: Partial<SessionMetadata>,
 ): Promise<SessionMetadata> {
-  const session = await loadSession(planPaths);
+  const session = await loadSession(sessionPaths);
   if (!session) throw new Error("No active session");
 
   const updated: SessionMetadata = {
@@ -52,39 +52,39 @@ export async function updateSession(
     ...updates,
     updatedAt: new Date().toISOString(),
   };
-  await writeJson(planPaths.session, updated);
+  await writeJson(sessionPaths.session, updated);
   return updated;
 }
 
 export async function endSession(
-  planPaths: PlanPaths,
+  sessionPaths: SessionPaths,
   status: SessionState = "completed",
 ): Promise<void> {
-  const session = await loadSession(planPaths);
+  const session = await loadSession(sessionPaths);
   if (session) {
-    await updateSession(planPaths, {
+    await updateSession(sessionPaths, {
       status,
       endedAt: new Date().toISOString(),
     });
   }
-  await releaseLock(planPaths);
+  await releaseLock(sessionPaths);
 }
 
 export async function acquireLock(
-  planPaths: PlanPaths,
+  sessionPaths: SessionPaths,
   sessionId: string,
 ): Promise<boolean> {
-  await ensureDir(dirname(planPaths.lock));
+  await ensureDir(dirname(sessionPaths.lock));
 
   // Check for existing lock and clean stale ones
-  if (await fileExists(planPaths.lock)) {
+  if (await fileExists(sessionPaths.lock)) {
     try {
-      const existing = await readJson<LockFile>(planPaths.lock);
+      const existing = await readJson<LockFile>(sessionPaths.lock);
       if (isProcessRunning(existing.pid)) {
         return false; // Another session is actively running
       }
       // Stale lock — remove it before attempting atomic create
-      await unlink(planPaths.lock);
+      await unlink(sessionPaths.lock);
     } catch {
       // Lock file is corrupt or disappeared — proceed with atomic create
     }
@@ -99,7 +99,7 @@ export async function acquireLock(
 
   // Atomic create: O_CREAT|O_EXCL fails if file already exists
   try {
-    const fd = await open(planPaths.lock, "wx");
+    const fd = await open(sessionPaths.lock, "wx");
     await fd.writeFile(JSON.stringify(lock, null, 2) + "\n");
     await fd.close();
     return true;
@@ -111,22 +111,22 @@ export async function acquireLock(
   }
 }
 
-export async function releaseLock(planPaths: PlanPaths): Promise<void> {
+export async function releaseLock(sessionPaths: SessionPaths): Promise<void> {
   try {
-    await unlink(planPaths.lock);
+    await unlink(sessionPaths.lock);
   } catch {
     // Lock already removed or doesn't exist
   }
 }
 
 export async function checkLock(
-  planPaths: PlanPaths,
+  sessionPaths: SessionPaths,
 ): Promise<{ locked: boolean; stale: boolean; lock?: LockFile }> {
-  if (!(await fileExists(planPaths.lock))) {
+  if (!(await fileExists(sessionPaths.lock))) {
     return { locked: false, stale: false };
   }
 
-  const lock = await readJson<LockFile>(planPaths.lock);
+  const lock = await readJson<LockFile>(sessionPaths.lock);
   const running = isProcessRunning(lock.pid);
 
   return { locked: running, stale: !running, lock };

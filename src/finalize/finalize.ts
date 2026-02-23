@@ -1,6 +1,6 @@
 import type { SynthConfig } from "../config/types.js";
 import type { AgentAdapter } from "../agents/types.js";
-import type { PlanPaths } from "../plans/types.js";
+import type { SessionPaths } from "../sessions/types.js";
 import { loadTasks } from "../tasks/store.js";
 import { selfReview, type ReviewFinding } from "./review.js";
 import { runFormatters } from "./formatter.js";
@@ -24,10 +24,10 @@ export interface FinalizeResult {
 export async function finalize(
   config: SynthConfig,
   agent: AgentAdapter,
-  planPaths: PlanPaths,
+  sessionPaths: SessionPaths,
   cwd: string,
 ): Promise<FinalizeResult> {
-  const taskFile = await loadTasks(planPaths.tasks);
+  const taskFile = await loadTasks(sessionPaths.tasks);
   let findings: ReviewFinding[] = [];
   let formatted = false;
   let commitCount = 0;
@@ -61,9 +61,9 @@ export async function finalize(
 
   // 2. PRD audit
   let audit: AuditResult | null = null;
-  const prdExists = await fileExists(planPaths.prd);
+  const prdExists = await fileExists(sessionPaths.prd);
   if (prdExists) {
-    const prdContent = await readText(planPaths.prd);
+    const prdContent = await readText(sessionPaths.prd);
     const diffHandle = spawn({
       cmd: ["git", "diff", `${config.project.base_branch}...HEAD`],
       cwd,
@@ -132,7 +132,7 @@ export async function finalize(
     if (branch === config.project.base_branch) {
       console.log(`Skipping PR creation: already on base branch '${branch}'`);
     } else {
-      const prdContent = prdExists ? await readText(planPaths.prd) : null;
+      const prdContent = prdExists ? await readText(sessionPaths.prd) : null;
       const diffStats = await getDiffStats(cwd, config.project.base_branch);
       const body = generatePrBody(
         taskFile,

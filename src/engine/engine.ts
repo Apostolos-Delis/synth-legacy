@@ -1,6 +1,6 @@
 import type { SynthConfig } from "../config/types.js";
 import type { AgentAdapter, AgentExecutionResult } from "../agents/types.js";
-import type { PlanPaths } from "../plans/types.js";
+import type { SessionPaths } from "../sessions/types.js";
 import type { Task } from "../tasks/types.js";
 import type { TaskFile } from "../tasks/types.js";
 import type {
@@ -36,7 +36,7 @@ export class Engine {
     private config: SynthConfig,
     private agent: AgentAdapter,
     private fallbackAgent: AgentAdapter | null,
-    private planPaths: PlanPaths,
+    private sessionPaths: SessionPaths,
     private cwd: string,
   ) {
     this.circuitBreaker = new CircuitBreaker(
@@ -106,9 +106,9 @@ export class Engine {
       type: "rate-limit:detected",
       message: `Rate limited, backing off ${delay / 1000}s`,
     });
-    const freshFile = await loadTasks(this.planPaths.tasks);
+    const freshFile = await loadTasks(this.sessionPaths.tasks);
     const reverted = updateTaskStatus(freshFile, taskId, "open");
-    await saveTasks(this.planPaths.tasks, reverted);
+    await saveTasks(this.sessionPaths.tasks, reverted);
     return { rateLimited: true, delay };
   }
 
@@ -181,7 +181,7 @@ export class Engine {
 
     const mergedFile = this.mergeCriteriaIntoTaskFile(freshTaskFile, task);
     const doneFile = updateTaskStatus(mergedFile, task.id, "done");
-    await saveTasks(this.planPaths.tasks, doneFile);
+    await saveTasks(this.sessionPaths.tasks, doneFile);
     this.circuitBreaker.recordSuccess();
     this.emit({
       type: "task:complete",
@@ -195,7 +195,7 @@ export class Engine {
 
     const durationSec = Math.round(duration / 1000);
     const progressEntry = `## Iteration ${this.iteration} - ${task.id}: ${task.title}\n- Status: done\n- Duration: ${durationSec}s\n- Criteria: ${criteriaDone}/${criteriaCount} observed\n---\n`;
-    await appendText(this.planPaths.progress, progressEntry);
+    await appendText(this.sessionPaths.progress, progressEntry);
   }
 
   /**
@@ -215,7 +215,7 @@ export class Engine {
 
     const mergedFile = this.mergeCriteriaIntoTaskFile(freshTaskFile, task);
     const failedFile = updateTaskStatus(mergedFile, task.id, "open", failNotes);
-    await saveTasks(this.planPaths.tasks, failedFile);
+    await saveTasks(this.sessionPaths.tasks, failedFile);
     this.emit({
       type: "task:failed",
       taskId: task.id,
@@ -250,7 +250,7 @@ export class Engine {
       }
 
       this.emit({ type: "phase:scanning", timestamp: Date.now() });
-      const taskFile = await loadTasks(this.planPaths.tasks);
+      const taskFile = await loadTasks(this.sessionPaths.tasks);
 
       if (allTasksDone(taskFile)) {
         this.emit({ type: "complete" });
@@ -280,13 +280,13 @@ export class Engine {
       this.emit({ type: "task:start", taskId: task.id, message: task.title });
 
       const updatedFile = updateTaskStatus(taskFile, task.id, "in_progress");
-      await saveTasks(this.planPaths.tasks, updatedFile);
+      await saveTasks(this.sessionPaths.tasks, updatedFile);
 
       this.emit({ type: "phase:building-prompt", timestamp: Date.now() });
       trace.startPhase("engine:prompt-build");
       const prompt = await buildPrompt(
         task,
-        this.planPaths,
+        this.sessionPaths,
         this.cwd,
         this.iteration,
         this.config.agent.name,
@@ -350,8 +350,8 @@ export class Engine {
 
       if (this.shouldStop) break;
 
-      const logPath = `${this.planPaths.logs}/iteration-${String(this.iteration).padStart(3, "0")}.jsonl`;
-      await ensureDir(this.planPaths.logs);
+      const logPath = `${this.sessionPaths.logs}/iteration-${String(this.iteration).padStart(3, "0")}.jsonl`;
+      await ensureDir(this.sessionPaths.logs);
       await writeText(logPath, output);
 
       // Result processing
@@ -369,7 +369,7 @@ export class Engine {
       const success =
         result.exitCode === 0 && backpressurePassed && !result.timedOut;
 
-      const freshTaskFile = await loadTasks(this.planPaths.tasks);
+      const freshTaskFile = await loadTasks(this.sessionPaths.tasks);
 
       if (success) {
         await this.handleIterationSuccess(task, freshTaskFile, duration);
@@ -386,7 +386,7 @@ export class Engine {
       trace.endPhase("engine:result-processing");
 
       try {
-        await updateSession(this.planPaths, { currentIteration: this.iteration });
+        await updateSession(this.sessionPaths, { currentIteration: this.iteration });
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : String(err);
         this.emit({
@@ -417,7 +417,7 @@ export class Engine {
       });
 
       if (completionDetected) {
-        const finalTasks = await loadTasks(this.planPaths.tasks);
+        const finalTasks = await loadTasks(this.sessionPaths.tasks);
         if (allTasksDone(finalTasks)) {
           this.emit({ type: "complete" });
           this.setState("completed");

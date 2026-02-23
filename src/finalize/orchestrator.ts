@@ -1,7 +1,7 @@
 import { join } from "node:path";
 import type { AgentAdapter, AgentExecuteOptions } from "../agents/types.js";
 import type { SynthConfig } from "../config/types.js";
-import type { PlanPaths, PlanMetadata } from "../plans/types.js";
+import type { SessionPaths, SessionMetadata } from "../sessions/types.js";
 import type { Task, TaskFile } from "../tasks/types.js";
 import type {
   FinalizePhase,
@@ -166,7 +166,7 @@ export class FinalizeOrchestrator {
   private prUrl: string | null = null;
   private startTime = 0;
   private baseBranch = "";
-  private planPaths: PlanPaths | null = null;
+  private sessionPaths: SessionPaths | null = null;
   private gitOps: GitOps;
 
   constructor(options?: { gitOps?: GitOps }) {
@@ -189,9 +189,9 @@ export class FinalizeOrchestrator {
     let tasksCompleted = 0;
     let totalTasks = 0;
 
-    if (this.planPaths) {
+    if (this.sessionPaths) {
       try {
-        const taskFile = await loadTasks(this.planPaths.tasks);
+        const taskFile = await loadTasks(this.sessionPaths.tasks);
         totalTasks = taskFile.tasks.length;
         tasksCompleted = taskFile.tasks.filter((t) => t.status === "done").length;
       } catch {
@@ -238,16 +238,16 @@ export class FinalizeOrchestrator {
     for (const listener of this.phaseListeners) {
       listener(phase);
     }
-    if (phase === "complete" && this.planPaths) {
+    if (phase === "complete" && this.sessionPaths) {
       this.updateMetadataToFinalized();
     }
   }
 
   private async updateMetadataToFinalized(): Promise<void> {
-    if (!this.planPaths) return;
+    if (!this.sessionPaths) return;
     try {
-      const metaPath = join(this.planPaths.root, "metadata.json");
-      const meta = await readJson<PlanMetadata>(metaPath);
+      const metaPath = join(this.sessionPaths.root, "metadata.json");
+      const meta = await readJson<SessionMetadata>(metaPath);
       await writeJson(metaPath, {
         ...meta,
         status: "finalized",
@@ -261,7 +261,7 @@ export class FinalizeOrchestrator {
   async start(
     agent: AgentAdapter,
     config: SynthConfig,
-    planPaths: PlanPaths,
+    sessionPaths: SessionPaths,
     cwd: string,
     onChunk?: (chunk: string) => void,
   ): Promise<OrchestratorResponse> {
@@ -270,12 +270,12 @@ export class FinalizeOrchestrator {
     this.systemPrompt = buildAuditSystemPrompt();
     this.startTime = Date.now();
     this.baseBranch = config.project.base_branch;
-    this.planPaths = planPaths;
+    this.sessionPaths = sessionPaths;
     this.setPhase("auditing");
 
     // Build the audit context from git diff + task file
     const auditContext = await buildAuditContext(
-      planPaths,
+      sessionPaths,
       cwd,
       config.project.base_branch,
     );
@@ -688,7 +688,7 @@ export class FinalizeOrchestrator {
   async executeFixes(
     agent: AgentAdapter,
     config: SynthConfig,
-    planPaths: PlanPaths,
+    sessionPaths: SessionPaths,
     onMessage: (msg: FinalizeMessage) => void,
   ): Promise<OrchestratorResponse> {
     // AC #6: If no fixes were confirmed, skip entirely
@@ -715,8 +715,8 @@ export class FinalizeOrchestrator {
       tasks: fixTasks,
     };
 
-    const fixTasksPath = join(planPaths.root, "fix-tasks.json");
-    await ensureDir(planPaths.root);
+    const fixTasksPath = join(sessionPaths.root, "fix-tasks.json");
+    await ensureDir(sessionPaths.root);
     await writeJson(fixTasksPath, fixTaskFile);
 
     // AC #2 & #3: Execute each fix using the same agent, reporting progress
@@ -754,14 +754,14 @@ export class FinalizeOrchestrator {
     }
 
     // AC #4: Quick re-check of changes after fixes
-    return this.recheckAfterFixes(agent, config, planPaths, onMessage);
+    return this.recheckAfterFixes(agent, config, sessionPaths, onMessage);
   }
 
   // AC #4 & #5: Re-check changes and present options
   private async recheckAfterFixes(
     agent: AgentAdapter,
     config: SynthConfig,
-    _planPaths: PlanPaths,
+    _sessionPaths: SessionPaths,
     onMessage: (msg: FinalizeMessage) => void,
   ): Promise<OrchestratorResponse> {
     const recheckMsg: FinalizeMessage = {
@@ -842,7 +842,7 @@ export class FinalizeOrchestrator {
 
   async executePrCreation(
     config: SynthConfig,
-    planPaths: PlanPaths,
+    sessionPaths: SessionPaths,
     onMessage: (msg: FinalizeMessage) => void,
   ): Promise<OrchestratorResponse> {
     const baseBranch = config.project.base_branch;
@@ -879,7 +879,7 @@ export class FinalizeOrchestrator {
 
     if (hasStagedResult.exitCode !== 0) {
       // There are staged changes — commit them
-      const taskFile = await loadTasks(planPaths.tasks);
+      const taskFile = await loadTasks(sessionPaths.tasks);
       const commitMsg = `feat: ${taskFile.description || config.project.name}`;
       const commitHandle = spawn({
         cmd: ["git", "commit", "-m", commitMsg],
@@ -910,14 +910,14 @@ export class FinalizeOrchestrator {
     // AC #3 & #4: Generate PR body and create the PR
     let taskFile;
     try {
-      taskFile = await loadTasks(planPaths.tasks);
+      taskFile = await loadTasks(sessionPaths.tasks);
     } catch (err) {
       const raw = `Failed to load tasks: ${err instanceof Error ? err.message : String(err)}`;
       return this.prError(raw, onMessage);
     }
 
-    const prdExists = await fileExists(planPaths.prd);
-    const prdContent = prdExists ? await readText(planPaths.prd) : null;
+    const prdExists = await fileExists(sessionPaths.prd);
+    const prdContent = prdExists ? await readText(sessionPaths.prd) : null;
     const diffStats = await getDiffStats(this.cwd, baseBranch);
 
     const body = generatePrBody(taskFile, prdContent, [], diffStats);

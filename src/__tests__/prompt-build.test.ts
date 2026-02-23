@@ -3,12 +3,12 @@ import { buildPrompt } from "../prompts/build.js";
 import { ITERATION_INSTRUCTIONS } from "../prompts/instructions.js";
 import { writeText } from "../utils/fs.js";
 import { join } from "node:path";
-import { makePlanPaths, makeTask, withTmpDir } from "./helpers.js";
+import { makeSessionPaths, makeTask, withTmpDir } from "./helpers.js";
 
 describe("buildPrompt", () => {
   test("includes ITERATION_INSTRUCTIONS", async () => {
     await withTmpDir(async (dir) => {
-      const paths = makePlanPaths(dir);
+      const paths = makeSessionPaths(dir);
       const prompt = await buildPrompt(makeTask(), paths, dir, 1);
       expect(prompt).toContain(ITERATION_INSTRUCTIONS);
     });
@@ -16,7 +16,7 @@ describe("buildPrompt", () => {
 
   test("includes task ID, title, priority, description", async () => {
     await withTmpDir(async (dir) => {
-      const paths = makePlanPaths(dir);
+      const paths = makeSessionPaths(dir);
       const task = makeTask({
         id: "US-042",
         title: "Add auth",
@@ -33,7 +33,7 @@ describe("buildPrompt", () => {
 
   test("includes acceptance criteria as checklist", async () => {
     await withTmpDir(async (dir) => {
-      const paths = makePlanPaths(dir);
+      const paths = makeSessionPaths(dir);
       const task = makeTask({
         acceptanceCriteria: ["Users can log in", "Sessions persist"],
       });
@@ -45,7 +45,7 @@ describe("buildPrompt", () => {
 
   test("includes verification commands when present", async () => {
     await withTmpDir(async (dir) => {
-      const paths = makePlanPaths(dir);
+      const paths = makeSessionPaths(dir);
       const task = makeTask({
         verification: [
           { type: "command", value: "bun run test" },
@@ -60,7 +60,7 @@ describe("buildPrompt", () => {
 
   test("includes task notes from previous attempts when present", async () => {
     await withTmpDir(async (dir) => {
-      const paths = makePlanPaths(dir);
+      const paths = makeSessionPaths(dir);
       const task = makeTask({
         notes: "Failed due to missing dependency",
       });
@@ -72,7 +72,7 @@ describe("buildPrompt", () => {
 
   test("includes AGENTS.md content when file exists in cwd", async () => {
     await withTmpDir(async (dir) => {
-      const paths = makePlanPaths(dir);
+      const paths = makeSessionPaths(dir);
       await writeText(join(dir, "AGENTS.md"), "# Project Rules\nUse TypeScript only.");
       const prompt = await buildPrompt(makeTask(), paths, dir, 1);
       expect(prompt).toContain("Project Context (AGENTS.md)");
@@ -82,7 +82,7 @@ describe("buildPrompt", () => {
 
   test("includes codebase patterns from progress.md", async () => {
     await withTmpDir(async (dir) => {
-      const paths = makePlanPaths(dir);
+      const paths = makeSessionPaths(dir);
       await writeText(paths.progress, `## Codebase Patterns\n- Always use async/await\n- Tests in __tests__\n\n## Other Section\nStuff here`);
       const prompt = await buildPrompt(makeTask(), paths, dir, 1);
       expect(prompt).toContain("Codebase Patterns (from previous iterations)");
@@ -92,7 +92,7 @@ describe("buildPrompt", () => {
 
   test("includes recent progress entries", async () => {
     await withTmpDir(async (dir) => {
-      const paths = makePlanPaths(dir);
+      const paths = makeSessionPaths(dir);
       const entries = Array.from({ length: 7 }, (_, i) => `Entry ${i + 1}`);
       await writeText(paths.progress, entries.join("\n---\n"));
       const prompt = await buildPrompt(makeTask(), paths, dir, 1);
@@ -104,7 +104,7 @@ describe("buildPrompt", () => {
 
   test("omits AGENTS.md section when file doesn't exist", async () => {
     await withTmpDir(async (dir) => {
-      const paths = makePlanPaths(dir);
+      const paths = makeSessionPaths(dir);
       const prompt = await buildPrompt(makeTask(), paths, dir, 1);
       expect(prompt).not.toContain("Project Context (AGENTS.md)");
     });
@@ -112,7 +112,7 @@ describe("buildPrompt", () => {
 
   test("omits progress sections when progress.md doesn't exist", async () => {
     await withTmpDir(async (dir) => {
-      const paths = makePlanPaths(dir);
+      const paths = makeSessionPaths(dir);
       const prompt = await buildPrompt(makeTask(), paths, dir, 1);
       expect(prompt).not.toContain("Codebase Patterns");
       expect(prompt).not.toContain("Recent Progress");
@@ -121,7 +121,7 @@ describe("buildPrompt", () => {
 
   test("includes Claude-specific guidance when agentName is 'claude'", async () => {
     await withTmpDir(async (dir) => {
-      const paths = makePlanPaths(dir);
+      const paths = makeSessionPaths(dir);
       const prompt = await buildPrompt(makeTask(), paths, dir, 1, "claude");
       expect(prompt).toContain("Agent-Specific Guidance (Claude)");
       expect(prompt).toContain("Task tool with subagent_type");
@@ -130,7 +130,7 @@ describe("buildPrompt", () => {
 
   test("includes Codex-specific guidance when agentName is 'codex'", async () => {
     await withTmpDir(async (dir) => {
-      const paths = makePlanPaths(dir);
+      const paths = makeSessionPaths(dir);
       const prompt = await buildPrompt(makeTask(), paths, dir, 1, "codex");
       expect(prompt).toContain("Agent-Specific Guidance (Codex)");
       expect(prompt).toContain("apply patch tool");
@@ -139,7 +139,7 @@ describe("buildPrompt", () => {
 
   test("omits agent-specific section for unrecognized agent type", async () => {
     await withTmpDir(async (dir) => {
-      const paths = makePlanPaths(dir);
+      const paths = makeSessionPaths(dir);
       const prompt = await buildPrompt(makeTask(), paths, dir, 1, "unknown-agent");
       expect(prompt).not.toContain("Agent-Specific Guidance");
       expect(prompt).toContain(ITERATION_INSTRUCTIONS);
@@ -148,7 +148,7 @@ describe("buildPrompt", () => {
 
   test("omits agent-specific section when agentName is undefined", async () => {
     await withTmpDir(async (dir) => {
-      const paths = makePlanPaths(dir);
+      const paths = makeSessionPaths(dir);
       const prompt = await buildPrompt(makeTask(), paths, dir, 1);
       expect(prompt).not.toContain("Agent-Specific Guidance");
     });
@@ -156,7 +156,7 @@ describe("buildPrompt", () => {
 
   test("agent-specific section appears after generic instructions", async () => {
     await withTmpDir(async (dir) => {
-      const paths = makePlanPaths(dir);
+      const paths = makeSessionPaths(dir);
       const prompt = await buildPrompt(makeTask(), paths, dir, 1, "claude");
       const instructionsIdx = prompt.indexOf(ITERATION_INSTRUCTIONS);
       const agentIdx = prompt.indexOf("Agent-Specific Guidance (Claude)");

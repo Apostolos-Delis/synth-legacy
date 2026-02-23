@@ -2,7 +2,7 @@ import { describe, test, expect } from "bun:test";
 import { prdToMarkdown } from "../interview/interviewer.js";
 import { generateTasks } from "../tasks/planner.js";
 import type { GeneratedPrd } from "../interview/types.js";
-import { withTmpDir, makePlanPaths } from "./helpers.js";
+import { withTmpDir, makeSessionPaths } from "./helpers.js";
 import { writeText } from "../utils/fs.js";
 
 // ---------------------------------------------------------------------------
@@ -215,7 +215,7 @@ describe("pipeline ordering — generateTasks requires finalized PRD", () => {
 
   test("generateTasks succeeds when PRD file exists on disk", async () => {
     await withTmpDir(async (dir) => {
-      const paths = makePlanPaths(dir);
+      const paths = makeSessionPaths(dir);
       const prdContent = "# Test PRD\n\nThis is a test PRD.";
       await writeText(paths.prd, prdContent);
 
@@ -236,7 +236,7 @@ describe("pipeline ordering — generateTasks requires finalized PRD", () => {
 
   test("pipeline: writing PRD to disk then calling generateTasks works end-to-end", async () => {
     await withTmpDir(async (dir) => {
-      const paths = makePlanPaths(dir);
+      const paths = makeSessionPaths(dir);
 
       // Step 1: generateTasks must fail before PRD is written
       const agent = makeMockAgent();
@@ -265,7 +265,7 @@ describe("pipeline ordering — generateTasks requires finalized PRD", () => {
 
   test("generateTasks reads the PRD content and includes it in the agent prompt", async () => {
     await withTmpDir(async (dir) => {
-      const paths = makePlanPaths(dir);
+      const paths = makeSessionPaths(dir);
       const prdContent = "# My Special PRD\n\nUnique content for prompt verification.";
       await writeText(paths.prd, prdContent);
 
@@ -300,7 +300,7 @@ describe("pipeline ordering — generateTasks requires finalized PRD", () => {
 
   test("generateTasks rejects invalid JSON from agent output", async () => {
     await withTmpDir(async (dir) => {
-      const paths = makePlanPaths(dir);
+      const paths = makeSessionPaths(dir);
       await writeText(paths.prd, "# PRD\n\nContent");
 
       const agent = makeMockAgent("This is not JSON at all");
@@ -313,7 +313,7 @@ describe("pipeline ordering — generateTasks requires finalized PRD", () => {
 
   test("generateTasks sets default values for missing task fields", async () => {
     await withTmpDir(async (dir) => {
-      const paths = makePlanPaths(dir);
+      const paths = makeSessionPaths(dir);
       await writeText(paths.prd, "# PRD");
 
       // Task missing status, iterationCount, notes
