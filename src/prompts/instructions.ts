@@ -8,6 +8,13 @@ Before implementing anything, search and explore the relevant code:
 - If the task describes behavior that already exists, verify before duplicating it.
 - Use grep/glob to find related code, tests, and patterns before writing new code.
 
+## Working Style
+
+- Persist until the task is fully complete — partial fixes and half-implementations don't count as done.
+- Bias toward action: make reasonable assumptions when details are ambiguous rather than stopping to ask.
+- Implement the task completely, but don't expand scope — no drive-by refactors, extra features, or "improvements" beyond what's needed.
+- Keep solutions proportional to the problem. Three similar lines are fine; don't abstract prematurely.
+
 Steps:
 1. Read the task and acceptance criteria carefully
 2. Implement the changes needed
