@@ -12,6 +12,7 @@ import { useToast } from "./hooks/useToast.js";
 interface AppProps extends TuiEngineData {
   defaultView?: ViewMode;
   onQuit?: () => void;
+  onFinalize?: () => void;
   onPause?: () => void;
   onResume?: () => void;
 }
@@ -19,6 +20,7 @@ interface AppProps extends TuiEngineData {
 export function App({
   defaultView = "execution",
   onQuit,
+  onFinalize,
   onPause,
   onResume,
   ...engineData
@@ -109,10 +111,12 @@ export function App({
         return;
       }
 
-      // Completion view only responds to q/Esc to quit
+      // Completion view responds to q/Esc to quit and f to finalize
       if (viewRef.current === "completion") {
         if (key.name === "q" || key.name === "escape") {
           onQuit?.();
+        } else if (key.name === "f" && onFinalize) {
+          onFinalize();
         }
         return;
       }
@@ -189,16 +193,18 @@ export function App({
           break;
       }
     },
-    [onQuit, onPause, onResume],
+    [onQuit, onFinalize, onPause, onResume],
   );
 
   useKeyboard(handleKeyboard);
 
   // Completion view replaces execution/dashboard when summary is ready
   if (view === "completion" && engineData.completionSummary) {
+    const { progress } = engineData.completionSummary;
+    const allDone = progress.failed === 0 && progress.open === 0 && progress.inProgress === 0;
     return (
       <box style={{ width: "100%", height: "100%", position: "relative" }}>
-        <CompletionView summary={engineData.completionSummary} />
+        <CompletionView summary={engineData.completionSummary} showFinalizePrompt={allDone && !!onFinalize} />
       </box>
     );
   }

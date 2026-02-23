@@ -14,6 +14,7 @@ const SHORTCUTS: Record<ViewMode, string> = {
   generating: "Please wait...",
   review: "Enter:start execution  Esc/q:save and quit",
   completion: "q:quit",
+  "completion-finalize": "f:finalize  q:quit",
 };
 
 export const Footer = memo(function Footer({ view, width }: FooterProps): ReactNode {

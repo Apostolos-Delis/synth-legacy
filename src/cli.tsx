@@ -444,7 +444,7 @@ async function cmdRun(planId?: string, startIteration = 0, tuiContext?: TuiConte
   }
 
   let firstTokenRendered = false;
-  let completionResolve: (() => void) | null = null;
+  let completionResolve: ((action: "quit" | "finalize") => void) | null = null;
 
   const renderTui = () => {
     if (root && tuiData && App) {
@@ -453,9 +453,14 @@ async function cmdRun(planId?: string, startIteration = 0, tuiContext?: TuiConte
           {...tuiData}
           onQuit={() => {
             if (completionResolve) {
-              completionResolve();
+              completionResolve("quit");
             } else {
               cleanup().then(() => process.exit(0));
+            }
+          }}
+          onFinalize={() => {
+            if (completionResolve) {
+              completionResolve("finalize");
             }
           }}
         />,
@@ -662,13 +667,35 @@ async function cmdRun(planId?: string, startIteration = 0, tuiContext?: TuiConte
         // Set completion summary and re-render — App auto-switches to CompletionView
         tuiData.completionSummary = summaryData;
         renderTui();
-        // Wait for user to press q/Esc
-        await new Promise<void>((resolve) => {
+        // Wait for user to press q/Esc or f (finalize)
+        const completionAction = await new Promise<"quit" | "finalize">((resolve) => {
           completionResolve = resolve;
         });
         completionResolve = null;
+
+        if (completionAction === "finalize") {
+          // Transition to finalize phase, reusing renderer/root.
+          // Capture references before nulling, so we can clean up after finalize.
+          const finalizeRenderer = renderer;
+          const finalizeRoot = root;
+          // Null out so the finally block won't double-unmount/destroy
+          renderer = null;
+          root = null;
+          cleaningUp = true; // prevent SIGINT cleanup from interfering
+
+          await cmdFinalize(plan.metadata.id, { renderer: finalizeRenderer!, root: finalizeRoot! }, {
+            config,
+            planPaths: plan.paths,
+          });
+          if (ownsRenderer) {
+            finalizeRoot?.unmount();
+            finalizeRenderer?.destroy();
+          }
+          return;
+        }
       } else {
         printCompletionSummary(summaryData);
+        log(`\n${fmt.dim(`Run 'synth finalize ${plan.metadata.id}' to start finalize review.`)}`);
       }
     }
 
@@ -1318,8 +1345,17 @@ async function cmdPlan(planIdOrFlag?: string): Promise<void> {
   }
 }
 
-async function cmdFinalize(planId?: string): Promise<void> {
-  const config = await applyTheme();
+interface FinalizeRunContext {
+  config: SynthConfig;
+  planPaths: import("./plans/types.js").PlanPaths;
+}
+
+async function cmdFinalize(
+  planId?: string,
+  _tuiContext?: TuiContext,
+  runContext?: FinalizeRunContext,
+): Promise<void> {
+  const config = runContext?.config ?? await applyTheme();
 
   let plan;
   if (planId) {

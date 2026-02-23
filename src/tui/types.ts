@@ -2,7 +2,7 @@ import type { Task } from "../tasks/types.js";
 import type { EngineState } from "../engine/types.js";
 import type { InterviewMessage } from "../interview/types.js";
 
-export type ViewMode = "execution" | "dashboard" | "interview" | "generating" | "review" | "completion";
+export type ViewMode = "execution" | "dashboard" | "interview" | "generating" | "review" | "completion" | "completion-finalize";
 export type NavMode = "task-scroll" | "output-scroll";
 
 export interface TuiContext {

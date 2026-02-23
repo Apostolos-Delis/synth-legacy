@@ -7,9 +7,10 @@ import { formatDuration } from "../utils/format.js";
 
 interface CompletionViewProps {
   summary: CompletionSummary;
+  showFinalizePrompt?: boolean;
 }
 
-export function CompletionView({ summary }: CompletionViewProps): ReactNode {
+export function CompletionView({ summary, showFinalizePrompt }: CompletionViewProps): ReactNode {
   const { width, height } = useTerminalDimensions();
   const { progress, tasks, commits } = summary;
 
@@ -115,7 +116,26 @@ export function CompletionView({ summary }: CompletionViewProps): ReactNode {
         </text>
       </scrollbox>
 
-      <Footer view="completion" width={width} />
+      {showFinalizePrompt && (
+        <box style={{ paddingLeft: 1 }}>
+          <text>
+            <span fg={colors.status.success} attributes={boldAttr()}>
+              {"All tasks complete. "}
+            </span>
+            <span fg={colors.fg.secondary}>
+              {"Press "}
+            </span>
+            <span fg={colors.accent.primary} attributes={boldAttr()}>f</span>
+            <span fg={colors.fg.secondary}>
+              {" to start finalize review, or "}
+            </span>
+            <span fg={colors.accent.primary} attributes={boldAttr()}>q</span>
+            <span fg={colors.fg.secondary}>{" to exit."}</span>
+          </text>
+        </box>
+      )}
+
+      <Footer view={showFinalizePrompt ? "completion-finalize" : "completion"} width={width} />
     </box>
   );
 }
