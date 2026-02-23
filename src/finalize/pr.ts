@@ -1,12 +1,14 @@
 import type { TaskFile } from "../tasks/types.js";
 import { spawn } from "../utils/process.js";
 import type { ReviewFinding } from "./review.js";
+import { formatAuditForPr, type AuditResult } from "./audit.js";
 
 export function generatePrBody(
   taskFile: TaskFile,
   prdContent: string | null,
   findings: ReviewFinding[],
   diffStats: string,
+  audit?: AuditResult | null,
 ): string {
   const sections: string[] = [];
 
@@ -47,6 +49,11 @@ export function generatePrBody(
     for (const w of warnings) {
       sections.push(`- [${w.perspective}] ${w.message}`);
     }
+  }
+
+  // PRD Audit
+  if (audit) {
+    sections.push("\n" + formatAuditForPr(audit));
   }
 
   // Mitigation
