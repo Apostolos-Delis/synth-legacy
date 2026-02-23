@@ -127,7 +127,14 @@ export function PrdReviewView({
           setShowTextInput(false);
         }
         return;
-      } catch {
+      } catch (err) {
+        // Don't retry if the component was unmounted or user cancelled
+        if (destroyedRef.current) return;
+        if (err instanceof Error && (err.name === "AbortError" || err.message.includes("cancel"))) {
+          setStreamingText("");
+          setIsLoading(false);
+          return;
+        }
         // Auto-retry on first attempt; show toast after final failure
       }
     }

@@ -75,12 +75,12 @@ export function classifyPrError(raw: string): string {
   const lower = raw.toLowerCase();
 
   // gh CLI not installed
-  if (lower.includes("command not found") || lower.includes("not found: gh") || lower.includes("no such file")) {
+  if (lower.includes("command not found") || lower.includes("not found: gh") || lower.includes("no such file or directory: gh")) {
     return "GitHub CLI (gh) is not installed. Install it with: brew install gh";
   }
 
   // Not authenticated
-  if (lower.includes("not logged") || lower.includes("auth login") || lower.includes("authentication") || lower.includes("401")) {
+  if (lower.includes("not logged") || lower.includes("auth login") || lower.includes("authentication required") || lower.includes("authentication failed") || lower.includes("401")) {
     return "Not authenticated with GitHub. Run: gh auth login";
   }
 

@@ -21,8 +21,14 @@ export const TaskDetailHeader = memo(function TaskDetailHeader({
   const descLines: string[] = [];
   let remaining = task.description;
   while (remaining.length > 0) {
-    descLines.push(remaining.slice(0, innerWidth));
-    remaining = remaining.slice(innerWidth);
+    if (remaining.length <= innerWidth) {
+      descLines.push(remaining);
+      break;
+    }
+    let breakAt = remaining.lastIndexOf(" ", innerWidth);
+    if (breakAt <= 0) breakAt = innerWidth;
+    descLines.push(remaining.slice(0, breakAt));
+    remaining = remaining.slice(breakAt).trimStart();
   }
   if (descLines.length === 0) descLines.push("");
 
