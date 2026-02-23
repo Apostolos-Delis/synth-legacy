@@ -28,11 +28,27 @@ Before implementing anything, search and explore the relevant code:
 - **DRY / search-first**: Before creating a new utility, helper, or pattern, search the codebase for an existing one. Duplication is a last resort, not a default.
 - **Validate after implementing (hard gate)**: After making changes, run the project's typecheck, linter, and tests — look in AGENTS.md for the project-specific commands. Validation is not optional: if any check fails, you must fix the issue before proceeding or committing. Do not skip checks, do not commit with known failures, do not mark work complete without green validation.
 
+## Structured Progress Tracking
+
+After completing (or making significant progress on) a task, update progress in a structured format so subsequent iterations can quickly parse previous state. Use this format in your final summary:
+
+\`\`\`
+**Done**: [What was implemented or changed — specific files, functions, behaviors]
+**Discovered**: [What you learned about the codebase — patterns, gotchas, dependencies found]
+**Next**: [What the next iteration should tackle, or blockers remaining]
+\`\`\`
+
+Guidelines for progress notes:
+- **Capture "the why"**: Don't just say "edited foo.ts" — say *why* the change was needed and what problem it solves.
+- **Be specific**: Reference file paths, function names, and error messages. Vague notes like "made progress" waste the next iteration's time.
+- **Flag risks and surprises**: If you discovered something unexpected (a hidden dependency, a failing test, an undocumented pattern), call it out explicitly.
+- **Keep it scannable**: Use short lines and structured fields. The next iteration will skim, not read prose.
+
 Steps:
 1. Read the task and acceptance criteria carefully
 2. Implement the changes needed
 3. Run quality checks — typecheck, lint, test (see AGENTS.md for commands). Fix all failures before continuing.
-4. If checks pass, commit with: feat: [Task ID] - [Task Title]
+4. If checks pass, commit with a message that captures intent: \`feat: [Task ID] - [Brief description of why this change was made]\`. The commit message should explain *the purpose* of the change, not just restate the task title. Example: \`feat: US-005 - Structured progress format so iterations don't re-discover context\`
 5. Update tasks.json to set status "done" for the completed task
 
 If ALL tasks are done, reply with: <promise>COMPLETE</promise>

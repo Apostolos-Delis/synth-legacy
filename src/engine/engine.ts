@@ -301,7 +301,12 @@ export class Engine {
         }
 
         // Append progress
-        const progressEntry = `## Iteration ${this.iteration} - ${task.id}: ${task.title}\n- Status: done\n- Duration: ${Math.round(duration / 1000)}s\n---\n`;
+        const durationSec = Math.round(duration / 1000);
+        const criteriaCount = task.acceptanceCriteria.length;
+        const criteriaDone = task.criteriaCompleted
+          ? task.criteriaCompleted.filter(Boolean).length
+          : 0;
+        const progressEntry = `## Iteration ${this.iteration} - ${task.id}: ${task.title}\n- Status: done\n- Duration: ${durationSec}s\n- Criteria: ${criteriaDone}/${criteriaCount} completed\n---\n`;
         await appendText(this.planPaths.progress, progressEntry);
       } else {
         const failNotes = !backpressurePassed
