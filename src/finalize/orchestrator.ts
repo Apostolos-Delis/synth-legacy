@@ -168,14 +168,6 @@ export class FinalizeOrchestrator {
     return this.phase;
   }
 
-  getCollectedFixes(): FixTask[] {
-    return [...this.fixes];
-  }
-
-  getConfirmedFixes(): FixTask[] {
-    return [...this.confirmedFixes];
-  }
-
   getMessages(): FinalizeMessage[] {
     return [...this.messages];
   }
@@ -595,9 +587,9 @@ export class FinalizeOrchestrator {
     return { message: nextMsg };
   }
 
-  private async handleGenericFixOption(
+  private handleGenericFixOption(
     option: ChatOption,
-  ): Promise<OrchestratorResponse> {
+  ): OrchestratorResponse {
     const msg: FinalizeMessage = {
       role: "assistant",
       content: `Selected: ${option.label}. Use the available options to manage fixes.`,
@@ -1013,14 +1005,6 @@ export class FinalizeOrchestrator {
   // ---------------------------------------------------------------------------
   // Fix tracking
   // ---------------------------------------------------------------------------
-
-  addFix(fix: FixTask): void {
-    this.fixes.push(fix);
-  }
-
-  removeFix(fixId: string): void {
-    this.fixes = this.fixes.filter((f) => f.id !== fixId);
-  }
 
   private extractFixesFromParsed(parsed: ParsedResponse): void {
     for (const desc of parsed.fixDescriptions) {

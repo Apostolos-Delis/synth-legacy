@@ -60,9 +60,3 @@ export interface CompletionSummary {
   durationMs: number;
 }
 
-export interface FinalizeChatState {
-  phase: FinalizePhase;
-  messages: FinalizeMessage[];
-  issues: ReviewIssue[];
-  fixes: FixTask[];
-}
