@@ -22,6 +22,8 @@ import { spawn } from "../utils/process.js";
 import { createPr, classifyPrError, classifyPrErrorDetail, generatePrBody, getDiffStats } from "./pr.js";
 import { getCurrentBranch as defaultGetCurrentBranch } from "../utils/git.js";
 import { loadTasks } from "../tasks/store.js";
+import { ConversationEngine } from "../conversation/engine.js";
+import type { ConversationMessage } from "../conversation/types.js";
 
 export interface GitOps {
   getCurrentBranch(cwd: string): Promise<string>;
@@ -155,13 +157,12 @@ export interface OrchestratorResponse {
 export class FinalizeOrchestrator {
   private phase: FinalizePhase = "auditing";
   private messages: FinalizeMessage[] = [];
+  private engine: ConversationEngine | null = null;
   private fixes: FixTask[] = [];
   private confirmedFixes: FixTask[] = [];
   private fixCounter = 0;
   private reviewIndex = 0;
-  private systemPrompt = "";
   private cwd = "";
-  private model?: string;
   private phaseListeners: PhaseChangeListener[] = [];
   private prUrl: string | null = null;
   private startTime = 0;
@@ -266,12 +267,23 @@ export class FinalizeOrchestrator {
     onChunk?: (chunk: string) => void,
   ): Promise<OrchestratorResponse> {
     this.cwd = cwd;
-    this.model = config.agent.model;
-    this.systemPrompt = buildAuditSystemPrompt();
     this.startTime = Date.now();
     this.baseBranch = config.project.base_branch;
     this.sessionPaths = sessionPaths;
     this.setPhase("auditing");
+
+    const persistPath = join(sessionPaths.root, "finalize-conversation.json");
+    this.engine = new ConversationEngine({
+      agent,
+      cwd,
+      model: config.agent.model,
+      systemPrompt: buildAuditSystemPrompt(),
+      maxHistoryWindow: MAX_HISTORY,
+      persist: async (msgs: ConversationMessage[]) => {
+        await ensureDir(sessionPaths.root);
+        await writeJson(persistPath, msgs);
+      },
+    });
 
     // Build the audit context from git diff + task file
     const auditContext = await buildAuditContext(
@@ -283,7 +295,7 @@ export class FinalizeOrchestrator {
     const userPrompt = buildInitialAuditPrompt(auditContext);
 
     // Send to AI and get the initial review
-    const response = await this.sendToAgent(agent, userPrompt, onChunk);
+    const response = await this.engine.send(userPrompt, onChunk);
     const parsed = parseAIResponse(response);
 
     // Extract any fix proposals from the initial audit
@@ -365,7 +377,7 @@ export class FinalizeOrchestrator {
   // ---------------------------------------------------------------------------
 
   private async handleDiscussing(
-    agent: AgentAdapter,
+    _agent: AgentAdapter,
     text: string,
     onChunk?: (chunk: string) => void,
   ): Promise<OrchestratorResponse> {
@@ -374,22 +386,21 @@ export class FinalizeOrchestrator {
       return this.transitionToCollectingFixes();
     }
 
-    const prompt = this.buildConversationPrompt(
+    const instruction =
       `The user is in the discussion phase of a code review. They said:\n\n"${text}"\n\n` +
-        `Continue the code review discussion by asking your next follow-up question on a single topic. ` +
-        `If you want to offer choices, use [OPTION]label|description[/OPTION] markers (2-4 options). ` +
-        `Use [OPTION*] (with asterisk) for the recommended choice. ` +
-        `If you have 2-3 related questions, batch them with [QUESTION]header[/QUESTION] markers. ` +
-        `If you want to propose a fix, use [FIX]description of fix[/FIX] markers. ` +
-        `If you have no more concerns, end with [REVIEW_COMPLETE]. Be concise.`,
-    );
+      `Continue the code review discussion by asking your next follow-up question on a single topic. ` +
+      `If you want to offer choices, use [OPTION]label|description[/OPTION] markers (2-4 options). ` +
+      `Use [OPTION*] (with asterisk) for the recommended choice. ` +
+      `If you have 2-3 related questions, batch them with [QUESTION]header[/QUESTION] markers. ` +
+      `If you want to propose a fix, use [FIX]description of fix[/FIX] markers. ` +
+      `If you have no more concerns, end with [REVIEW_COMPLETE]. Be concise.`;
 
-    const response = await this.sendToAgent(agent, prompt, onChunk);
+    const response = await this.engine!.send(instruction, onChunk);
     return this.processDiscussingResponse(response);
   }
 
   private async handleDiscussionOption(
-    agent: AgentAdapter,
+    _agent: AgentAdapter,
     option: ChatOption,
     onChunk?: (chunk: string) => void,
   ): Promise<OrchestratorResponse> {
@@ -397,17 +408,16 @@ export class FinalizeOrchestrator {
       return this.transitionToCollectingFixes();
     }
 
-    const prompt = this.buildConversationPrompt(
+    const instruction =
       `The user selected the option: "${option.label}" (${option.description}).\n\n` +
-        `Respond based on their choice, then ask your next follow-up question on a single topic. ` +
-        `If you want to offer choices, use [OPTION]label|description[/OPTION] markers (2-4 options). ` +
-        `Use [OPTION*] (with asterisk) for the recommended choice. ` +
-        `If you have 2-3 related questions, batch them with [QUESTION]header[/QUESTION] markers. ` +
-        `If you want to propose a fix, use [FIX]description of fix[/FIX] markers. ` +
-        `If you have no more concerns, end with [REVIEW_COMPLETE]. Be concise.`,
-    );
+      `Respond based on their choice, then ask your next follow-up question on a single topic. ` +
+      `If you want to offer choices, use [OPTION]label|description[/OPTION] markers (2-4 options). ` +
+      `Use [OPTION*] (with asterisk) for the recommended choice. ` +
+      `If you have 2-3 related questions, batch them with [QUESTION]header[/QUESTION] markers. ` +
+      `If you want to propose a fix, use [FIX]description of fix[/FIX] markers. ` +
+      `If you have no more concerns, end with [REVIEW_COMPLETE]. Be concise.`;
 
-    const response = await this.sendToAgent(agent, prompt, onChunk);
+    const response = await this.engine!.send(instruction, onChunk);
     return this.processDiscussingResponse(response);
   }
 
@@ -733,7 +743,7 @@ export class FinalizeOrchestrator {
 
       try {
         const prompt = buildFixPrompt(fix, this.cwd);
-        await this.sendToAgent(agent, prompt);
+        await this.sendToAgentDirect(agent, prompt);
 
         const doneMsg: FinalizeMessage = {
           role: "assistant",
@@ -759,7 +769,7 @@ export class FinalizeOrchestrator {
 
   // AC #4 & #5: Re-check changes and present options
   private async recheckAfterFixes(
-    agent: AgentAdapter,
+    _agent: AgentAdapter,
     config: SynthConfig,
     _sessionPaths: SessionPaths,
     onMessage: (msg: FinalizeMessage) => void,
@@ -790,14 +800,13 @@ export class FinalizeOrchestrator {
 
     const combinedDiff = [diff, unstagedDiff].filter(Boolean).join("\n");
 
-    const recheckPrompt = this.buildConversationPrompt(
+    const recheckInstruction =
       `You just applied fixes to the codebase. Do a quick re-check of the current diff to see if the fixes introduced any new issues.\n\n` +
       `## Current Diff\n\n\`\`\`diff\n${combinedDiff.slice(0, 30_000)}\n\`\`\`\n\n` +
       `If you find new issues, describe them briefly and propose fixes using [FIX]description[/FIX] markers.\n` +
-      `If everything looks clean, just say so. Be concise.`,
-    );
+      `If everything looks clean, just say so. Be concise.`;
 
-    const recheckResponse = await this.sendToAgent(agent, recheckPrompt);
+    const recheckResponse = await this.engine!.send(recheckInstruction);
     const parsed = parseAIResponse(recheckResponse);
 
     if (parsed.fixDescriptions.length > 0) {
@@ -996,11 +1005,11 @@ export class FinalizeOrchestrator {
     text: string,
     onChunk?: (chunk: string) => void,
   ): Promise<OrchestratorResponse> {
-    const prompt = this.buildConversationPrompt(
-      `The user said:\n\n"${text}"\n\nRespond helpfully in the context of the code review.`,
-    );
+    const instruction = `The user said:\n\n"${text}"\n\nRespond helpfully in the context of the code review.`;
 
-    const response = await this.sendToAgent(agent, prompt, onChunk);
+    const response = this.engine
+      ? await this.engine.send(instruction, onChunk)
+      : await this.sendToAgentDirect(agent, instruction, onChunk);
 
     const assistantMsg: FinalizeMessage = {
       role: "assistant",
@@ -1073,37 +1082,10 @@ export class FinalizeOrchestrator {
   }
 
   // ---------------------------------------------------------------------------
-  // Prompt construction
+  // Direct agent communication (for fix execution — not part of conversation)
   // ---------------------------------------------------------------------------
 
-  private buildConversationPrompt(instruction: string): string {
-    const recentMessages = this.messages.slice(-MAX_HISTORY);
-    const truncated = this.messages.length > MAX_HISTORY;
-
-    const history = recentMessages
-      .map((m) => {
-        const role =
-          m.role === "user"
-            ? "User"
-            : m.role === "system"
-              ? "System"
-              : "Assistant";
-        return `${role}: ${m.content}`;
-      })
-      .join("\n\n");
-
-    const prefix = truncated
-      ? `${this.systemPrompt}\n\n[Earlier conversation truncated — ${this.messages.length - MAX_HISTORY} messages omitted]\n\nRecent conversation:\n\n`
-      : `${this.systemPrompt}\n\nConversation so far:\n\n`;
-
-    return `${prefix}${history}\n\n---\n\n${instruction}`;
-  }
-
-  // ---------------------------------------------------------------------------
-  // Agent communication
-  // ---------------------------------------------------------------------------
-
-  private async sendToAgent(
+  private async sendToAgentDirect(
     agent: AgentAdapter,
     prompt: string,
     onChunk?: (chunk: string) => void,
@@ -1111,7 +1093,6 @@ export class FinalizeOrchestrator {
     let output = "";
     const options: AgentExecuteOptions = {
       cwd: this.cwd,
-      model: this.model,
       skipPermissions: false,
       onStdout: (chunk) => {
         output += chunk;
