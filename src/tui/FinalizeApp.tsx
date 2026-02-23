@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef, type ReactNode } from "react";
 import { useKeyboard, useTerminalDimensions, useRenderer } from "@opentui/react";
 import type { TextareaRenderable } from "@opentui/core";
-import type { FinalizeMessage, FinalizePhase, ChatOption } from "../finalize/chat-types.js";
+import type { FinalizeMessage, FinalizePhase, ChatOption, CompletionSummary } from "../finalize/chat-types.js";
 import type { FinalizeOrchestrator } from "../finalize/orchestrator.js";
 import type { AgentAdapter } from "../agents/types.js";
 import { boldAttr, colors, markdownSyntaxStyle } from "./theme.js";
@@ -14,6 +14,7 @@ interface FinalizeAppProps {
   orchestrator: FinalizeOrchestrator;
   agent: AgentAdapter;
   onQuit: () => void;
+  onComplete?: (summary: CompletionSummary) => void;
 }
 
 const PHASE_LABELS: Record<FinalizePhase, string> = {
@@ -43,7 +44,18 @@ function MessageBubble({ message }: { message: FinalizeMessage }): ReactNode {
   );
 }
 
-export function FinalizeApp({ orchestrator, agent, onQuit }: FinalizeAppProps): ReactNode {
+function formatDuration(ms: number): string {
+  const secs = Math.floor(ms / 1000);
+  if (secs < 60) return `${secs}s`;
+  const mins = Math.floor(secs / 60);
+  const remSecs = secs % 60;
+  if (mins < 60) return `${mins}m ${remSecs}s`;
+  const hrs = Math.floor(mins / 60);
+  const remMins = mins % 60;
+  return `${hrs}h ${remMins}m`;
+}
+
+export function FinalizeApp({ orchestrator, agent, onQuit, onComplete }: FinalizeAppProps): ReactNode {
   const [messages, setMessages] = useState<FinalizeMessage[]>(() => orchestrator.getMessages());
   const [currentPhase, setCurrentPhase] = useState<FinalizePhase>(() => orchestrator.getCurrentPhase());
   const [isLoading, setIsLoading] = useState(false);
@@ -55,6 +67,9 @@ export function FinalizeApp({ orchestrator, agent, onQuit }: FinalizeAppProps): 
   const { height: termHeight } = useTerminalDimensions();
   const renderer = useRenderer();
   const editorOpenRef = useRef(false);
+
+  const [completionSummary, setCompletionSummary] = useState<CompletionSummary | null>(null);
+  const completionFiredRef = useRef(false);
 
   const destroyedRef = useRef(false);
   useEffect(() => () => { destroyedRef.current = true; }, []);
@@ -68,6 +83,18 @@ export function FinalizeApp({ orchestrator, agent, onQuit }: FinalizeAppProps): 
     });
   }, [orchestrator]);
 
+  // Fetch completion summary when phase becomes "complete"
+  useEffect(() => {
+    if (currentPhase !== "complete" || completionFiredRef.current) return;
+    completionFiredRef.current = true;
+
+    orchestrator.getCompletionSummary().then((summary) => {
+      if (destroyedRef.current) return;
+      setCompletionSummary(summary);
+      onComplete?.(summary);
+    });
+  }, [currentPhase, orchestrator, onComplete]);
+
   const syncLineCount = useCallback(() => {
     if (destroyedRef.current) return;
     try {
@@ -80,7 +107,8 @@ export function FinalizeApp({ orchestrator, agent, onQuit }: FinalizeAppProps): 
 
   // Determine if the last assistant message has options
   const lastMessage = messages.length > 0 ? messages[messages.length - 1] : null;
-  const showOptions = lastMessage?.role === "assistant" && lastMessage.options && lastMessage.options.length > 0 && !isLoading;
+  const isComplete = currentPhase === "complete";
+  const showOptions = !isComplete && lastMessage?.role === "assistant" && lastMessage.options && lastMessage.options.length > 0 && !isLoading;
 
   const handleOptionSelect = useCallback(async (option: ChatOption) => {
     if (isLoading) return;
@@ -170,6 +198,11 @@ export function FinalizeApp({ orchestrator, agent, onQuit }: FinalizeAppProps): 
 
     // Enter to send (bare, unmodified) — only in freeform mode (OptionSelector handles its own Enter)
     if (key.name === "return" && !key.shift && !key.ctrl && !key.meta) {
+      if (isComplete) {
+        key.preventDefault?.();
+        onQuit();
+        return;
+      }
       if (showOptions) return; // OptionSelector handles Enter
       key.preventDefault?.();
       handleSubmit();
@@ -266,7 +299,7 @@ export function FinalizeApp({ orchestrator, agent, onQuit }: FinalizeAppProps): 
       if (key.name === "up") { key.preventDefault?.(); textarea.moveCursorUp({ select: true }); return; }
       if (key.name === "down") { key.preventDefault?.(); textarea.moveCursorDown({ select: true }); return; }
     }
-  }, [handleSubmit, onQuit, isLoading, showOptions, syncLineCount, renderer, messages]));
+  }, [handleSubmit, onQuit, isLoading, isComplete, showOptions, syncLineCount, renderer, messages]));
 
   // Sync line count after every key event
   useKeyboard(useCallback(() => {
@@ -340,11 +373,57 @@ export function FinalizeApp({ orchestrator, agent, onQuit }: FinalizeAppProps): 
               )}
             </box>
           )}
+          {isComplete && completionSummary && (
+            <box style={{ width: "100%", flexDirection: "column", marginBottom: 1 }}>
+              <box style={{ flexDirection: "row", gap: 1, marginBottom: 1 }}>
+                <text fg={colors.status.success} attributes={boldAttr()}>{"\u2713"} Finalize Complete</text>
+              </box>
+              {completionSummary.prUrl && (
+                <box style={{ paddingLeft: 2, marginBottom: 1 }}>
+                  <text fg={colors.fg.muted}>PR  </text>
+                  <text fg={colors.accent.primary} attributes={boldAttr()}>{completionSummary.prUrl}</text>
+                </box>
+              )}
+              <box style={{ paddingLeft: 2, flexDirection: "column" }}>
+                <box style={{ flexDirection: "row", gap: 2 }}>
+                  <text fg={colors.fg.muted}>Tasks completed</text>
+                  <text fg={colors.fg.primary}>{completionSummary.tasksCompleted}/{completionSummary.totalTasks}</text>
+                </box>
+                <box style={{ flexDirection: "row", gap: 2 }}>
+                  <text fg={colors.fg.muted}>Commits on branch</text>
+                  <text fg={colors.fg.primary}>{completionSummary.commitCount}</text>
+                </box>
+                <box style={{ flexDirection: "row", gap: 2 }}>
+                  <text fg={colors.fg.muted}>Review fixes applied</text>
+                  <text fg={colors.fg.primary}>{completionSummary.fixesApplied}</text>
+                </box>
+                <box style={{ flexDirection: "row", gap: 2 }}>
+                  <text fg={colors.fg.muted}>Duration</text>
+                  <text fg={colors.fg.primary}>{formatDuration(completionSummary.durationMs)}</text>
+                </box>
+              </box>
+            </box>
+          )}
         </scrollbox>
       </box>
 
       {/* Input area */}
-      {showOptions ? (
+      {isComplete ? (
+        <box
+          style={{
+            width: "100%",
+            height: 3,
+            flexDirection: "column",
+            backgroundColor: colors.bg.secondary,
+            border: true,
+            borderColor: colors.status.success,
+            justifyContent: "center",
+            alignItems: "center",
+          }}
+        >
+          <text fg={colors.fg.muted}>Press Enter or Ctrl+C to exit</text>
+        </box>
+      ) : showOptions ? (
         <box
           style={{
             width: "100%",
@@ -406,7 +485,9 @@ export function FinalizeApp({ orchestrator, agent, onQuit }: FinalizeAppProps): 
           paddingRight: 2,
         }}
       >
-        {isLoading ? (
+        {isComplete ? (
+          <text fg={colors.status.success}>Finalization complete</text>
+        ) : isLoading ? (
           <PhaseIndicator
             phase={streamingText ? "Streaming response..." : PHASE_LABELS[currentPhase]}
             startTime={loadingStartTime}

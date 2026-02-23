@@ -38,6 +38,15 @@ export type FinalizePhase =
   | "creating-pr"
   | "complete";
 
+export interface CompletionSummary {
+  prUrl: string | null;
+  tasksCompleted: number;
+  totalTasks: number;
+  commitCount: number;
+  fixesApplied: number;
+  durationMs: number;
+}
+
 export interface FinalizeChatState {
   phase: FinalizePhase;
   messages: FinalizeMessage[];

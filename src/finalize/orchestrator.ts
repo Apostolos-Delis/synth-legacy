@@ -1,12 +1,13 @@
 import { join } from "node:path";
 import type { AgentAdapter, AgentExecuteOptions } from "../agents/types.js";
 import type { SynthConfig } from "../config/types.js";
-import type { PlanPaths } from "../plans/types.js";
+import type { PlanPaths, PlanMetadata } from "../plans/types.js";
 import type { Task, TaskFile } from "../tasks/types.js";
 import type {
   FinalizePhase,
   FinalizeMessage,
   ChatOption,
+  CompletionSummary,
   FixTask,
   FixTaskStatus,
 } from "./chat-types.js";
@@ -15,7 +16,7 @@ import {
   buildAuditSystemPrompt,
   buildInitialAuditPrompt,
 } from "./audit-chat.js";
-import { writeJson, ensureDir, fileExists, readText } from "../utils/fs.js";
+import { writeJson, readJson, ensureDir, fileExists, readText } from "../utils/fs.js";
 import { spawn } from "../utils/process.js";
 import { createPr, generatePrBody, getDiffStats } from "./pr.js";
 import { getCurrentBranch } from "../utils/git.js";
@@ -86,6 +87,9 @@ export class FinalizeOrchestrator {
   private model?: string;
   private phaseListeners: PhaseChangeListener[] = [];
   private prUrl: string | null = null;
+  private startTime = 0;
+  private baseBranch = "";
+  private planPaths: PlanPaths | null = null;
 
   getCurrentPhase(): FinalizePhase {
     return this.phase;
@@ -107,6 +111,46 @@ export class FinalizeOrchestrator {
     return this.prUrl;
   }
 
+  async getCompletionSummary(): Promise<CompletionSummary> {
+    let tasksCompleted = 0;
+    let totalTasks = 0;
+
+    if (this.planPaths) {
+      try {
+        const taskFile = await loadTasks(this.planPaths.tasks);
+        totalTasks = taskFile.tasks.length;
+        tasksCompleted = taskFile.tasks.filter((t) => t.status === "done").length;
+      } catch {
+        // Tasks file may not exist
+      }
+    }
+
+    let commitCount = 0;
+    if (this.baseBranch && this.cwd) {
+      try {
+        const handle = spawn({
+          cmd: ["git", "rev-list", "--count", `${this.baseBranch}..HEAD`],
+          cwd: this.cwd,
+        });
+        const result = await handle.promise;
+        if (result.exitCode === 0) {
+          commitCount = parseInt(result.stdout.trim(), 10) || 0;
+        }
+      } catch {
+        // Ignore git errors
+      }
+    }
+
+    return {
+      prUrl: this.prUrl,
+      tasksCompleted,
+      totalTasks,
+      commitCount,
+      fixesApplied: this.confirmedFixes.length,
+      durationMs: this.startTime > 0 ? Date.now() - this.startTime : 0,
+    };
+  }
+
   onPhaseChange(listener: PhaseChangeListener): () => void {
     this.phaseListeners.push(listener);
     return () => {
@@ -120,6 +164,24 @@ export class FinalizeOrchestrator {
     for (const listener of this.phaseListeners) {
       listener(phase);
     }
+    if (phase === "complete" && this.planPaths) {
+      this.updateMetadataToFinalized();
+    }
+  }
+
+  private async updateMetadataToFinalized(): Promise<void> {
+    if (!this.planPaths) return;
+    try {
+      const metaPath = join(this.planPaths.root, "metadata.json");
+      const meta = await readJson<PlanMetadata>(metaPath);
+      await writeJson(metaPath, {
+        ...meta,
+        status: "finalized",
+        updatedAt: new Date().toISOString(),
+      });
+    } catch {
+      // Metadata update is best-effort
+    }
   }
 
   async start(
@@ -132,6 +194,9 @@ export class FinalizeOrchestrator {
     this.cwd = cwd;
     this.model = config.agent.model;
     this.systemPrompt = buildAuditSystemPrompt();
+    this.startTime = Date.now();
+    this.baseBranch = config.project.base_branch;
+    this.planPaths = planPaths;
     this.setPhase("auditing");
 
     // Build the audit context from git diff + task file
