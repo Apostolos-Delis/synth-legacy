@@ -14,6 +14,7 @@ import {
 import { loadTasks, saveTasks, getProgress, resetOrphanedTasks } from "./tasks/store.js";
 import { writeText, readText, fileExists } from "./utils/fs.js";
 import { spawn } from "./utils/process.js";
+import { loadTaskOutput, buildIterationMap } from "./engine/output-index.js";
 import { ansi, fmt, STATUS_ICONS, STATUS_COLORS, PRIORITY_COLORS, initTheme } from "./tui/theme.js";
 import { globalTrace, formatProfileReport, formatProfileReportJson } from "./utils/perf.js";
 
@@ -424,6 +425,22 @@ async function cmdRun(planId?: string, startIteration = 0, tuiContext?: TuiConte
       completionSummary: null,
       taskOutputMap: {},
     };
+
+    // Pre-load historical outputs for tasks completed in previous sessions
+    const completedTasks = taskFile.tasks.filter((t) => t.status === "done");
+    if (completedTasks.length > 0) {
+      buildIterationMap(plan.paths.progress).then(async (iterMap) => {
+        if (!tuiData || iterMap.length === 0) return;
+        for (const task of completedTasks) {
+          if (tuiData.taskOutputMap[task.id]) continue;
+          const output = await loadTaskOutput(plan!.paths.logs, task.id, iterMap);
+          if (output && !tuiData.taskOutputMap[task.id]) {
+            tuiData.taskOutputMap[task.id] = output;
+          }
+        }
+        renderTui();
+      });
+    }
   }
 
   let firstTokenRendered = false;

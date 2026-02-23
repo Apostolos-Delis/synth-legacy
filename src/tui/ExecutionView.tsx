@@ -38,9 +38,16 @@ export function ExecutionView({ state, selectedTaskIndex, navMode }: ExecutionVi
   const isSelectedTaskActive = selectedTask?.id === state.currentTaskId;
 
   // Show live output for active task, stored output for others
+  const storedOutput = selectedTask ? (state.taskOutputMap[selectedTask.id] ?? "") : "";
+  const isCompletedWithNoOutput = !isSelectedTaskActive
+    && selectedTask
+    && (selectedTask.status === "done" || selectedTask.status === "failed")
+    && !storedOutput;
   const displayOutput = isSelectedTaskActive
     ? state.output
-    : (selectedTask ? (state.taskOutputMap[selectedTask.id] ?? "") : "");
+    : isCompletedWithNoOutput
+      ? "No output recorded"
+      : storedOutput;
 
   // Only show thinking indicator for the active task
   const showThinking = isSelectedTaskActive && state.isThinking;
