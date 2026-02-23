@@ -1,5 +1,5 @@
 import { useState, useCallback, useMemo, useRef, useEffect, type ReactNode } from "react";
-import { useKeyboard } from "@opentui/react";
+import { useKeyboard, useRenderer } from "@opentui/react";
 import type { TuiState, TuiEngineData, ViewMode, NavMode } from "./types.js";
 import { ExecutionView } from "./ExecutionView.js";
 import { DashboardView } from "./DashboardView.js";
@@ -31,6 +31,12 @@ export function App({
   const [selectedTaskIndex, setSelectedTaskIndex] = useState(0);
   const [navMode, setNavMode] = useState<NavMode>("task-scroll");
   const { toasts, showSuccess, showInfo, showWarning } = useToast();
+
+  // Hide cursor — no text input fields exist in execution/dashboard/completion views
+  const renderer = useRenderer();
+  useEffect(() => {
+    renderer.setCursorPosition(0, 0, false);
+  }, [renderer]);
 
   // Use refs for modal states and view so the key handler callback stays stable
   const showHelpRef = useRef(showHelp);
