@@ -15,8 +15,11 @@ import {
   buildAuditSystemPrompt,
   buildInitialAuditPrompt,
 } from "./audit-chat.js";
-import { writeJson, ensureDir } from "../utils/fs.js";
+import { writeJson, ensureDir, fileExists, readText } from "../utils/fs.js";
 import { spawn } from "../utils/process.js";
+import { createPr, generatePrBody, getDiffStats } from "./pr.js";
+import { getCurrentBranch } from "../utils/git.js";
+import { loadTasks } from "../tasks/store.js";
 
 const MAX_HISTORY = 20;
 const OPTION_RE = /\[OPTION\]([^|]+)\|([^[]+)\[\/OPTION\]/g;
@@ -82,6 +85,7 @@ export class FinalizeOrchestrator {
   private cwd = "";
   private model?: string;
   private phaseListeners: PhaseChangeListener[] = [];
+  private prUrl: string | null = null;
 
   getCurrentPhase(): FinalizePhase {
     return this.phase;
@@ -97,6 +101,10 @@ export class FinalizeOrchestrator {
 
   getMessages(): FinalizeMessage[] {
     return [...this.messages];
+  }
+
+  getPrUrl(): string | null {
+    return this.prUrl;
   }
 
   onPhaseChange(listener: PhaseChangeListener): () => void {
@@ -199,6 +207,10 @@ export class FinalizeOrchestrator {
 
     if (this.phase === "executing-fixes") {
       return this.handleExecutingFixesOption(option);
+    }
+
+    if (this.phase === "creating-pr") {
+      return this.handleCreatingPrOption(option);
     }
 
     // Default: treat as a conversational message
@@ -493,6 +505,40 @@ export class FinalizeOrchestrator {
     }
   }
 
+  private handleCreatingPrOption(
+    option: ChatOption,
+  ): OrchestratorResponse {
+    switch (option.value) {
+      case "retry-pr": {
+        const msg: FinalizeMessage = {
+          role: "assistant",
+          content: "Retrying PR creation...",
+        };
+        this.messages.push(msg);
+        return { message: msg };
+      }
+
+      case "exit": {
+        this.setPhase("complete");
+        const msg: FinalizeMessage = {
+          role: "assistant",
+          content: "Exiting without creating a PR. You can create one manually later.",
+        };
+        this.messages.push(msg);
+        return { message: msg };
+      }
+
+      default: {
+        const msg: FinalizeMessage = {
+          role: "assistant",
+          content: `Selected: ${option.label}. Use the available options to proceed.`,
+        };
+        this.messages.push(msg);
+        return { message: msg };
+      }
+    }
+  }
+
   // ---------------------------------------------------------------------------
   // Fix execution
   // ---------------------------------------------------------------------------
@@ -646,6 +692,137 @@ export class FinalizeOrchestrator {
     };
     this.messages.push(cleanMsg);
     return { message: cleanMsg };
+  }
+
+  // ---------------------------------------------------------------------------
+  // PR creation
+  // ---------------------------------------------------------------------------
+
+  async executePrCreation(
+    config: SynthConfig,
+    planPaths: PlanPaths,
+    onMessage: (msg: FinalizeMessage) => void,
+  ): Promise<OrchestratorResponse> {
+    const baseBranch = config.project.base_branch;
+
+    // AC #1: Stage any uncommitted changes and commit
+    const addHandle = spawn({ cmd: ["git", "add", "-A"], cwd: this.cwd });
+    await addHandle.promise;
+
+    const hasStagedHandle = spawn({
+      cmd: ["git", "diff", "--cached", "--quiet"],
+      cwd: this.cwd,
+    });
+    const hasStagedResult = await hasStagedHandle.promise;
+
+    if (hasStagedResult.exitCode !== 0) {
+      // There are staged changes — commit them
+      const taskFile = await loadTasks(planPaths.tasks);
+      const commitMsg = `feat: ${taskFile.description || config.project.name}`;
+      const commitHandle = spawn({
+        cmd: ["git", "commit", "-m", commitMsg],
+        cwd: this.cwd,
+      });
+      const commitResult = await commitHandle.promise;
+
+      if (commitResult.exitCode !== 0) {
+        return this.prError(
+          `Commit failed: ${commitResult.stderr}`,
+          onMessage,
+        );
+      }
+
+      const commitInfo: FinalizeMessage = {
+        role: "assistant",
+        content: `Committed changes: "${commitMsg}"`,
+      };
+      this.messages.push(commitInfo);
+      onMessage(commitInfo);
+    }
+
+    // AC #2: Push branch with upstream tracking
+    let branch: string;
+    try {
+      branch = await getCurrentBranch(this.cwd);
+    } catch (err) {
+      return this.prError(
+        `Failed to detect branch: ${err instanceof Error ? err.message : String(err)}`,
+        onMessage,
+      );
+    }
+
+    const pushMsg: FinalizeMessage = {
+      role: "assistant",
+      content: `Pushing branch "${branch}" to origin...`,
+    };
+    this.messages.push(pushMsg);
+    onMessage(pushMsg);
+
+    // AC #3 & #4: Generate PR body and create the PR
+    let taskFile;
+    try {
+      taskFile = await loadTasks(planPaths.tasks);
+    } catch (err) {
+      return this.prError(
+        `Failed to load tasks: ${err instanceof Error ? err.message : String(err)}`,
+        onMessage,
+      );
+    }
+
+    const prdExists = await fileExists(planPaths.prd);
+    const prdContent = prdExists ? await readText(planPaths.prd) : null;
+    const diffStats = await getDiffStats(this.cwd, baseBranch);
+
+    const body = generatePrBody(taskFile, prdContent, [], diffStats);
+    const title = taskFile.description || config.project.name;
+
+    try {
+      const result = await createPr(this.cwd, branch, title, body);
+
+      // AC #5: Store PR URL in state and transition to complete
+      this.prUrl = result.url;
+      this.setPhase("complete");
+
+      const successMsg: FinalizeMessage = {
+        role: "assistant",
+        content: `PR created successfully: ${result.url}`,
+      };
+      this.messages.push(successMsg);
+      return { message: successMsg };
+    } catch (err) {
+      // AC #6: Show error with retry option
+      return this.prError(
+        err instanceof Error ? err.message : String(err),
+        onMessage,
+      );
+    }
+  }
+
+  private prError(
+    errorText: string,
+    onMessage: (msg: FinalizeMessage) => void,
+  ): OrchestratorResponse {
+    const options: ChatOption[] = [
+      {
+        label: "Retry",
+        description: "Retry PR creation",
+        value: "retry-pr",
+      },
+      {
+        label: "Exit",
+        description: "Exit without creating a PR",
+        value: "exit",
+      },
+    ];
+
+    const errMsg: FinalizeMessage = {
+      role: "assistant",
+      content: `PR creation failed: ${errorText}`,
+      options,
+    };
+    this.messages.push(errMsg);
+    onMessage(errMsg);
+    return { message: errMsg };
   }
 
   private async handleGenericResponse(
