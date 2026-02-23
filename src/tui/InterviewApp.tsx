@@ -6,6 +6,7 @@ import { WELCOME_MESSAGE } from "../interview/interviewer.js";
 import { boldAttr, colors, markdownSyntaxStyle } from "./theme.js";
 import { PhaseIndicator } from "./components/PhaseIndicator.js";
 import { openInEditor } from "../utils/editor.js";
+import { copyToClipboard } from "../utils/clipboard.js";
 
 interface InterviewAppProps {
   onSendMessage: (msg: string, onChunk: (chunk: string) => void) => Promise<{ response: string; done: boolean }>;
@@ -135,6 +136,19 @@ export function InterviewApp({ onSendMessage, onComplete, onQuit, initialMessage
       return;
     }
 
+    // Cmd+C — copy selected text (or last assistant message) to clipboard
+    if (key.name === "c" && key.meta) {
+      key.preventDefault?.();
+      const selected = textarea?.hasSelection() ? textarea.getSelectedText() : null;
+      if (selected) {
+        copyToClipboard(selected);
+      } else {
+        const lastAssistant = messages.filter((m) => m.role === "assistant").at(-1);
+        if (lastAssistant) copyToClipboard(lastAssistant.content);
+      }
+      return;
+    }
+
     // Escape or Ctrl+C to quit
     if (key.name === "escape") {
       onQuit();
@@ -241,7 +255,7 @@ export function InterviewApp({ onSendMessage, onComplete, onQuit, initialMessage
         return;
       }
     }
-  }, [handleSubmit, onQuit, isLoading, syncLineCount, renderer]));
+  }, [handleSubmit, onQuit, isLoading, syncLineCount, renderer, messages]));
 
   // Sync line count after every key event (runs after textarea processes the key)
   useKeyboard(useCallback(() => {
