@@ -1,6 +1,8 @@
 import type { SynthConfig } from "../config/types.js";
-import type { AgentAdapter } from "../agents/types.js";
+import type { AgentAdapter, AgentExecutionResult } from "../agents/types.js";
 import type { PlanPaths } from "../plans/types.js";
+import type { Task } from "../tasks/types.js";
+import type { TaskFile } from "../tasks/types.js";
 import type {
   EngineEvent,
   EngineEventListener,
@@ -78,13 +80,166 @@ export class Engine {
     this.activeInterrupt?.();
   }
 
+  private mergeCriteriaIntoTaskFile(taskFile: TaskFile, task: Task): TaskFile {
+    return {
+      ...taskFile,
+      tasks: taskFile.tasks.map((t) =>
+        t.id === task.id
+          ? { ...t, criteriaCompleted: task.criteriaCompleted ?? t.criteriaCompleted }
+          : t,
+      ),
+    };
+  }
+
+  private async handleRateLimit(
+    taskId: string,
+    result: AgentExecutionResult,
+  ): Promise<{ rateLimited: boolean; delay: number }> {
+    if (!detectRateLimit(result.stdout + result.stderr)) {
+      this.rateLimitAttempts = 0;
+      return { rateLimited: false, delay: 0 };
+    }
+
+    this.rateLimitAttempts++;
+    const delay = getBackoffDelay(this.rateLimitAttempts);
+    this.emit({
+      type: "rate-limit:detected",
+      message: `Rate limited, backing off ${delay / 1000}s`,
+    });
+    const freshFile = await loadTasks(this.planPaths.tasks);
+    const reverted = updateTaskStatus(freshFile, taskId, "open");
+    await saveTasks(this.planPaths.tasks, reverted);
+    return { rateLimited: true, delay };
+  }
+
+  private async runBackpressureChecks(taskId: string): Promise<boolean> {
+    if (this.config.guardrails.backpressure_commands.length === 0) {
+      return true;
+    }
+
+    this.emit({ type: "backpressure:start", taskId });
+    const bp = await runBackpressure(
+      this.config.guardrails.backpressure_commands,
+      this.cwd,
+    );
+
+    if (bp.passed) {
+      this.emit({ type: "backpressure:pass", taskId });
+    } else {
+      this.emit({
+        type: "backpressure:fail",
+        taskId,
+        message: bp.results
+          .filter((r) => r.exitCode !== 0)
+          .map((r) => `${r.command}: exit ${r.exitCode}`)
+          .join(", "),
+      });
+    }
+
+    return bp.passed;
+  }
+
+  private async autoCommit(task: Task): Promise<void> {
+    const commitMsg = `feat: ${task.id} - ${task.title}`;
+    const addResult = await spawn({ cmd: ["git", "add", "-u"], cwd: this.cwd }).promise;
+    if (addResult.exitCode !== 0) {
+      this.emit({
+        type: "task:failed",
+        taskId: task.id,
+        message: `git add failed (exit ${addResult.exitCode}): ${addResult.stderr}`,
+      });
+      return;
+    }
+    const commitResult = await spawn({
+      cmd: ["git", "commit", "-m", commitMsg, "--allow-empty"],
+      cwd: this.cwd,
+    }).promise;
+    if (commitResult.exitCode !== 0) {
+      this.emit({
+        type: "task:failed",
+        taskId: task.id,
+        message: `git commit failed (exit ${commitResult.exitCode}): ${commitResult.stderr}`,
+      });
+    }
+  }
+
+  private async handleIterationSuccess(
+    task: Task,
+    freshTaskFile: TaskFile,
+    duration: number,
+  ): Promise<void> {
+    const criteriaCount = task.acceptanceCriteria.length;
+    const criteriaDone = task.criteriaCompleted
+      ? task.criteriaCompleted.filter(Boolean).length
+      : 0;
+
+    if (task.criteriaCompleted) {
+      for (let i = 0; i < task.criteriaCompleted.length; i++) {
+        task.criteriaCompleted[i] = true;
+      }
+    }
+
+    const mergedFile = this.mergeCriteriaIntoTaskFile(freshTaskFile, task);
+    const doneFile = updateTaskStatus(mergedFile, task.id, "done");
+    await saveTasks(this.planPaths.tasks, doneFile);
+    this.circuitBreaker.recordSuccess();
+    this.emit({
+      type: "task:complete",
+      taskId: task.id,
+      message: task.title,
+    });
+
+    if (this.config.execution.auto_commit) {
+      await this.autoCommit(task);
+    }
+
+    const durationSec = Math.round(duration / 1000);
+    const progressEntry = `## Iteration ${this.iteration} - ${task.id}: ${task.title}\n- Status: done\n- Duration: ${durationSec}s\n- Criteria: ${criteriaDone}/${criteriaCount} observed\n---\n`;
+    await appendText(this.planPaths.progress, progressEntry);
+  }
+
+  /**
+   * Returns true if the circuit breaker tripped (caller should break the loop).
+   */
+  private async handleIterationFailure(
+    task: Task,
+    freshTaskFile: TaskFile,
+    result: AgentExecutionResult,
+    backpressurePassed: boolean,
+  ): Promise<boolean> {
+    const failNotes = !backpressurePassed
+      ? `Iteration ${this.iteration}: backpressure failed`
+      : result.timedOut
+        ? `Iteration ${this.iteration}: timed out`
+        : `Iteration ${this.iteration}: agent exited with code ${result.exitCode}`;
+
+    const mergedFile = this.mergeCriteriaIntoTaskFile(freshTaskFile, task);
+    const failedFile = updateTaskStatus(mergedFile, task.id, "open", failNotes);
+    await saveTasks(this.planPaths.tasks, failedFile);
+    this.emit({
+      type: "task:failed",
+      taskId: task.id,
+      message: failNotes,
+    });
+
+    if (this.circuitBreaker.recordFailure()) {
+      this.emit({
+        type: "circuit:trip",
+        message: `Circuit breaker tripped after ${this.circuitBreaker.failures} consecutive failures`,
+      });
+      this.setState("blocked");
+      return true;
+    }
+
+    return false;
+  }
+
   async run(startIteration = 0): Promise<void> {
     this.iteration = startIteration;
     this.shouldStop = false;
     this.setState("executing");
 
     while (!this.shouldStop) {
-      // Check iteration cap
       if (this.iteration >= this.config.execution.max_iterations) {
         this.emit({
           type: "state:change",
@@ -94,18 +249,15 @@ export class Engine {
         break;
       }
 
-      // Load tasks fresh each iteration
       this.emit({ type: "phase:scanning", timestamp: Date.now() });
       const taskFile = await loadTasks(this.planPaths.tasks);
 
-      // Check all done
       if (allTasksDone(taskFile)) {
         this.emit({ type: "complete" });
         this.setState("completed");
         break;
       }
 
-      // Select next task
       const trace = globalTrace();
       trace.startPhase("engine:task-selection");
       const task = selectNextTask(taskFile);
@@ -127,11 +279,9 @@ export class Engine {
       });
       this.emit({ type: "task:start", taskId: task.id, message: task.title });
 
-      // Mark in_progress
       const updatedFile = updateTaskStatus(taskFile, task.id, "in_progress");
       await saveTasks(this.planPaths.tasks, updatedFile);
 
-      // Build prompt
       this.emit({ type: "phase:building-prompt", timestamp: Date.now() });
       trace.startPhase("engine:prompt-build");
       const prompt = await buildPrompt(
@@ -165,7 +315,6 @@ export class Engine {
             firstChunkReceived = true;
           }
 
-          // Parse ac-done markers before appending to output
           const markers = parseAcDoneMarkers(chunk);
           for (const oneBasedIdx of markers) {
             const zeroBasedIdx = oneBasedIdx - 1;
@@ -201,7 +350,6 @@ export class Engine {
 
       if (this.shouldStop) break;
 
-      // Log iteration
       const logPath = `${this.planPaths.logs}/iteration-${String(this.iteration).padStart(3, "0")}.jsonl`;
       await ensureDir(this.planPaths.logs);
       await writeText(logPath, output);
@@ -209,157 +357,44 @@ export class Engine {
       // Result processing
       trace.startPhase("engine:result-processing");
 
-      // Rate limit check
-      if (detectRateLimit(result.stdout + result.stderr)) {
-        this.rateLimitAttempts++;
-        const delay = getBackoffDelay(this.rateLimitAttempts);
-        this.emit({
-          type: "rate-limit:detected",
-          message: `Rate limited, backing off ${delay / 1000}s`,
-        });
-        // Re-read tasks.json and revert to open (prevents overwriting external changes)
-        const freshFile = await loadTasks(this.planPaths.tasks);
-        const reverted = updateTaskStatus(freshFile, task.id, "open");
-        await saveTasks(this.planPaths.tasks, reverted);
+      const { rateLimited, delay } = await this.handleRateLimit(task.id, result);
+      if (rateLimited) {
         trace.endPhase("engine:result-processing");
         await Bun.sleep(delay);
         continue;
       }
-      this.rateLimitAttempts = 0;
 
-      // Completion detection
       const completionDetected = COMPLETION_PATTERN.test(output);
-
-      // Backpressure
-      let backpressurePassed = true;
-      if (this.config.guardrails.backpressure_commands.length > 0) {
-        this.emit({ type: "backpressure:start", taskId: task.id });
-        const bp = await runBackpressure(
-          this.config.guardrails.backpressure_commands,
-          this.cwd,
-        );
-        backpressurePassed = bp.passed;
-
-        if (bp.passed) {
-          this.emit({ type: "backpressure:pass", taskId: task.id });
-        } else {
-          this.emit({
-            type: "backpressure:fail",
-            taskId: task.id,
-            message: bp.results
-              .filter((r) => r.exitCode !== 0)
-              .map((r) => `${r.command}: exit ${r.exitCode}`)
-              .join(", "),
-          });
-        }
-      }
-
-      // Determine success
+      const backpressurePassed = await this.runBackpressureChecks(task.id);
       const success =
         result.exitCode === 0 && backpressurePassed && !result.timedOut;
 
-      // Re-read tasks.json before writing final status (prevents overwriting external changes)
       const freshTaskFile = await loadTasks(this.planPaths.tasks);
 
       if (success) {
-        // Snapshot observed criteria before bulk-completing
-        const criteriaCount = task.acceptanceCriteria.length;
-        const criteriaDone = task.criteriaCompleted
-          ? task.criteriaCompleted.filter(Boolean).length
-          : 0;
-
-        // Mark all criteria as complete on successful task completion
-        if (task.criteriaCompleted) {
-          for (let i = 0; i < task.criteriaCompleted.length; i++) {
-            task.criteriaCompleted[i] = true;
-          }
-        }
-        // Merge in-memory criteriaCompleted before persisting
-        const mergedFile: typeof freshTaskFile = {
-          ...freshTaskFile,
-          tasks: freshTaskFile.tasks.map((t) =>
-            t.id === task.id
-              ? { ...t, criteriaCompleted: task.criteriaCompleted ?? t.criteriaCompleted }
-              : t,
-          ),
-        };
-        const doneFile = updateTaskStatus(mergedFile, task.id, "done");
-        await saveTasks(this.planPaths.tasks, doneFile);
-        this.circuitBreaker.recordSuccess();
-        this.emit({
-          type: "task:complete",
-          taskId: task.id,
-          message: task.title,
-        });
-
-        // Auto-commit (git add -u: only tracked files, not untracked)
-        if (this.config.execution.auto_commit) {
-          const commitMsg = `feat: ${task.id} - ${task.title}`;
-          const addHandle = spawn({
-            cmd: ["git", "add", "-u"],
-            cwd: this.cwd,
-          });
-          await addHandle.promise;
-          const commitResult = spawn({
-            cmd: ["git", "commit", "-m", commitMsg, "--allow-empty"],
-            cwd: this.cwd,
-          });
-          await commitResult.promise;
-        }
-
-        // Append progress (criteriaDone reflects markers observed, not bulk-complete)
-        const durationSec = Math.round(duration / 1000);
-        const progressEntry = `## Iteration ${this.iteration} - ${task.id}: ${task.title}\n- Status: done\n- Duration: ${durationSec}s\n- Criteria: ${criteriaDone}/${criteriaCount} observed\n---\n`;
-        await appendText(this.planPaths.progress, progressEntry);
+        await this.handleIterationSuccess(task, freshTaskFile, duration);
       } else {
-        const failNotes = !backpressurePassed
-          ? `Iteration ${this.iteration}: backpressure failed`
-          : result.timedOut
-            ? `Iteration ${this.iteration}: timed out`
-            : `Iteration ${this.iteration}: agent exited with code ${result.exitCode}`;
-
-        // Merge any criteria progress observed during this iteration
-        const mergedFailFile: typeof freshTaskFile = {
-          ...freshTaskFile,
-          tasks: freshTaskFile.tasks.map((t) =>
-            t.id === task.id
-              ? { ...t, criteriaCompleted: task.criteriaCompleted ?? t.criteriaCompleted }
-              : t,
-          ),
-        };
-        const failedFile = updateTaskStatus(
-          mergedFailFile,
-          task.id,
-          "open",
-          failNotes,
+        const tripped = await this.handleIterationFailure(
+          task,
+          freshTaskFile,
+          result,
+          backpressurePassed,
         );
-        await saveTasks(this.planPaths.tasks, failedFile);
-        this.emit({
-          type: "task:failed",
-          taskId: task.id,
-          message: failNotes,
-        });
-
-        if (this.circuitBreaker.recordFailure()) {
-          this.emit({
-            type: "circuit:trip",
-            message: `Circuit breaker tripped after ${this.circuitBreaker.failures} consecutive failures`,
-          });
-          this.setState("blocked");
-          break;
-        }
+        if (tripped) break;
       }
 
       trace.endPhase("engine:result-processing");
 
-      // Update session with current iteration
       try {
         await updateSession(this.planPaths, { currentIteration: this.iteration });
-      } catch {
-        // Session may not exist in all contexts
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : String(err);
+        this.emit({
+          type: "state:change",
+          message: `Failed to update session: ${message}`,
+        });
       }
 
-      // Store first-token timestamp for reporting
       if (result.firstTokenMs !== undefined && result.firstTokenMs !== null) {
         trace.recordPhase("engine:first-token", result.firstTokenMs);
       }
@@ -381,7 +416,6 @@ export class Engine {
         data: iterResult,
       });
 
-      // Check completion after successful iteration
       if (completionDetected) {
         const finalTasks = await loadTasks(this.planPaths.tasks);
         if (allTasksDone(finalTasks)) {
@@ -391,7 +425,6 @@ export class Engine {
         }
       }
 
-      // Iteration delay
       if (this.config.execution.iteration_delay > 0) {
         await Bun.sleep(this.config.execution.iteration_delay);
       }
