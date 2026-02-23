@@ -16,9 +16,19 @@ export const TaskDetailHeader = memo(function TaskDetailHeader({
   const statusIcon = statusIndicators[task.status] ?? "?";
   const statusColor = STATUS_COLORS_HEX[task.status] ?? colors.fg.muted;
 
+  // Word-wrap description into lines that fit the available width.
+  const innerWidth = Math.max(1, width - 6);
+  const descLines: string[] = [];
+  let remaining = task.description;
+  while (remaining.length > 0) {
+    descLines.push(remaining.slice(0, innerWidth));
+    remaining = remaining.slice(innerWidth);
+  }
+  if (descLines.length === 0) descLines.push("");
+
   // Build acceptance criteria rows, respecting height limit.
-  // Reserve 2 for border, 1 for title, 1 for description, 1 blank separator.
-  const maxCriteriaRows = Math.max(0, height - 2 - 3);
+  // Reserve 2 for border, 1 for title, descLines for description, 1 blank separator.
+  const maxCriteriaRows = Math.max(0, height - 2 - 1 - descLines.length - 1);
   const criteria = task.acceptanceCriteria;
   const completed = task.criteriaCompleted;
 
@@ -48,12 +58,6 @@ export const TaskDetailHeader = memo(function TaskDetailHeader({
     );
   }
 
-  const descMaxLen = width - 6;
-  const desc =
-    task.description.length > descMaxLen
-      ? task.description.slice(0, descMaxLen - 3) + "..."
-      : task.description;
-
   return (
     <box
       width={width}
@@ -67,9 +71,11 @@ export const TaskDetailHeader = memo(function TaskDetailHeader({
         <span fg={colors.fg.primary} attributes={boldAttr()}>{task.title}</span>
         <span fg={statusColor}> [{task.status}]</span>
       </text>
-      <text>
-        <span fg={colors.fg.muted}>{desc}</span>
-      </text>
+      {descLines.map((line, i) => (
+        <text key={`desc-${i}`}>
+          <span fg={colors.fg.muted}>{line}</span>
+        </text>
+      ))}
       <text />
       {criteriaRows}
     </box>
