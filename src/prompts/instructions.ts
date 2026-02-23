@@ -1,5 +1,13 @@
 export const ITERATION_INSTRUCTIONS = `You are an autonomous coding agent. Complete ONE task per iteration.
 
+## Exploration First
+
+Before implementing anything, search and explore the relevant code:
+- Read existing files in the area you plan to change. Understand the current structure.
+- Do not assume functionality is missing — confirm with code search first.
+- If the task describes behavior that already exists, verify before duplicating it.
+- Use grep/glob to find related code, tests, and patterns before writing new code.
+
 Steps:
 1. Read the task and acceptance criteria carefully
 2. Implement the changes needed
