@@ -1,6 +1,8 @@
+import { join } from "node:path";
 import type { AgentAdapter, AgentExecuteOptions } from "../agents/types.js";
 import type { SynthConfig } from "../config/types.js";
 import type { PlanPaths } from "../plans/types.js";
+import type { Task, TaskFile } from "../tasks/types.js";
 import type {
   FinalizePhase,
   FinalizeMessage,
@@ -13,6 +15,8 @@ import {
   buildAuditSystemPrompt,
   buildInitialAuditPrompt,
 } from "./audit-chat.js";
+import { writeJson, ensureDir } from "../utils/fs.js";
+import { spawn } from "../utils/process.js";
 
 const MAX_HISTORY = 20;
 const OPTION_RE = /\[OPTION\]([^|]+)\|([^[]+)\[\/OPTION\]/g;
@@ -191,6 +195,10 @@ export class FinalizeOrchestrator {
 
     if (this.phase === "collecting-fixes") {
       return this.handleFixOption(agent, option, onChunk);
+    }
+
+    if (this.phase === "executing-fixes") {
+      return this.handleExecutingFixesOption(option);
     }
 
     // Default: treat as a conversational message
@@ -445,6 +453,201 @@ export class FinalizeOrchestrator {
     return { message: msg };
   }
 
+  private handleExecutingFixesOption(
+    option: ChatOption,
+  ): OrchestratorResponse {
+    switch (option.value) {
+      case "another-round": {
+        // Reset fixes for a new round — keep the confirmed list for reference
+        this.fixes = [];
+        this.confirmedFixes = [];
+        this.fixCounter = 0;
+        this.reviewIndex = 0;
+        this.setPhase("discussing");
+        const msg: FinalizeMessage = {
+          role: "assistant",
+          content: "Starting another round of review. What would you like to address?",
+        };
+        this.messages.push(msg);
+        return { message: msg };
+      }
+
+      case "proceed-to-pr": {
+        this.setPhase("creating-pr");
+        const msg: FinalizeMessage = {
+          role: "assistant",
+          content: "All fixes applied. Moving on to PR creation.",
+        };
+        this.messages.push(msg);
+        return { message: msg };
+      }
+
+      default: {
+        const msg: FinalizeMessage = {
+          role: "assistant",
+          content: `Selected: ${option.label}. Use the available options to proceed.`,
+        };
+        this.messages.push(msg);
+        return { message: msg };
+      }
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Fix execution
+  // ---------------------------------------------------------------------------
+
+  async executeFixes(
+    agent: AgentAdapter,
+    config: SynthConfig,
+    planPaths: PlanPaths,
+    onMessage: (msg: FinalizeMessage) => void,
+  ): Promise<OrchestratorResponse> {
+    // AC #6: If no fixes were confirmed, skip entirely
+    if (this.confirmedFixes.length === 0) {
+      this.setPhase("creating-pr");
+      const skipMsg: FinalizeMessage = {
+        role: "assistant",
+        content: "No confirmed fixes to execute. Moving on to PR creation.",
+      };
+      this.messages.push(skipMsg);
+      return { message: skipMsg };
+    }
+
+    const total = this.confirmedFixes.length;
+
+    // AC #1: Convert FixTasks to Task[] and write temporary tasks file
+    const fixTasks = this.confirmedFixes.map((fix, i) =>
+      fixTaskToEngineTask(fix, i),
+    );
+    const fixTaskFile: TaskFile = {
+      project: config.project.name,
+      branchName: config.project.branch,
+      description: "Fix tasks from code review",
+      tasks: fixTasks,
+    };
+
+    const fixTasksPath = join(planPaths.root, "fix-tasks.json");
+    await ensureDir(planPaths.root);
+    await writeJson(fixTasksPath, fixTaskFile);
+
+    // AC #2 & #3: Execute each fix using the same agent, reporting progress
+    for (let i = 0; i < total; i++) {
+      const fix = this.confirmedFixes[i];
+      const progress = `${i + 1}/${total}`;
+
+      const startMsg: FinalizeMessage = {
+        role: "assistant",
+        content: `Executing fix ${progress}: ${fix.description}`,
+      };
+      this.messages.push(startMsg);
+      onMessage(startMsg);
+
+      try {
+        const prompt = buildFixPrompt(fix, this.cwd);
+        await this.sendToAgent(agent, prompt);
+
+        const doneMsg: FinalizeMessage = {
+          role: "assistant",
+          content: `Fix ${progress} complete.`,
+        };
+        this.messages.push(doneMsg);
+        onMessage(doneMsg);
+      } catch (err) {
+        // AC #7: Report failures without crashing
+        const errMsg = err instanceof Error ? err.message : String(err);
+        const failMsg: FinalizeMessage = {
+          role: "assistant",
+          content: `Fix ${progress} failed: ${errMsg}`,
+        };
+        this.messages.push(failMsg);
+        onMessage(failMsg);
+      }
+    }
+
+    // AC #4: Quick re-check of changes after fixes
+    return this.recheckAfterFixes(agent, config, planPaths, onMessage);
+  }
+
+  // AC #4 & #5: Re-check changes and present options
+  private async recheckAfterFixes(
+    agent: AgentAdapter,
+    config: SynthConfig,
+    _planPaths: PlanPaths,
+    onMessage: (msg: FinalizeMessage) => void,
+  ): Promise<OrchestratorResponse> {
+    const recheckMsg: FinalizeMessage = {
+      role: "assistant",
+      content: "Re-checking changes after fixes...",
+    };
+    this.messages.push(recheckMsg);
+    onMessage(recheckMsg);
+
+    // Get the current diff to re-check
+    const diffHandle = spawn({
+      cmd: ["git", "diff", `${config.project.base_branch}...HEAD`],
+      cwd: this.cwd,
+    });
+    const diffResult = await diffHandle.promise;
+    const diff = diffResult.exitCode === 0 ? diffResult.stdout : "";
+
+    // Also get unstaged changes from fix execution
+    const unstagedHandle = spawn({
+      cmd: ["git", "diff"],
+      cwd: this.cwd,
+    });
+    const unstagedResult = await unstagedHandle.promise;
+    const unstagedDiff =
+      unstagedResult.exitCode === 0 ? unstagedResult.stdout : "";
+
+    const combinedDiff = [diff, unstagedDiff].filter(Boolean).join("\n");
+
+    const recheckPrompt =
+      `${this.systemPrompt}\n\n` +
+      `You just applied fixes to the codebase. Do a quick re-check of the current diff to see if the fixes introduced any new issues.\n\n` +
+      `## Current Diff\n\n\`\`\`diff\n${combinedDiff.slice(0, 30_000)}\n\`\`\`\n\n` +
+      `If you find new issues, describe them briefly and propose fixes using [FIX]description[/FIX] markers.\n` +
+      `If everything looks clean, just say so. Be concise.`;
+
+    const recheckResponse = await this.sendToAgent(agent, recheckPrompt);
+    const parsed = parseAIResponse(recheckResponse);
+
+    if (parsed.fixDescriptions.length > 0) {
+      // New issues found — present options for another round
+      this.extractFixesFromParsed(parsed);
+
+      const options: ChatOption[] = [
+        {
+          label: "Another round",
+          description: "Do another round of fixes",
+          value: "another-round",
+        },
+        {
+          label: "Proceed to PR",
+          description: "Skip remaining issues and create the PR",
+          value: "proceed-to-pr",
+        },
+      ];
+
+      const resultMsg: FinalizeMessage = {
+        role: "assistant",
+        content: `${parsed.content}\n\nNew issues were found after applying fixes.`,
+        options,
+      };
+      this.messages.push(resultMsg);
+      return { message: resultMsg };
+    }
+
+    // No new issues — auto-transition to creating-pr
+    this.setPhase("creating-pr");
+    const cleanMsg: FinalizeMessage = {
+      role: "assistant",
+      content: `${parsed.content}\n\nNo new issues found. Moving on to PR creation.`,
+    };
+    this.messages.push(cleanMsg);
+    return { message: cleanMsg };
+  }
+
   private async handleGenericResponse(
     agent: AgentAdapter,
     text: string,
@@ -585,4 +788,44 @@ export class FinalizeOrchestrator {
     await handle.promise;
     return output;
   }
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function fixTaskToEngineTask(fix: FixTask, _index: number): Task {
+  return {
+    id: fix.id,
+    title: fix.description.length > 100
+      ? fix.description.slice(0, 97) + "..."
+      : fix.description,
+    description: fix.description,
+    acceptanceCriteria: fix.acceptanceCriteria,
+    priority: fix.priority as 1 | 2 | 3 | 4 | 5,
+    status: "open",
+    iterationCount: 0,
+  };
+}
+
+function buildFixPrompt(fix: FixTask, cwd: string): string {
+  return [
+    `You are a coding agent applying a fix identified during code review.`,
+    ``,
+    `## Working Directory`,
+    cwd,
+    ``,
+    `## Fix to Apply`,
+    `**ID**: ${fix.id}`,
+    `**Description**: ${fix.description}`,
+    ``,
+    `## Acceptance Criteria`,
+    ...fix.acceptanceCriteria.map((c) => `- ${c}`),
+    ``,
+    `## Instructions`,
+    `1. Read the relevant files to understand the current code.`,
+    `2. Make the minimal changes needed to apply this fix.`,
+    `3. Do NOT make unrelated changes.`,
+    `4. Ensure the code compiles and is correct after your changes.`,
+  ].join("\n");
 }
