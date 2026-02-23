@@ -1,4 +1,5 @@
 import type { TaskFile } from "../tasks/types.js";
+import type { FinalizeError } from "./chat-types.js";
 import { spawn } from "../utils/process.js";
 import type { ReviewFinding } from "./review.js";
 import { formatAuditForPr, type AuditResult } from "./audit.js";
@@ -114,6 +115,43 @@ export function classifyPrError(raw: string): string {
   const cleaned = raw.replace(/\x1b\[[0-9;]*m/g, "").trim();
   // Limit length to avoid dumping walls of text
   return cleaned.length > 200 ? cleaned.slice(0, 200) + "..." : cleaned;
+}
+
+/**
+ * Return structured error detail for TUI inline display.
+ */
+export function classifyPrErrorDetail(raw: string): FinalizeError {
+  const lower = raw.toLowerCase();
+
+  if (lower.includes("command not found") || lower.includes("not found: gh") || lower.includes("no such file or directory: gh")) {
+    return { errorType: "gh-not-installed", rawOutput: raw, suggestedFix: "Install the GitHub CLI: brew install gh" };
+  }
+
+  if (lower.includes("not logged") || lower.includes("auth login") || lower.includes("authentication required") || lower.includes("authentication failed") || lower.includes("401")) {
+    return { errorType: "auth-failed", rawOutput: raw, suggestedFix: "Authenticate with GitHub: gh auth login" };
+  }
+
+  if (lower.includes("already exists") || lower.includes("a pull request already exists")) {
+    return { errorType: "pr-exists", rawOutput: raw, suggestedFix: "A PR already exists for this branch. Use gh pr view to see it" };
+  }
+
+  if (lower.includes("repository not found") || lower.includes("could not resolve") || lower.includes("no such remote") || /\b404\b/.test(lower)) {
+    return { errorType: "repo-not-found", rawOutput: raw, suggestedFix: "Check that the git remote is configured correctly: git remote -v" };
+  }
+
+  if (lower.includes("could not connect") || lower.includes("network") || lower.includes("timeout") || lower.includes("timed out")) {
+    return { errorType: "network-error", rawOutput: raw, suggestedFix: "Check your internet connection and try again" };
+  }
+
+  if (lower.includes("permission denied") || lower.includes("403") || lower.includes("forbidden")) {
+    return { errorType: "permission-denied", rawOutput: raw, suggestedFix: "You may not have push access. Check repository permissions" };
+  }
+
+  if (lower.includes("protected branch") || lower.includes("required status check") || lower.includes("push declined")) {
+    return { errorType: "protected-branch", rawOutput: raw, suggestedFix: "Push was rejected by branch protection rules. Push to a feature branch instead" };
+  }
+
+  return { errorType: "unknown", rawOutput: raw, suggestedFix: "Review the error output above and retry, or exit and resolve manually" };
 }
 
 export async function createPr(

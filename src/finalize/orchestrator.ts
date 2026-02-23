@@ -19,7 +19,7 @@ import {
 } from "./audit-chat.js";
 import { writeJson, readJson, ensureDir, fileExists, readText } from "../utils/fs.js";
 import { spawn } from "../utils/process.js";
-import { createPr, classifyPrError, generatePrBody, getDiffStats } from "./pr.js";
+import { createPr, classifyPrError, classifyPrErrorDetail, generatePrBody, getDiffStats } from "./pr.js";
 import { getCurrentBranch } from "../utils/git.js";
 import { loadTasks } from "../tasks/store.js";
 
@@ -851,10 +851,8 @@ export class FinalizeOrchestrator {
     try {
       branch = await getCurrentBranch(this.cwd);
     } catch (err) {
-      return this.prError(
-        `Failed to detect branch: ${err instanceof Error ? err.message : String(err)}`,
-        onMessage,
-      );
+      const raw = `Failed to detect branch: ${err instanceof Error ? err.message : String(err)}`;
+      return this.prError(raw, onMessage);
     }
 
     if (branch === baseBranch) {
@@ -889,10 +887,7 @@ export class FinalizeOrchestrator {
       const commitResult = await commitHandle.promise;
 
       if (commitResult.exitCode !== 0) {
-        return this.prError(
-          `Commit failed: ${commitResult.stderr}`,
-          onMessage,
-        );
+        return this.prError(commitResult.stderr || "Commit failed", onMessage);
       }
 
       const commitInfo: FinalizeMessage = {
@@ -916,10 +911,8 @@ export class FinalizeOrchestrator {
     try {
       taskFile = await loadTasks(planPaths.tasks);
     } catch (err) {
-      return this.prError(
-        `Failed to load tasks: ${err instanceof Error ? err.message : String(err)}`,
-        onMessage,
-      );
+      const raw = `Failed to load tasks: ${err instanceof Error ? err.message : String(err)}`;
+      return this.prError(raw, onMessage);
     }
 
     const prdExists = await fileExists(planPaths.prd);
@@ -945,14 +938,34 @@ export class FinalizeOrchestrator {
     } catch (err) {
       // AC #6: Show error with retry option — classify for user-friendly message
       const raw = err instanceof Error ? err.message : String(err);
-      return this.prError(classifyPrError(raw), onMessage);
+      return this.prError(raw, onMessage);
     }
   }
 
   private prError(
-    errorText: string,
+    rawError: string,
     onMessage: (msg: FinalizeMessage) => void,
   ): OrchestratorResponse {
+    const detail = classifyPrErrorDetail(rawError);
+    const classified = classifyPrError(rawError);
+
+    const lines: string[] = [
+      `**Finalize failed** — ${classified}`,
+      "",
+      `**Error type:** ${detail.errorType}`,
+    ];
+
+    // Include raw output (truncated) so the user can diagnose
+    const trimmedOutput = detail.rawOutput.trim();
+    if (trimmedOutput && trimmedOutput !== classified) {
+      const truncated = trimmedOutput.length > 500
+        ? trimmedOutput.slice(0, 500) + "..."
+        : trimmedOutput;
+      lines.push("", "**Output:**", "```", truncated, "```");
+    }
+
+    lines.push("", `**Suggested fix:** ${detail.suggestedFix}`);
+
     const options: ChatOption[] = [
       {
         label: "Retry",
@@ -968,8 +981,9 @@ export class FinalizeOrchestrator {
 
     const errMsg: FinalizeMessage = {
       role: "assistant",
-      content: `PR creation failed: ${errorText}`,
+      content: lines.join("\n"),
       questionGroups: [{ question: "", options }],
+      error: detail,
     };
     this.messages.push(errMsg);
     onMessage(errMsg);

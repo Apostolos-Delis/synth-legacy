@@ -35,8 +35,25 @@ const PHASE_LABELS: Record<FinalizePhase, string> = {
 function MessageBubble({ message }: { message: FinalizeMessage }): ReactNode {
   const isUser = message.role === "user";
   const isSystem = message.role === "system";
-  const roleColor = isUser ? colors.accent.primary : isSystem ? colors.status.info : colors.accent.secondary;
-  const roleLabel = isUser ? "You" : isSystem ? "System" : "Synth";
+  const hasError = !!message.error;
+  const roleColor = hasError
+    ? colors.status.error
+    : isUser ? colors.accent.primary : isSystem ? colors.status.info : colors.accent.secondary;
+  const roleLabel = hasError ? "\u2717 Error" : isUser ? "You" : isSystem ? "System" : "Synth";
+
+  if (hasError) {
+    return (
+      <box style={{ width: "100%", flexDirection: "column", marginBottom: 1, border: true, borderColor: colors.status.error, paddingLeft: 1, paddingRight: 1 }}>
+        <box style={{ flexDirection: "row", gap: 1 }}>
+          <text fg={roleColor} attributes={boldAttr()}>{roleLabel}</text>
+          <text fg={colors.fg.muted}>[{message.error!.errorType}]</text>
+        </box>
+        <box style={{ paddingLeft: 2 }}>
+          <markdown content={message.content} syntaxStyle={markdownSyntaxStyle()} />
+        </box>
+      </box>
+    );
+  }
 
   return (
     <box style={{ width: "100%", flexDirection: "column", marginBottom: 1 }}>

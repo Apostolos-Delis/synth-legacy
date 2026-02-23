@@ -10,10 +10,17 @@ export interface QuestionGroup {
   options: ChatOption[];
 }
 
+export interface FinalizeError {
+  errorType: string;
+  rawOutput: string;
+  suggestedFix: string;
+}
+
 export interface FinalizeMessage {
   role: "user" | "assistant" | "system";
   content: string;
   questionGroups?: QuestionGroup[];
+  error?: FinalizeError;
 }
 
 export type ReviewIssueSeverity = "critical" | "major" | "minor";

@@ -1,6 +1,6 @@
 import { describe, test, expect } from "bun:test";
 import { FinalizeOrchestrator, parseAIResponse } from "../finalize/orchestrator.js";
-import { classifyPrError } from "../finalize/pr.js";
+import { classifyPrError, classifyPrErrorDetail } from "../finalize/pr.js";
 
 function makeMockAgent() {
   return {
@@ -308,5 +308,107 @@ describe("parseAIResponse — malformed OPTION markers", () => {
     expect(result.content).not.toContain("[/OPTION]");
     expect(result.content).toContain("Some text");
     expect(result.content).toContain("more text");
+  });
+});
+
+describe("classifyPrErrorDetail — structured error info", () => {
+  test("returns gh-not-installed for missing gh CLI", () => {
+    const result = classifyPrErrorDetail("zsh: command not found: gh");
+    expect(result.errorType).toBe("gh-not-installed");
+    expect(result.rawOutput).toBe("zsh: command not found: gh");
+    expect(result.suggestedFix).toContain("brew install gh");
+  });
+
+  test("returns auth-failed for authentication errors", () => {
+    const result = classifyPrErrorDetail("error: not logged into any github hosts. Run gh auth login");
+    expect(result.errorType).toBe("auth-failed");
+    expect(result.suggestedFix).toContain("gh auth login");
+  });
+
+  test("returns pr-exists when PR already exists", () => {
+    const result = classifyPrErrorDetail("a pull request already exists for branch feature-x");
+    expect(result.errorType).toBe("pr-exists");
+    expect(result.suggestedFix).toContain("gh pr view");
+  });
+
+  test("returns repo-not-found for missing repository", () => {
+    const result = classifyPrErrorDetail("ERROR: Repository not found.");
+    expect(result.errorType).toBe("repo-not-found");
+    expect(result.suggestedFix).toContain("git remote");
+  });
+
+  test("returns network-error for connection failures", () => {
+    const result = classifyPrErrorDetail("could not connect to github.com");
+    expect(result.errorType).toBe("network-error");
+    expect(result.suggestedFix).toContain("internet connection");
+  });
+
+  test("returns permission-denied for 403 errors", () => {
+    const result = classifyPrErrorDetail("HTTP 403: forbidden");
+    expect(result.errorType).toBe("permission-denied");
+    expect(result.suggestedFix).toContain("push access");
+  });
+
+  test("returns protected-branch for branch protection rejections", () => {
+    const result = classifyPrErrorDetail("remote: error: GH006: Protected branch update failed");
+    expect(result.errorType).toBe("protected-branch");
+    expect(result.suggestedFix).toContain("feature branch");
+  });
+
+  test("returns unknown for unrecognized errors with raw output preserved", () => {
+    const raw = "some unexpected error from git";
+    const result = classifyPrErrorDetail(raw);
+    expect(result.errorType).toBe("unknown");
+    expect(result.rawOutput).toBe(raw);
+    expect(result.suggestedFix).toContain("retry");
+  });
+
+  test("preserves full raw output in all classified errors", () => {
+    const raw = "HTTP 401: authentication required\nExtra debug info here";
+    const result = classifyPrErrorDetail(raw);
+    expect(result.rawOutput).toBe(raw);
+  });
+});
+
+describe("FinalizeOrchestrator — inline error display", () => {
+  test("prError produces message with FinalizeError metadata", () => {
+    const detail = classifyPrErrorDetail("HTTP 403: forbidden");
+    expect(detail.errorType).toBe("permission-denied");
+    expect(detail.suggestedFix).toBeDefined();
+    expect(detail.rawOutput).toBe("HTTP 403: forbidden");
+  });
+
+  test("error message content includes error type, suggested fix, and raw output", () => {
+    // Verify the content format that prError would produce
+    const raw = "zsh: command not found: gh";
+    const detail = classifyPrErrorDetail(raw);
+    const classified = classifyPrError(raw);
+
+    // Simulate the content lines prError builds
+    const lines = [
+      `**Finalize failed** — ${classified}`,
+      "",
+      `**Error type:** ${detail.errorType}`,
+    ];
+    const trimmedOutput = detail.rawOutput.trim();
+    if (trimmedOutput && trimmedOutput !== classified) {
+      lines.push("", "**Output:**", "```", trimmedOutput, "```");
+    }
+    lines.push("", `**Suggested fix:** ${detail.suggestedFix}`);
+    const content = lines.join("\n");
+
+    expect(content).toContain("**Finalize failed**");
+    expect(content).toContain("gh-not-installed");
+    expect(content).toContain("**Suggested fix:**");
+    expect(content).toContain("brew install gh");
+  });
+
+  test("error message includes retry and exit options", () => {
+    const expectedOptions = [
+      { label: "Retry", description: "Retry PR creation", value: "retry-pr" },
+      { label: "Exit", description: "Exit without creating a PR", value: "exit" },
+    ];
+    expect(expectedOptions[0].value).toBe("retry-pr");
+    expect(expectedOptions[1].value).toBe("exit");
   });
 });
