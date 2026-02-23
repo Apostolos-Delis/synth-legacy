@@ -3,7 +3,7 @@ import { describe, test, expect, mock } from "bun:test";
 // Mock node-notifier before importing notifications
 mock.module("node-notifier", () => ({
   default: {
-    notify: mock((_opts: any, _cb?: any) => {}),
+    notify: mock((_opts: Record<string, unknown>, _cb?: () => void) => {}),
   },
 }));
 

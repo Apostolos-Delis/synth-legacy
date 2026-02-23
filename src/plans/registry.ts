@@ -9,7 +9,7 @@ import { spawn } from "../utils/process.js";
 const SYNTH_HOME = join(homedir(), ".synth");
 const PLANS_DIR = join(SYNTH_HOME, "plans");
 
-export async function getRepoKey(cwd: string): Promise<string> {
+async function getRepoKey(cwd: string): Promise<string> {
   // Try git remote origin
   const result = spawn({
     cmd: ["git", "remote", "get-url", "origin"],
@@ -149,6 +149,3 @@ export async function deletePlan(cwd: string, planId: string): Promise<boolean> 
   return true;
 }
 
-export function getPlanPaths(repoKey: string, planId: string): PlanPaths {
-  return planPaths(repoKey, planId);
-}
