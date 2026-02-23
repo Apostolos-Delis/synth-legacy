@@ -770,6 +770,28 @@ export class FinalizeOrchestrator {
   ): Promise<OrchestratorResponse> {
     const baseBranch = config.project.base_branch;
 
+    // Skip PR creation if on base branch
+    let branch: string;
+    try {
+      branch = await getCurrentBranch(this.cwd);
+    } catch (err) {
+      return this.prError(
+        `Failed to detect branch: ${err instanceof Error ? err.message : String(err)}`,
+        onMessage,
+      );
+    }
+
+    if (branch === baseBranch) {
+      this.setPhase("complete");
+      const skipMsg: FinalizeMessage = {
+        role: "assistant",
+        content: `Skipping PR creation: already on base branch '${branch}'`,
+      };
+      this.messages.push(skipMsg);
+      onMessage(skipMsg);
+      return { message: skipMsg };
+    }
+
     // AC #1: Stage any uncommitted changes and commit
     const addHandle = spawn({ cmd: ["git", "add", "-A"], cwd: this.cwd });
     await addHandle.promise;
@@ -806,16 +828,6 @@ export class FinalizeOrchestrator {
     }
 
     // AC #2: Push branch with upstream tracking
-    let branch: string;
-    try {
-      branch = await getCurrentBranch(this.cwd);
-    } catch (err) {
-      return this.prError(
-        `Failed to detect branch: ${err instanceof Error ? err.message : String(err)}`,
-        onMessage,
-      );
-    }
-
     const pushMsg: FinalizeMessage = {
       role: "assistant",
       content: `Pushing branch "${branch}" to origin...`,
