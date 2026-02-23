@@ -121,11 +121,18 @@ export function FinalizeApp({ orchestrator, agent, config, sessionPaths, cwd, on
     });
   }, [currentPhase, orchestrator, onComplete, sessionPaths.prd]);
 
-  // Auto-start: trigger orchestrator.start() on mount
+  // Auto-start: trigger orchestrator.start() on mount (skip if already restored)
   const startedRef = useRef(false);
   useEffect(() => {
     if (startedRef.current) return;
     startedRef.current = true;
+
+    // If orchestrator already has messages (restored from saved state), skip start
+    if (orchestrator.getMessages().length > 0) {
+      setMessages([...orchestrator.getMessages()]);
+      setIsLoading(false);
+      return;
+    }
 
     setIsLoading(true);
     setLoadingStartTime(Date.now());

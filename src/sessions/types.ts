@@ -4,7 +4,7 @@ export interface SessionMetadata {
   description: string;
   createdAt: string;
   updatedAt: string;
-  status: "interviewing" | "planning" | "executing" | "paused" | "blocked" | "completed" | "finalized" | "failed";
+  status: "interviewing" | "planning" | "executing" | "paused" | "blocked" | "completed" | "finalizing" | "finalized" | "failed";
   taskCount: number;
   tasksCompleted: number;
 }

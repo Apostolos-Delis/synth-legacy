@@ -259,6 +259,42 @@ export class FinalizeOrchestrator {
     }
   }
 
+  /**
+   * Restore orchestrator from previously-saved conversation state.
+   * Sets phase to "discussing" so the user can continue the conversation.
+   */
+  restore(
+    agent: AgentAdapter,
+    config: SynthConfig,
+    sessionPaths: SessionPaths,
+    cwd: string,
+    savedMessages: ConversationMessage[],
+  ): void {
+    this.cwd = cwd;
+    this.startTime = Date.now();
+    this.baseBranch = config.project.base_branch;
+    this.sessionPaths = sessionPaths;
+
+    const persistPath = join(sessionPaths.root, "finalize-conversation.json");
+    this.engine = new ConversationEngine({
+      agent,
+      cwd,
+      model: config.agent.model,
+      systemPrompt: buildAuditSystemPrompt(),
+      maxHistoryWindow: MAX_HISTORY,
+      persist: async (msgs: ConversationMessage[]) => {
+        await ensureDir(sessionPaths.root);
+        await writeJson(persistPath, msgs);
+      },
+    });
+
+    this.engine.restoreHistory(savedMessages);
+    for (const msg of savedMessages) {
+      this.messages.push({ role: msg.role, content: msg.content });
+    }
+    this.setPhase("discussing");
+  }
+
   async start(
     agent: AgentAdapter,
     config: SynthConfig,

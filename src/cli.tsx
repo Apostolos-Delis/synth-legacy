@@ -757,31 +757,88 @@ async function cmdResume(planId?: string): Promise<void> {
     process.exit(1);
   }
 
-  // Detect incomplete interview: status is "interviewing" and interview state file exists
-  if (plan.metadata.status === "interviewing" && await fileExists(plan.paths.interview)) {
-    const savedState = await readJson<import("./interview/types.js").InterviewState>(plan.paths.interview);
+  const status = plan.metadata.status;
+  const id = plan.metadata.id;
 
-    if (savedState.prdPending && savedState.interviewerHistory.length > 0) {
-      log(fmt.info(`Resuming interview for plan ${plan.metadata.id} (${savedState.interviewerHistory.length} messages saved)`));
-      await resumeInterview(plan, savedState);
+  switch (status) {
+    case "interviewing": {
+      if (!(await fileExists(plan.paths.interview))) {
+        logError(`Interview state file missing for session ${id}. The interview conversation could not be found at ${plan.paths.interview}.`);
+        process.exit(1);
+      }
+      const savedState = await readJson<import("./interview/types.js").InterviewState>(plan.paths.interview);
+      if (savedState.prdPending && savedState.interviewerHistory.length > 0) {
+        log(fmt.info(`Resuming interview for plan ${id} (${savedState.interviewerHistory.length} messages saved)`));
+        await resumeInterview(plan, savedState);
+        return;
+      }
+      // Interview is done but status wasn't updated — fall through to execution
+      break;
+    }
+
+    case "finalizing": {
+      const finalizePath = join(plan.paths.root, "finalize-conversation.json");
+      if (!(await fileExists(finalizePath))) {
+        logError(`Finalize conversation state missing for session ${id}. Run 'synth finalize ${id}' to start a fresh review.`);
+        process.exit(1);
+      }
+      const savedConversation = await readJson<import("./conversation/types.js").ConversationMessage[]>(finalizePath);
+      log(fmt.info(`Resuming finalize review for plan ${id} (${savedConversation.length} messages)`));
+      await cmdFinalize(id, undefined, undefined, savedConversation);
       return;
     }
+
+    case "completed": {
+      log(fmt.info(`Plan ${id} execution is complete.`));
+      const readline = await import("node:readline");
+      const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+      const answer = await new Promise<string>((resolve) => {
+        rl.question(`Run finalize to review changes and create a PR? (Y/n) `, resolve);
+      });
+      rl.close();
+      if (!answer || answer.toLowerCase() === "y" || answer.toLowerCase() === "yes") {
+        await cmdFinalize(id);
+      }
+      return;
+    }
+
+    case "finalized": {
+      log(fmt.info(`Plan ${id} is already finalized.`));
+      return;
+    }
+
+    case "failed": {
+      logError(`Plan ${id} has failed. Check logs in ${plan.paths.logs} for details.`);
+      return;
+    }
+
+    case "blocked": {
+      logError(`Plan ${id} is blocked. Check logs in ${plan.paths.logs} for details.`);
+      return;
+    }
+
+    case "planning": {
+      log(fmt.info(`Plan ${id} is in planning phase. Run 'synth run ${id}' to start execution.`));
+      return;
+    }
+
+    // executing, paused — fall through to execution resume below
   }
 
   const { loadRun } = await loadRunModule();
   const run = await loadRun(plan.paths);
   if (!run) {
-    logError("No session found. Run 'synth run' instead.");
+    logError(`No run state found for session ${id}. Run 'synth run ${id}' to start execution.`);
     process.exit(1);
   }
 
   if (run.status === "completed") {
-    log(fmt.info("This plan is already completed."));
+    log(fmt.info(`Execution is complete. Run 'synth finalize ${id}' to review and create a PR.`));
     return;
   }
 
-  log(fmt.info(`Resuming plan ${plan.metadata.id} from iteration ${run.currentIteration}`));
-  await cmdRun(plan.metadata.id, run.currentIteration);
+  log(fmt.info(`Resuming plan ${id} from iteration ${run.currentIteration}`));
+  await cmdRun(id, run.currentIteration);
 }
 
 async function resumeInterview(
@@ -1400,6 +1457,7 @@ async function cmdFinalize(
   planId?: string,
   tuiContext?: TuiContext,
   runContext?: FinalizeRunContext,
+  savedConversation?: import("./conversation/types.js").ConversationMessage[],
 ): Promise<void> {
   const config = runContext?.config ?? await applyTheme();
 
@@ -1421,6 +1479,11 @@ async function cmdFinalize(
     process.exit(1);
   }
 
+  // Mark session as finalizing so resume can detect interrupted finalize
+  if (plan.metadata.status !== "finalizing") {
+    await updateSessionMetadata(cwd, plan.metadata.id, { status: "finalizing" });
+  }
+
   if (tuiEnabled) {
     // ── Interactive TUI mode ──
     const [{ getAgent }, { FinalizeOrchestrator }] = await Promise.all([
@@ -1431,6 +1494,11 @@ async function cmdFinalize(
 
     const agent = getAgent(config.agent.name);
     const orchestrator = new FinalizeOrchestrator();
+
+    // Restore from saved conversation if resuming an interrupted finalize
+    if (savedConversation?.length) {
+      orchestrator.restore(agent, config, plan.paths, cwd, savedConversation);
+    }
 
     const ownsRenderer = !tuiContext;
     let renderer = tuiContext?.renderer ?? null;
