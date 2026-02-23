@@ -143,8 +143,14 @@ export async function finalize(
       );
 
       const title = taskFile.description || config.project.name;
-      const result = await createPr(cwd, branch, title, body);
-      prUrl = result.url;
+      try {
+        const result = await createPr(cwd, branch, title, body);
+        prUrl = result.url;
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error(`PR creation failed: ${msg}`);
+        console.error("Continuing with remaining finalize steps.");
+      }
     }
   }
 

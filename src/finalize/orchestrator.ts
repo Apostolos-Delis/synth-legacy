@@ -18,7 +18,7 @@ import {
 } from "./audit-chat.js";
 import { writeJson, readJson, ensureDir, fileExists, readText } from "../utils/fs.js";
 import { spawn } from "../utils/process.js";
-import { createPr, generatePrBody, getDiffStats } from "./pr.js";
+import { createPr, classifyPrError, generatePrBody, getDiffStats } from "./pr.js";
 import { getCurrentBranch } from "../utils/git.js";
 import { loadTasks } from "../tasks/store.js";
 
@@ -867,11 +867,9 @@ export class FinalizeOrchestrator {
       this.messages.push(successMsg);
       return { message: successMsg };
     } catch (err) {
-      // AC #6: Show error with retry option
-      return this.prError(
-        err instanceof Error ? err.message : String(err),
-        onMessage,
-      );
+      // AC #6: Show error with retry option — classify for user-friendly message
+      const raw = err instanceof Error ? err.message : String(err);
+      return this.prError(classifyPrError(raw), onMessage);
     }
   }
 
