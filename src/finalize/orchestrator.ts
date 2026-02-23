@@ -7,6 +7,7 @@ import type {
   FinalizePhase,
   FinalizeMessage,
   ChatOption,
+  QuestionGroup,
   CompletionSummary,
   FixTask,
   FixTaskStatus,
@@ -23,7 +24,8 @@ import { getCurrentBranch } from "../utils/git.js";
 import { loadTasks } from "../tasks/store.js";
 
 const MAX_HISTORY = 20;
-const OPTION_RE = /\[OPTION\]([^|]+)\|([^[]+)\[\/OPTION\]/g;
+const OPTION_RE = /\[OPTION(\*?)\]([^|]+)\|([^[]+)\[\/OPTION\]/g;
+const QUESTION_RE = /\[QUESTION\](.*?)\[\/QUESTION\]/g;
 const FIX_RE = /\[FIX\]([\s\S]*?)\[\/FIX\]/g;
 const REVIEW_COMPLETE_RE = /\[REVIEW_COMPLETE\]/;
 const PROCEED_COMMANDS = new Set(["proceed", "done"]);
@@ -31,23 +33,25 @@ const PROCEED_COMMANDS = new Set(["proceed", "done"]);
 export interface ParsedResponse {
   content: string;
   options: ChatOption[];
+  questionGroups: QuestionGroup[];
   fixDescriptions: string[];
   reviewComplete: boolean;
 }
 
-export function parseAIResponse(raw: string): ParsedResponse {
-  const options: ChatOption[] = [];
-  const fixDescriptions: string[] = [];
+function matchToOption(m: RegExpMatchArray): ChatOption {
+  const recommended = m[1] === "*";
+  const label = m[2].trim();
+  const description = m[3].trim();
+  return {
+    label,
+    description,
+    value: label.toLowerCase().replace(/\s+/g, "-"),
+    ...(recommended ? { recommended: true } : {}),
+  };
+}
 
-  for (const match of raw.matchAll(OPTION_RE)) {
-    const label = match[1].trim();
-    const description = match[2].trim();
-    options.push({
-      label,
-      description,
-      value: label.toLowerCase().replace(/\s+/g, "-"),
-    });
-  }
+export function parseAIResponse(raw: string): ParsedResponse {
+  const fixDescriptions: string[] = [];
 
   for (const match of raw.matchAll(FIX_RE)) {
     const desc = match[1].trim();
@@ -56,9 +60,47 @@ export function parseAIResponse(raw: string): ParsedResponse {
 
   const reviewComplete = REVIEW_COMPLETE_RE.test(raw);
 
+  // Check if [QUESTION] markers exist for multi-question support
+  const questionMarkers = [...raw.matchAll(QUESTION_RE)];
+  let options: ChatOption[] = [];
+  let questionGroups: QuestionGroup[] = [];
+
+  if (questionMarkers.length > 0) {
+    // Capture any options that appear before the first [QUESTION] marker
+    const preamble = raw.slice(0, questionMarkers[0].index!);
+    const preambleOptions = [...preamble.matchAll(OPTION_RE)].map(matchToOption);
+    if (preambleOptions.length > 0) {
+      questionGroups.push({ question: "", options: preambleOptions });
+    }
+
+    // Multi-question mode: parse each question group with its associated options
+    for (let qi = 0; qi < questionMarkers.length; qi++) {
+      const qMatch = questionMarkers[qi];
+      const question = qMatch[1].trim();
+      const startIdx = qMatch.index! + qMatch[0].length;
+      const endIdx = qi + 1 < questionMarkers.length
+        ? questionMarkers[qi + 1].index!
+        : raw.length;
+      const segment = raw.slice(startIdx, endIdx);
+
+      const groupOptions = [...segment.matchAll(OPTION_RE)].map(matchToOption);
+      questionGroups.push({ question, options: groupOptions });
+    }
+    // Flatten all options for backward compat
+    options = questionGroups.flatMap((g) => g.options);
+  } else {
+    // Flat mode (backward compat): parse all [OPTION] markers as a single group
+    options = [...raw.matchAll(OPTION_RE)].map(matchToOption);
+    // Wrap as single unnamed group if there are options
+    if (options.length > 0) {
+      questionGroups = [{ question: "", options }];
+    }
+  }
+
   // Strip markers from displayed content
   let content = raw
     .replace(OPTION_RE, "")
+    .replace(QUESTION_RE, "")
     .replace(FIX_RE, "")
     .replace(REVIEW_COMPLETE_RE, "")
     .trim();
@@ -66,7 +108,7 @@ export function parseAIResponse(raw: string): ParsedResponse {
   // Collapse leftover blank lines from stripped markers
   content = content.replace(/\n{3,}/g, "\n\n");
 
-  return { content, options, fixDescriptions, reviewComplete };
+  return { content, options, questionGroups, fixDescriptions, reviewComplete };
 }
 
 export type PhaseChangeListener = (phase: FinalizePhase) => void;
@@ -218,7 +260,7 @@ export class FinalizeOrchestrator {
     const assistantMsg: FinalizeMessage = {
       role: "assistant",
       content: parsed.content,
-      ...(parsed.options.length > 0 ? { options: parsed.options } : {}),
+      ...(parsed.questionGroups.length > 0 ? { questionGroups: parsed.questionGroups } : {}),
     };
     this.messages.push(assistantMsg);
 
@@ -304,9 +346,10 @@ export class FinalizeOrchestrator {
       `The user is in the discussion phase of a code review. They said:\n\n"${text}"\n\n` +
         `Continue the code review discussion by asking your next follow-up question on a single topic. ` +
         `If you want to offer choices, use [OPTION]label|description[/OPTION] markers (2-4 options). ` +
+        `Use [OPTION*] (with asterisk) for the recommended choice. ` +
+        `If you have 2-3 related questions, batch them with [QUESTION]header[/QUESTION] markers. ` +
         `If you want to propose a fix, use [FIX]description of fix[/FIX] markers. ` +
-        `If you have no more concerns, end with [REVIEW_COMPLETE]. ` +
-        `Ask one question at a time. Be concise.`,
+        `If you have no more concerns, end with [REVIEW_COMPLETE]. Be concise.`,
     );
 
     const response = await this.sendToAgent(agent, prompt, onChunk);
@@ -326,6 +369,8 @@ export class FinalizeOrchestrator {
       `The user selected the option: "${option.label}" (${option.description}).\n\n` +
         `Respond based on their choice, then ask your next follow-up question on a single topic. ` +
         `If you want to offer choices, use [OPTION]label|description[/OPTION] markers (2-4 options). ` +
+        `Use [OPTION*] (with asterisk) for the recommended choice. ` +
+        `If you have 2-3 related questions, batch them with [QUESTION]header[/QUESTION] markers. ` +
         `If you want to propose a fix, use [FIX]description of fix[/FIX] markers. ` +
         `If you have no more concerns, end with [REVIEW_COMPLETE]. Be concise.`,
     );
@@ -343,7 +388,7 @@ export class FinalizeOrchestrator {
     const assistantMsg: FinalizeMessage = {
       role: "assistant",
       content: parsed.content,
-      ...(parsed.options.length > 0 ? { options: parsed.options } : {}),
+      ...(parsed.questionGroups.length > 0 ? { questionGroups: parsed.questionGroups } : {}),
     };
     this.messages.push(assistantMsg);
 
@@ -743,7 +788,7 @@ export class FinalizeOrchestrator {
       const resultMsg: FinalizeMessage = {
         role: "assistant",
         content: `${parsed.content}\n\nNew issues were found after applying fixes.`,
-        options,
+        questionGroups: [{ question: "", options }],
       };
       this.messages.push(resultMsg);
       return { message: resultMsg };
@@ -893,7 +938,7 @@ export class FinalizeOrchestrator {
     const errMsg: FinalizeMessage = {
       role: "assistant",
       content: `PR creation failed: ${errorText}`,
-      options,
+      questionGroups: [{ question: "", options }],
     };
     this.messages.push(errMsg);
     onMessage(errMsg);
@@ -968,7 +1013,7 @@ export class FinalizeOrchestrator {
     return {
       role: "assistant",
       content: lines.join("\n"),
-      options,
+      questionGroups: [{ question: "", options }],
     };
   }
 
@@ -985,7 +1030,7 @@ export class FinalizeOrchestrator {
     return {
       role: "assistant",
       content: `**Fix ${progress}**: ${fix.description}`,
-      options,
+      questionGroups: [{ question: "", options }],
     };
   }
 

@@ -2,12 +2,18 @@ export interface ChatOption {
   label: string;
   description: string;
   value: string;
+  recommended?: boolean;
+}
+
+export interface QuestionGroup {
+  question: string;
+  options: ChatOption[];
 }
 
 export interface FinalizeMessage {
   role: "user" | "assistant" | "system";
   content: string;
-  options?: ChatOption[];
+  questionGroups?: QuestionGroup[];
 }
 
 export type ReviewIssueSeverity = "critical" | "major" | "minor";

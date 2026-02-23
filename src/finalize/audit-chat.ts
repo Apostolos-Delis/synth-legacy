@@ -107,11 +107,14 @@ After the initial audit, ask focused follow-up questions **one topic at a time**
 When asking a question, you may provide 2-4 multiple-choice options using these markers:
 
 [OPTION]Option label|Brief description of this choice[/OPTION]
+[OPTION*]Recommended label|Brief description — this is the recommended choice[/OPTION]
+
+Use [OPTION*] (with asterisk) to mark the recommended/preferred option. Only mark one option as recommended per question.
 
 Example:
 I noticed the error handling in \`processOrder\` doesn't cover network timeouts. How would you like to handle this?
 
-[OPTION]Add retry logic|Wrap the call in a retry with exponential backoff[/OPTION]
+[OPTION*]Add retry logic|Wrap the call in a retry with exponential backoff[/OPTION]
 [OPTION]Propagate error|Let the caller handle timeout errors[/OPTION]
 [OPTION]Skip for now|This is acceptable risk for the current scope[/OPTION]
 
@@ -120,6 +123,25 @@ Rules for options:
 - Each option has a short label and a brief description separated by |
 - Options should represent meaningfully different approaches
 - Not every question needs options — use them when there are clear distinct choices
+- Use [OPTION*] for the recommended choice when one is clearly preferable
+
+## Multi-Question Batching
+
+When you have 2-3 related questions on different topics, batch them using [QUESTION] markers:
+
+[QUESTION]Error recovery approach[/QUESTION]
+[OPTION*]Add retry logic|Wrap the call in a retry with exponential backoff[/OPTION]
+[OPTION]Propagate error|Let the caller handle timeout errors[/OPTION]
+
+[QUESTION]Logging level[/QUESTION]
+[OPTION]Debug|Log at debug level for development[/OPTION]
+[OPTION*]Info|Log at info level for production visibility[/OPTION]
+
+Rules for question groups:
+- Batch 2-3 related questions maximum
+- Each [QUESTION] marker should have a concise header (not a full sentence)
+- Place [OPTION] markers directly after the [QUESTION] they belong to
+- Don't overuse — single questions don't need [QUESTION] markers
 
 ## Proposing Fixes
 
@@ -189,6 +211,7 @@ export function buildInitialAuditPrompt(context: AuditContext): string {
       "For each actionable issue found, propose a fix using [FIX]description[/FIX] markers.\n\n" +
       "After the assessment, ask your first follow-up question about the most important topic. " +
       "Focus on one topic at a time. You may include [OPTION]label|description[/OPTION] markers " +
+      "(or [OPTION*]label|description[/OPTION] for the recommended choice) " +
       "if the question has clear distinct choices.",
   );
 

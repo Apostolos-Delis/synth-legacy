@@ -1,70 +1,265 @@
 import { useState, useCallback, useRef, type ReactNode } from "react";
 import { useKeyboard } from "@opentui/react";
-import type { ChatOption } from "../../finalize/chat-types.js";
-import { colors } from "../theme.js";
+import type { TextareaRenderable } from "@opentui/core";
+import type { ChatOption, QuestionGroup } from "../../finalize/chat-types.js";
+import { boldAttr, colors } from "../theme.js";
 
 export interface OptionSelectorProps {
-  options: ChatOption[];
-  onSelect: (option: ChatOption) => void;
-  prompt?: string;
+  groups: QuestionGroup[];
+  onSelect: (answers: ChatOption[]) => void;
+  showOther?: boolean;
 }
 
-export function OptionSelector({ options, onSelect, prompt }: OptionSelectorProps): ReactNode {
-  const [selectedIndex, setSelectedIndex] = useState(0);
-  const optionsRef = useRef(options);
-  optionsRef.current = options;
-  const selectedIndexRef = useRef(selectedIndex);
-  selectedIndexRef.current = selectedIndex;
+type Mode = "selecting" | "typing-other";
+
+const OTHER_OPTION: ChatOption = {
+  label: "Other...",
+  description: "Type a custom response",
+  value: "__other__",
+};
+
+export function OptionSelector({ groups, onSelect, showOther = true }: OptionSelectorProps): ReactNode {
+  const [activeTab, setActiveTab] = useState(0);
+  const [selectedIndices, setSelectedIndices] = useState<(number | null)[]>(() =>
+    groups.map((g) => {
+      const rec = g.options.findIndex((o) => o.recommended);
+      return rec >= 0 ? rec : null;
+    }),
+  );
+  const [mode, setMode] = useState<Mode>("selecting");
+  const [answers, setAnswers] = useState<(ChatOption | null)[]>(() => groups.map(() => null));
+
+  const textareaRef = useRef<TextareaRenderable>(null);
+
+  const groupsRef = useRef(groups);
+  groupsRef.current = groups;
+  const activeTabRef = useRef(activeTab);
+  activeTabRef.current = activeTab;
+  const selectedIndicesRef = useRef(selectedIndices);
+  selectedIndicesRef.current = selectedIndices;
+  const modeRef = useRef(mode);
+  modeRef.current = mode;
+  const answersRef = useRef(answers);
+  answersRef.current = answers;
   const onSelectRef = useRef(onSelect);
   onSelectRef.current = onSelect;
+  const showOtherRef = useRef(showOther);
+  showOtherRef.current = showOther;
+
+  const currentGroup = groups[activeTab];
+  const optionsWithOther = showOther
+    ? [...currentGroup.options, OTHER_OPTION]
+    : currentGroup.options;
+  const selectedIndex = selectedIndices[activeTab] ?? 0;
+  const isMultiQuestion = groups.length > 1;
+
+  const trySubmit = useCallback((updatedAnswers: (ChatOption | null)[]) => {
+    const allAnswered = updatedAnswers.every((a) => a !== null);
+    if (allAnswered) {
+      onSelectRef.current(updatedAnswers as ChatOption[]);
+    }
+  }, []);
 
   useKeyboard(
-    useCallback((key: { name: string }) => {
-      const count = optionsRef.current.length;
-      if (count === 0) return;
+    useCallback((key: { name: string; shift?: boolean; ctrl?: boolean; meta?: boolean; sequence?: string; preventDefault?: () => void }) => {
+      const g = groupsRef.current;
+      const tab = activeTabRef.current;
+      const current = g[tab];
+      if (!current) return;
 
+      const opts = showOtherRef.current
+        ? [...current.options, OTHER_OPTION]
+        : current.options;
+      const count = opts.length;
+
+      // -- typing-other mode --
+      if (modeRef.current === "typing-other") {
+        if (key.name === "escape") {
+          setMode("selecting");
+          return;
+        }
+        if (key.name === "return" && !key.shift) {
+          const text = (textareaRef.current?.plainText ?? "").trim();
+          if (!text) return;
+          const customOption: ChatOption = {
+            label: text,
+            description: "Custom response",
+            value: "__other__",
+          };
+          const newAnswers = [...answersRef.current];
+          newAnswers[tab] = customOption;
+          setAnswers(newAnswers);
+          setMode("selecting");
+
+          if (g.length > 1 && tab < g.length - 1) {
+            setActiveTab(tab + 1);
+          } else {
+            trySubmit(newAnswers);
+          }
+          return;
+        }
+        // Let the textarea handle all other keys
+        return;
+      }
+
+      // -- selecting mode --
       if (key.name === "j" || key.name === "down") {
-        setSelectedIndex((i) => Math.min(i + 1, count - 1));
+        setSelectedIndices((prev) => {
+          const next = [...prev];
+          next[tab] = Math.min((next[tab] ?? 0) + 1, count - 1);
+          return next;
+        });
         return;
       }
       if (key.name === "k" || key.name === "up") {
-        setSelectedIndex((i) => Math.max(i - 1, 0));
+        setSelectedIndices((prev) => {
+          const next = [...prev];
+          next[tab] = Math.max((next[tab] ?? 0) - 1, 0);
+          return next;
+        });
         return;
       }
-      if (key.name === "return") {
-        onSelectRef.current(optionsRef.current[selectedIndexRef.current]);
+
+      // Number keys 1-9 to jump to option
+      const numKey = parseInt(key.name, 10);
+      if (!isNaN(numKey) && numKey >= 1 && numKey <= count) {
+        setSelectedIndices((prev) => {
+          const next = [...prev];
+          next[tab] = numKey - 1;
+          return next;
+        });
+        return;
       }
-    }, []),
+
+      // Tab / Shift+Tab for multi-question navigation
+      if (key.name === "tab" && g.length > 1) {
+        key.preventDefault?.();
+        if (key.shift) {
+          setActiveTab((prev) => (prev > 0 ? prev - 1 : g.length - 1));
+        } else {
+          setActiveTab((prev) => (prev < g.length - 1 ? prev + 1 : 0));
+        }
+        return;
+      }
+
+      // Enter to select
+      if (key.name === "return") {
+        const idx = selectedIndicesRef.current[tab] ?? 0;
+        const selected = opts[idx];
+        if (!selected) return;
+
+        if (selected.value === "__other__") {
+          setMode("typing-other");
+          return;
+        }
+
+        const newAnswers = [...answersRef.current];
+        newAnswers[tab] = selected;
+        setAnswers(newAnswers);
+
+        if (g.length > 1 && tab < g.length - 1) {
+          // Move to next unanswered tab
+          setActiveTab(tab + 1);
+        } else {
+          trySubmit(newAnswers);
+        }
+      }
+    }, [trySubmit]),
   );
 
   return (
     <box style={{ flexDirection: "column", width: "100%" }}>
-      {prompt && (
-        <box style={{ marginBottom: 1 }}>
-          <text fg={colors.fg.primary}>{prompt}</text>
+      {/* Tab bar for multi-question */}
+      {isMultiQuestion && (
+        <box style={{ flexDirection: "row", gap: 2, marginBottom: 1 }}>
+          {groups.map((g, i) => {
+            const isActive = i === activeTab;
+            const isAnswered = answers[i] !== null;
+            const prefix = isAnswered ? "\u2713 " : "";
+            const label = g.question || `Q${i + 1}`;
+            return (
+              <text
+                key={i}
+                fg={isActive ? colors.accent.primary : isAnswered ? colors.status.success : colors.fg.muted}
+                attributes={isActive ? boldAttr() : undefined}
+              >
+                {prefix}{label}{isActive ? " \u25C0" : ""}
+              </text>
+            );
+          })}
         </box>
       )}
-      {options.map((option, i) => {
+
+      {/* Question header */}
+      {currentGroup.question && (
+        <box style={{ marginBottom: 1 }}>
+          <text fg={colors.fg.primary} attributes={boldAttr()}>{currentGroup.question}</text>
+        </box>
+      )}
+
+      {/* Options list */}
+      {mode === "selecting" && optionsWithOther.map((option, i) => {
         const isSelected = i === selectedIndex;
+        const isOther = option.value === "__other__";
+        const num = `${i + 1}`;
+        const radio = isSelected ? "\u25CF" : "\u25CB";
+        const recommendedBadge = option.recommended ? " (Recommended)" : "";
+
         return (
-          <box key={option.value} style={{ flexDirection: "row", paddingLeft: 1 }}>
-            <text fg={isSelected ? colors.accent.primary : colors.fg.dim}>
-              {isSelected ? "▸ " : "  "}
-            </text>
-            <box style={{ flexDirection: "column" }}>
-              <text fg={isSelected ? colors.accent.primary : colors.fg.primary}>
+          <box key={option.value + i} style={{ flexDirection: "column", paddingLeft: 1, marginBottom: 0 }}>
+            <box style={{ flexDirection: "row" }}>
+              <text fg={isSelected ? colors.accent.primary : colors.fg.dim}>
+                {radio} {num}.{" "}
+              </text>
+              <text
+                fg={isSelected ? colors.accent.primary : colors.fg.primary}
+                attributes={isSelected ? boldAttr() : undefined}
+              >
                 {option.label}
               </text>
-              <text fg={isSelected ? colors.fg.secondary : colors.fg.muted}>
+              {recommendedBadge && (
+                <text fg={colors.status.warning}>{recommendedBadge}</text>
+              )}
+            </box>
+            <box style={{ paddingLeft: 5 }}>
+              <text fg={isOther ? colors.fg.muted : isSelected ? colors.fg.secondary : colors.fg.muted}>
                 {option.description}
               </text>
             </box>
           </box>
         );
       })}
-      <box style={{ marginTop: 1 }}>
-        <text fg={colors.fg.muted}>j/k:navigate  Enter:select</text>
-      </box>
+
+      {/* Other text input mode */}
+      {mode === "typing-other" && (
+        <box style={{ flexDirection: "column", paddingLeft: 1 }}>
+          <box style={{ marginBottom: 1 }}>
+            <text fg={colors.accent.primary} attributes={boldAttr()}>Custom response:</text>
+          </box>
+          <box style={{ flexDirection: "row", height: 3 }}>
+            <text fg={colors.accent.primary}>{"> "}</text>
+            <textarea
+              ref={textareaRef}
+              style={{ flexGrow: 1, height: 3 }}
+              placeholder="Type your response..."
+              focused={true}
+            />
+          </box>
+          <box style={{ marginTop: 1 }}>
+            <text fg={colors.fg.muted}>Enter:submit  Esc:back</text>
+          </box>
+        </box>
+      )}
+
+      {/* Hint bar */}
+      {mode === "selecting" && (
+        <box style={{ marginTop: 1 }}>
+          <text fg={colors.fg.muted}>
+            {"j/k:navigate  Enter:select"}
+            {isMultiQuestion ? "  Tab:next question" : ""}
+          </text>
+        </box>
+      )}
     </box>
   );
 }

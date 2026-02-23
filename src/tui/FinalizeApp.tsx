@@ -175,22 +175,44 @@ export function FinalizeApp({ orchestrator, agent, config, planPaths, cwd, onQui
   // Determine if the last assistant message has options
   const lastMessage = messages.length > 0 ? messages[messages.length - 1] : null;
   const isComplete = currentPhase === "complete";
-  const showOptions = !isComplete && lastMessage?.role === "assistant" && lastMessage.options && lastMessage.options.length > 0 && !isLoading;
+  const optionGroups = lastMessage?.role === "assistant" && lastMessage.questionGroups?.length
+    ? lastMessage.questionGroups
+    : [];
+  const showOptions = !isComplete && optionGroups.length > 0 && !isLoading;
 
-  const handleOptionSelect = useCallback(async (option: ChatOption) => {
+  const handleOptionSelect = useCallback(async (selectedAnswers: ChatOption[]) => {
     if (isLoading) return;
 
     setIsLoading(true);
     setLoadingStartTime(Date.now());
     setStreamingText("");
 
-    // Immediately show the user's selection
-    setMessages((prev) => [...prev, { role: "user", content: `Selected: ${option.label}` }]);
+    // For single-question, use the first answer directly
+    // For multi-question, concatenate selections into a user message
+    const option = selectedAnswers[0];
+    const isMulti = selectedAnswers.length > 1;
+
+    if (isMulti) {
+      const summary = selectedAnswers.map((a, i) => `Q${i + 1}: ${a.label}`).join(", ");
+      setMessages((prev) => [...prev, { role: "user", content: `Selected: ${summary}` }]);
+    } else {
+      setMessages((prev) => [...prev, { role: "user", content: `Selected: ${option.label}` }]);
+    }
 
     try {
-      await orchestrator.handleOptionSelect(option, agent, (chunk) => {
-        if (!destroyedRef.current) setStreamingText((prev) => prev + chunk);
-      });
+      if (isMulti) {
+        // For multi-question, route each answer through handleOptionSelect for phase-aware handling,
+        // then send a combined summary for the AI to respond to
+        for (const answer of selectedAnswers) {
+          await orchestrator.handleOptionSelect(answer, agent, (chunk) => {
+            if (!destroyedRef.current) setStreamingText((prev) => prev + chunk);
+          });
+        }
+      } else {
+        await orchestrator.handleOptionSelect(option, agent, (chunk) => {
+          if (!destroyedRef.current) setStreamingText((prev) => prev + chunk);
+        });
+      }
 
       if (!destroyedRef.current) {
         setStreamingText("");
@@ -504,7 +526,7 @@ export function FinalizeApp({ orchestrator, agent, config, planPaths, cwd, onQui
             paddingBottom: 1,
           }}
         >
-          <OptionSelector options={lastMessage!.options!} onSelect={handleOptionSelect} />
+          <OptionSelector groups={optionGroups} onSelect={handleOptionSelect} />
         </box>
       ) : (
         <box
@@ -560,7 +582,7 @@ export function FinalizeApp({ orchestrator, agent, config, planPaths, cwd, onQui
             startTime={loadingStartTime}
           />
         ) : showOptions ? (
-          <text fg={colors.fg.muted}>j/k:navigate  Enter:select  Esc:quit</text>
+          <text fg={colors.fg.muted}>Esc:quit</text>
         ) : (
           <text fg={colors.fg.muted}>Enter:send  Shift+Enter:newline  Ctrl+G:editor  Ctrl+W:del word  Esc:quit</text>
         )}

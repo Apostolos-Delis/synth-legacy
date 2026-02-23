@@ -43,6 +43,7 @@ describe("FinalizeOrchestrator PR creation", () => {
     const result = parseAIResponse("PR created successfully: https://github.com/org/repo/pull/42");
     expect(result.content).toBe("PR created successfully: https://github.com/org/repo/pull/42");
     expect(result.options).toEqual([]);
+    expect(result.questionGroups).toEqual([]);
     expect(result.fixDescriptions).toEqual([]);
     expect(result.reviewComplete).toBe(false);
   });
@@ -127,5 +128,114 @@ describe("classifyPrError", () => {
   test("cleans ANSI codes from unknown errors", () => {
     const ansiError = "\x1b[31mSome error message\x1b[0m";
     expect(classifyPrError(ansiError)).toBe("Some error message");
+  });
+});
+
+describe("parseAIResponse — recommended and question groups", () => {
+  test("[OPTION*] is parsed as recommended: true", () => {
+    const raw = "Choose:\n[OPTION*]Retry|Retry with backoff[/OPTION]\n[OPTION]Skip|Skip this step[/OPTION]";
+    const result = parseAIResponse(raw);
+    expect(result.options).toHaveLength(2);
+    expect(result.options[0].recommended).toBe(true);
+    expect(result.options[0].label).toBe("Retry");
+    expect(result.options[0].description).toBe("Retry with backoff");
+  });
+
+  test("[OPTION] without * has no recommended property", () => {
+    const raw = "[OPTION]Fix it|Apply the fix[/OPTION]";
+    const result = parseAIResponse(raw);
+    expect(result.options).toHaveLength(1);
+    expect(result.options[0].recommended).toBeUndefined();
+  });
+
+  test("[QUESTION] groups with associated options", () => {
+    const raw = [
+      "Some context text.",
+      "[QUESTION]Error handling[/QUESTION]",
+      "[OPTION*]Retry|Retry with backoff[/OPTION]",
+      "[OPTION]Propagate|Let caller handle[/OPTION]",
+      "[QUESTION]Logging[/QUESTION]",
+      "[OPTION]Debug|Debug level[/OPTION]",
+      "[OPTION*]Info|Info level[/OPTION]",
+    ].join("\n");
+
+    const result = parseAIResponse(raw);
+    expect(result.questionGroups).toHaveLength(2);
+
+    expect(result.questionGroups[0].question).toBe("Error handling");
+    expect(result.questionGroups[0].options).toHaveLength(2);
+    expect(result.questionGroups[0].options[0].recommended).toBe(true);
+    expect(result.questionGroups[0].options[0].label).toBe("Retry");
+
+    expect(result.questionGroups[1].question).toBe("Logging");
+    expect(result.questionGroups[1].options).toHaveLength(2);
+    expect(result.questionGroups[1].options[1].recommended).toBe(true);
+    expect(result.questionGroups[1].options[1].label).toBe("Info");
+
+    // Flattened options should contain all 4
+    expect(result.options).toHaveLength(4);
+  });
+
+  test("backward compat: no [QUESTION] markers → single group with empty question", () => {
+    const raw = "[OPTION]A|Option A[/OPTION]\n[OPTION]B|Option B[/OPTION]";
+    const result = parseAIResponse(raw);
+    expect(result.questionGroups).toHaveLength(1);
+    expect(result.questionGroups[0].question).toBe("");
+    expect(result.questionGroups[0].options).toHaveLength(2);
+  });
+
+  test("no options → empty questionGroups", () => {
+    const raw = "Just some text with no markers.";
+    const result = parseAIResponse(raw);
+    expect(result.questionGroups).toEqual([]);
+    expect(result.options).toEqual([]);
+  });
+
+  test("[QUESTION] and [OPTION] markers are stripped from content", () => {
+    const raw = "Intro text.\n[QUESTION]Topic[/QUESTION]\n[OPTION*]Yes|Do it[/OPTION]\n[OPTION]No|Don't[/OPTION]\nTrailing.";
+    const result = parseAIResponse(raw);
+    expect(result.content).not.toContain("[QUESTION]");
+    expect(result.content).not.toContain("[/QUESTION]");
+    expect(result.content).not.toContain("[OPTION");
+    expect(result.content).not.toContain("[/OPTION]");
+    expect(result.content).toContain("Intro text.");
+    expect(result.content).toContain("Trailing.");
+  });
+
+  test("mixed [FIX] and [OPTION*] markers are all parsed", () => {
+    const raw = "Review:\n[FIX]Add null check[/FIX]\n[OPTION*]Apply fix|Apply immediately[/OPTION]\n[OPTION]Defer|Handle later[/OPTION]";
+    const result = parseAIResponse(raw);
+    expect(result.fixDescriptions).toEqual(["Add null check"]);
+    expect(result.options).toHaveLength(2);
+    expect(result.options[0].recommended).toBe(true);
+  });
+
+  test("[QUESTION] with no options produces a group with empty options array", () => {
+    const raw = "[QUESTION]Empty topic[/QUESTION]\nSome text but no options here.";
+    const result = parseAIResponse(raw);
+    expect(result.questionGroups).toHaveLength(1);
+    expect(result.questionGroups[0].question).toBe("Empty topic");
+    expect(result.questionGroups[0].options).toEqual([]);
+  });
+
+  test("options before first [QUESTION] are captured in a preamble group", () => {
+    const raw = [
+      "[OPTION]Orphan|Orphaned option[/OPTION]",
+      "[QUESTION]Topic[/QUESTION]",
+      "[OPTION]Real|Real option[/OPTION]",
+    ].join("\n");
+
+    const result = parseAIResponse(raw);
+    expect(result.questionGroups).toHaveLength(2);
+    // First group is the preamble with orphaned option
+    expect(result.questionGroups[0].question).toBe("");
+    expect(result.questionGroups[0].options).toHaveLength(1);
+    expect(result.questionGroups[0].options[0].label).toBe("Orphan");
+    // Second group is the actual [QUESTION]
+    expect(result.questionGroups[1].question).toBe("Topic");
+    expect(result.questionGroups[1].options).toHaveLength(1);
+    expect(result.questionGroups[1].options[0].label).toBe("Real");
+    // Flattened options should contain all 2
+    expect(result.options).toHaveLength(2);
   });
 });

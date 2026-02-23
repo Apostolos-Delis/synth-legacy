@@ -8,7 +8,7 @@ import { PhaseIndicator } from "./components/PhaseIndicator.js";
 import { OptionSelector } from "./components/OptionSelector.js";
 import { ToastContainer } from "./components/Toast.js";
 import { useToast } from "./hooks/useToast.js";
-import type { ChatOption } from "../finalize/chat-types.js";
+import type { ChatOption, QuestionGroup } from "../finalize/chat-types.js";
 import { openInEditor } from "../utils/editor.js";
 import { writeText } from "../utils/fs.js";
 
@@ -27,6 +27,8 @@ const REVIEW_OPTIONS: ChatOption[] = [
   { label: "Execute Plan", description: "Approve the PRD and proceed to task generation", value: "approve" },
   { label: "Request Changes", description: "Type follow-up feedback to revise the PRD", value: "revise" },
 ];
+
+const REVIEW_GROUPS: QuestionGroup[] = [{ question: "", options: REVIEW_OPTIONS }];
 
 export function PrdReviewView({
   prdMarkdown,
@@ -64,7 +66,8 @@ export function PrdReviewView({
     }
   }, []);
 
-  const handleOptionSelect = useCallback(async (option: ChatOption) => {
+  const handleOptionSelect = useCallback(async (selectedAnswers: ChatOption[]) => {
+    const option = selectedAnswers[0];
     if (option.value === "approve") {
       try {
         await writeText(planPaths.prd, prdContent);
@@ -393,7 +396,7 @@ export function PrdReviewView({
             paddingBottom: 1,
           }}
         >
-          <OptionSelector options={REVIEW_OPTIONS} onSelect={handleOptionSelect} />
+          <OptionSelector groups={REVIEW_GROUPS} onSelect={handleOptionSelect} showOther={false} />
         </box>
       )}
 
