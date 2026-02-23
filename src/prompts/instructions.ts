@@ -1,4 +1,6 @@
-export const ITERATION_INSTRUCTIONS = `You are an autonomous coding agent. Complete ONE task per iteration.
+export function buildIterationInstructions(slug?: string): string {
+  const scope = slug || "session-slug";
+  return `You are an autonomous coding agent. Complete ONE task per iteration.
 
 ## Exploration First
 
@@ -54,7 +56,7 @@ Steps:
 1. Read the task and acceptance criteria
 2. Implement the changes needed
 3. Run quality checks — typecheck, lint, test (see AGENTS.md for commands). Fix all failures before continuing.
-4. If checks pass, commit with a message that captures intent: \`feat: [Task ID] - [Brief description of why this change was made]\`. The commit message should explain *the purpose* of the change, not just restate the task title. Example: \`feat: US-005 - Structured progress format so iterations don't re-discover context\`
+4. If checks pass, commit with a message that captures intent: \`feat: [${scope}] Brief description of why this change was made\`. The commit message should explain *the purpose* of the change, not just restate the task title. Example: \`feat: [${scope}] structured progress format so iterations don't re-discover context\`
 5. Update tasks.json to set status "done" for the completed task
 
 If ALL tasks are done, reply with: <promise>COMPLETE</promise>
@@ -73,3 +75,4 @@ Example: When you complete acceptance criterion #1, emit:
 <ac-done>1</ac-done>
 
 Emit one marker per criterion, only after the criterion is fully satisfied.`;
+}

@@ -200,7 +200,7 @@ describe("pipeline ordering — generateTasks requires finalized PRD", () => {
     const agent = makeMockAgent();
 
     await expect(
-      generateTasks(agent, "/nonexistent/path/prd.md", "test", "main", "/tmp"),
+      generateTasks(agent, "/nonexistent/path/prd.md", "test", "main", "/tmp", { taskPrefix: "AUTH" }),
     ).rejects.toThrow("PRD file not found");
   });
 
@@ -209,7 +209,7 @@ describe("pipeline ordering — generateTasks requires finalized PRD", () => {
     const missingPath = "/tmp/synth-fake-12345/prd.md";
 
     await expect(
-      generateTasks(agent, missingPath, "test", "main", "/tmp"),
+      generateTasks(agent, missingPath, "test", "main", "/tmp", { taskPrefix: "AUTH" }),
     ).rejects.toThrow(missingPath);
   });
 
@@ -278,7 +278,7 @@ describe("pipeline ordering — generateTasks requires finalized PRD", () => {
             project: "test",
             branchName: "main",
             description: "d",
-            tasks: [{ id: "US-001", title: "T", description: "d", acceptanceCriteria: [], priority: 1, status: "open", iterationCount: 0 }],
+            tasks: [{ id: "AUTH-001", title: "T", description: "d", acceptanceCriteria: [], priority: 1, status: "open", iterationCount: 0 }],
           });
           onStdout?.(validJson);
           return {
@@ -290,11 +290,14 @@ describe("pipeline ordering — generateTasks requires finalized PRD", () => {
         },
       } as unknown as import("../agents/types.js").AgentAdapter;
 
-      await generateTasks(agent, paths.prd, "test", "main", dir);
+      await generateTasks(agent, paths.prd, "test", "main", dir, { taskPrefix: "AUTH" });
 
       // The prompt sent to the agent must contain the PRD content
       expect(capturedPrompt).toContain("My Special PRD");
       expect(capturedPrompt).toContain("Unique content for prompt verification");
+      // The prompt should use the custom task prefix
+      expect(capturedPrompt).toContain("AUTH-001");
+      expect(capturedPrompt).not.toContain("US-001");
     });
   });
 

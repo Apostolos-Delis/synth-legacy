@@ -1,16 +1,16 @@
 import { describe, test, expect } from "bun:test";
 import { buildPrompt } from "../prompts/build.js";
-import { ITERATION_INSTRUCTIONS } from "../prompts/instructions.js";
+import { buildIterationInstructions } from "../prompts/instructions.js";
 import { writeText } from "../utils/fs.js";
 import { join } from "node:path";
 import { makeSessionPaths, makeTask, withTmpDir } from "./helpers.js";
 
 describe("buildPrompt", () => {
-  test("includes ITERATION_INSTRUCTIONS", async () => {
+  test("includes buildIterationInstructions()", async () => {
     await withTmpDir(async (dir) => {
       const paths = makeSessionPaths(dir);
       const prompt = await buildPrompt(makeTask(), paths, dir, 1);
-      expect(prompt).toContain(ITERATION_INSTRUCTIONS);
+      expect(prompt).toContain(buildIterationInstructions());
     });
   });
 
@@ -142,7 +142,7 @@ describe("buildPrompt", () => {
       const paths = makeSessionPaths(dir);
       const prompt = await buildPrompt(makeTask(), paths, dir, 1, "unknown-agent");
       expect(prompt).not.toContain("Agent-Specific Guidance");
-      expect(prompt).toContain(ITERATION_INSTRUCTIONS);
+      expect(prompt).toContain(buildIterationInstructions());
     });
   });
 
@@ -158,10 +158,27 @@ describe("buildPrompt", () => {
     await withTmpDir(async (dir) => {
       const paths = makeSessionPaths(dir);
       const prompt = await buildPrompt(makeTask(), paths, dir, 1, "claude");
-      const instructionsIdx = prompt.indexOf(ITERATION_INSTRUCTIONS);
+      const instructionsIdx = prompt.indexOf(buildIterationInstructions());
       const agentIdx = prompt.indexOf("Agent-Specific Guidance (Claude)");
       expect(instructionsIdx).toBeGreaterThanOrEqual(0);
       expect(agentIdx).toBeGreaterThan(instructionsIdx);
+    });
+  });
+
+  test("includes session slug in commit message instructions", async () => {
+    await withTmpDir(async (dir) => {
+      const paths = makeSessionPaths(dir);
+      const prompt = await buildPrompt(makeTask(), paths, dir, 1, "claude", "jwt-auth");
+      expect(prompt).toContain("feat: [jwt-auth]");
+      expect(prompt).not.toContain("session-slug");
+    });
+  });
+
+  test("uses 'session-slug' placeholder when slug not provided", async () => {
+    await withTmpDir(async (dir) => {
+      const paths = makeSessionPaths(dir);
+      const prompt = await buildPrompt(makeTask(), paths, dir, 1);
+      expect(prompt).toContain("feat: [session-slug]");
     });
   });
 });

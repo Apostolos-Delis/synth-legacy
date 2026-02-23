@@ -2,7 +2,7 @@ import { join } from "node:path";
 import { stat } from "node:fs/promises";
 import type { Task } from "../tasks/types.js";
 import type { SessionPaths } from "../sessions/types.js";
-import { ITERATION_INSTRUCTIONS } from "./instructions.js";
+import { buildIterationInstructions } from "./instructions.js";
 import { fileExists, readText } from "../utils/fs.js";
 import { globalTrace } from "../utils/perf.js";
 
@@ -66,12 +66,13 @@ export async function buildPrompt(
   cwd: string,
   iteration: number,
   agentName?: string,
+  sessionSlug?: string,
 ): Promise<string> {
   const trace = globalTrace();
   const sections: string[] = [];
 
   // 1. Instructions
-  sections.push(ITERATION_INSTRUCTIONS);
+  sections.push(buildIterationInstructions(sessionSlug));
 
   // 1b. Agent-specific instructions (injected after generic instructions)
   if (agentName) {

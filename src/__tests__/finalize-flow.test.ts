@@ -177,6 +177,10 @@ describe("Auto-finalize flow: review completion → PR creation", () => {
     // Messages reported progress
     expect(messages.some((m) => m.content.includes("Committed changes"))).toBe(true);
     expect(messages.some((m) => m.content.includes("Pushing branch"))).toBe(true);
+
+    // Commit message uses [slug] format (falls back to "synth" without metadata.json)
+    const commitMsg = messages.find((m) => m.content.includes("Committed changes"));
+    expect(commitMsg?.content).toMatch(/feat: \[\w+\]/);
   });
 
   test("executePrCreation skips commit when no staged changes", async () => {

@@ -19,6 +19,7 @@ import {
   buildInitialAuditPrompt,
 } from "./audit-chat.js";
 import { writeJson, readJson, ensureDir, fileExists, readText } from "../utils/fs.js";
+import { getSessionSlug } from "../sessions/slug.js";
 import { spawn as defaultSpawn } from "../utils/process.js";
 import type { SpawnHandle, SpawnOptions } from "../utils/process.js";
 import { createPr, classifyPrError, classifyPrErrorDetail, generatePrBody, getDiffStats } from "./pr.js";
@@ -969,7 +970,8 @@ export class FinalizeOrchestrator {
       } catch {
         taskFile = { description: "", tasks: [] };
       }
-      const commitMsg = `feat: ${taskFile.description || config.project.name}`;
+      const scope = await getSessionSlug(sessionPaths);
+      const commitMsg = `feat: [${scope}] ${taskFile.description || config.project.name}`;
       const commitHandle = this._spawn({
         cmd: ["git", "commit", "-m", commitMsg],
         cwd: this.cwd,

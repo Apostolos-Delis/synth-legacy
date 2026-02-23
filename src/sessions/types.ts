@@ -7,6 +7,7 @@ export interface SessionMetadata {
   status: "interviewing" | "planning" | "executing" | "paused" | "blocked" | "completed" | "finalizing" | "finalized" | "failed";
   taskCount: number;
   tasksCompleted: number;
+  slug?: string;
 }
 
 export interface SessionPaths {

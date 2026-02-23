@@ -2,7 +2,8 @@ import type { TaskFile } from "./types.js";
 import type { AgentAdapter } from "../agents/types.js";
 import { readText, fileExists } from "../utils/fs.js";
 
-const PLANNER_PROMPT = `You are a task planner. Given a PRD (Product Requirements Document), generate a structured task list.
+function buildPlannerPrompt(taskPrefix: string): string {
+  return `You are a task planner. Given a PRD (Product Requirements Document), generate a structured task list.
 
 Output ONLY a JSON object with this exact structure (no markdown fences, no explanation):
 
@@ -12,7 +13,7 @@ Output ONLY a JSON object with this exact structure (no markdown fences, no expl
   "description": "<brief description>",
   "tasks": [
     {
-      "id": "US-001",
+      "id": "${taskPrefix}-001",
       "title": "<task title>",
       "description": "<what to implement>",
       "acceptanceCriteria": ["<criterion 1>", "<criterion 2>"],
@@ -27,13 +28,20 @@ Output ONLY a JSON object with this exact structure (no markdown fences, no expl
 }
 
 Rules:
-- IDs follow the pattern US-001, US-002, etc.
+- IDs follow the pattern ${taskPrefix}-001, ${taskPrefix}-002, etc.
 - Priority 1 = highest (do first), 5 = lowest
 - Set dependsOn to IDs of tasks that must complete first
 - Each task should be completable in one agent iteration (~10 min)
 - Include verification commands when possible (typecheck, lint, test)
 - Keep tasks focused: one logical change per task
 - Order by dependency chain, then priority`;
+}
+
+export interface GenerateTasksOptions {
+  model?: string;
+  taskPrefix?: string;
+  onProgress?: (chunk: string) => void;
+}
 
 export async function generateTasks(
   agent: AgentAdapter,
@@ -41,14 +49,14 @@ export async function generateTasks(
   projectName: string,
   branchName: string,
   cwd: string,
-  model?: string,
-  onProgress?: (chunk: string) => void,
+  options?: GenerateTasksOptions,
 ): Promise<TaskFile> {
+  const { model, taskPrefix, onProgress } = options ?? {};
   if (!(await fileExists(prdPath))) {
     throw new Error(`PRD file not found: ${prdPath}. Run 'synth plan' to generate one.`);
   }
   const prd = await readText(prdPath);
-  const prompt = `${PLANNER_PROMPT}
+  const prompt = `${buildPlannerPrompt(taskPrefix ?? "US")}
 
 Project: ${projectName}
 Branch: ${branchName}

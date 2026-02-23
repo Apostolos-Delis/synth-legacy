@@ -17,6 +17,7 @@ import { loadTasks, saveTasks, updateTaskStatus, allTasksDone } from "../tasks/s
 import { selectNextTask } from "../tasks/selector.js";
 import { buildPrompt } from "../prompts/build.js";
 import { appendText, writeText, ensureDir } from "../utils/fs.js";
+import { getSessionSlug } from "../sessions/slug.js";
 import { spawn } from "../utils/process.js";
 import { updateRun } from "../run/run.js";
 import { globalTrace } from "../utils/perf.js";
@@ -31,6 +32,7 @@ export class Engine {
   private listeners: EngineEventListener[] = [];
   private circuitBreaker: CircuitBreaker;
   private activeInterrupt: (() => void) | null = null;
+  private sessionSlug: string | null = null;
 
   constructor(
     private config: SynthConfig,
@@ -140,7 +142,10 @@ export class Engine {
   }
 
   private async autoCommit(task: Task): Promise<void> {
-    const commitMsg = `feat: ${task.id} - ${task.title}`;
+    if (this.sessionSlug === null) {
+      this.sessionSlug = await getSessionSlug(this.sessionPaths);
+    }
+    const commitMsg = `feat: [${this.sessionSlug}] ${task.title}`;
     const addResult = await spawn({ cmd: ["git", "add", "-u"], cwd: this.cwd }).promise;
     if (addResult.exitCode !== 0) {
       this.emit({
@@ -284,12 +289,16 @@ export class Engine {
 
       this.emit({ type: "phase:building-prompt", timestamp: Date.now() });
       trace.startPhase("engine:prompt-build");
+      if (this.sessionSlug === null) {
+        this.sessionSlug = await getSessionSlug(this.sessionPaths);
+      }
       const prompt = await buildPrompt(
         task,
         this.sessionPaths,
         this.cwd,
         this.iteration,
         this.config.agent.name,
+        this.sessionSlug,
       );
       trace.endPhase("engine:prompt-build");
 

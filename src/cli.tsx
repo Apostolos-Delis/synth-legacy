@@ -11,6 +11,7 @@ import {
   updateSessionMetadata,
   deleteSession,
 } from "./sessions/registry.js";
+import { deriveSessionSlug, deriveTaskPrefix } from "./sessions/slug.js";
 import { loadTasks, saveTasks, getProgress, resetOrphanedTasks } from "./tasks/store.js";
 import { writeText, readText, readJson, fileExists, writeJson } from "./utils/fs.js";
 import { spawn } from "./utils/process.js";
@@ -87,6 +88,15 @@ const args = process.argv.slice(2);
 const command = args[0];
 
 const tuiEnabled = process.stdout.isTTY === true && !args.includes("--no-tui");
+
+/**
+ * Derive slug + prefix from a PRD title, update session metadata, and return the task prefix.
+ */
+async function setSessionSlugAndPrefix(sessionId: string, title: string): Promise<string> {
+  const slug = deriveSessionSlug(title);
+  await updateSessionMetadata(cwd, sessionId, { description: title, slug });
+  return deriveTaskPrefix(title);
+}
 const profileEnabled = args.includes("--profile");
 const profileJson = args.includes("--profile-json");
 
@@ -933,7 +943,7 @@ async function resumeInterview(
     // Phase 2: PRD Review (same flow as cmdPlan)
     const extractedPrd = prd as import("./interview/types.js").GeneratedPrd;
     const prdMarkdown = interviewMod.prdToMarkdown(extractedPrd);
-    await updateSessionMetadata(cwd, id, { description: extractedPrd.title });
+    const taskPrefix = await setSessionSlugAndPrefix(id, extractedPrd.title);
 
     let approvedPrdContent: string | null = null;
     const prdApproved = await new Promise<boolean>((resolve) => {
@@ -971,12 +981,16 @@ async function resumeInterview(
     let taskFile;
     try {
       taskFile = await generateTasks(
-        agent, paths.prd, config.project.name, config.project.branch || `synth/${id}`, cwd, config.agent.model,
-        (chunk) => {
-          streamOutput += chunk;
-          const ids = streamOutput.match(/US-\d{3}/g);
-          taskCount = ids ? new Set(ids).size : 0;
-          planRoot.render(<tui.GeneratingView output={streamOutput} taskCount={taskCount} />);
+        agent, paths.prd, config.project.name, config.project.branch || `synth/${id}`, cwd,
+        {
+          model: config.agent.model,
+          taskPrefix,
+          onProgress: (chunk) => {
+            streamOutput += chunk;
+            const ids = streamOutput.match(/\b[A-Z]{2,5}-\d{3}\b/g);
+            taskCount = ids ? new Set(ids).size : 0;
+            planRoot.render(<tui.GeneratingView output={streamOutput} taskCount={taskCount} />);
+          },
         },
       );
     } catch (err) {
@@ -1078,12 +1092,12 @@ async function resumeInterview(
 
     // Continue with task generation
     await writeText(paths.prd, interviewMod.prdToMarkdown(prd));
-    await updateSessionMetadata(cwd, id, { description: prd.title });
+    const taskPrefix = await setSessionSlugAndPrefix(id, prd.title);
 
     logSuccess(`PRD saved to ${paths.prd}`);
 
     log("Generating tasks...\n");
-    const taskFile = await generateTasks(agent, paths.prd, config.project.name, config.project.branch || `synth/${id}`, cwd, config.agent.model);
+    const taskFile = await generateTasks(agent, paths.prd, config.project.name, config.project.branch || `synth/${id}`, cwd, { model: config.agent.model, taskPrefix });
 
     await saveTasks(paths.tasks, taskFile);
     await writeText(paths.progress, "## Codebase Patterns\n\n---\n\n");
@@ -1130,9 +1144,11 @@ async function cmdPlan(sessionIdOrFlag?: string): Promise<void> {
     }
 
     const prdContent = await readText(prdPath);
-    const { id, paths } = await createSession(cwd, "Generated from PRD");
+    const prdTitle = prdContent.match(/^#\s+(.+)$/m)?.[1]?.trim() || "Generated from PRD";
+    const { id, paths } = await createSession(cwd, prdTitle);
 
     await writeText(paths.prd, prdContent);
+    const taskPrefix = await setSessionSlugAndPrefix(id, prdTitle);
     log(fmt.info(`Created session: ${id}`));
 
     const [{ getAgent }, { generateTasks }] = await Promise.all([
@@ -1143,12 +1159,12 @@ async function cmdPlan(sessionIdOrFlag?: string): Promise<void> {
 
     const taskFile = tuiEnabled
       ? await withSpinner("Generating tasks from PRD", () =>
-          generateTasks(agent, paths.prd, config.project.name, config.project.branch, cwd, config.agent.model),
+          generateTasks(agent, paths.prd, config.project.name, config.project.branch, cwd, { model: config.agent.model, taskPrefix }),
           { successMessage: fmt.success("Tasks generated") },
         )
       : await (async () => {
           log("Generating tasks from PRD...");
-          return generateTasks(agent, paths.prd, config.project.name, config.project.branch, cwd, config.agent.model);
+          return generateTasks(agent, paths.prd, config.project.name, config.project.branch, cwd, { model: config.agent.model, taskPrefix });
         })();
 
     await saveTasks(paths.tasks, taskFile);
@@ -1249,7 +1265,7 @@ async function cmdPlan(sessionIdOrFlag?: string): Promise<void> {
     // Phase 2: PRD Review (user can revise before task generation)
     const extractedPrd = prd as import("./interview/types.js").GeneratedPrd;
     const prdMarkdown = interviewMod.prdToMarkdown(extractedPrd);
-    await updateSessionMetadata(cwd, id, { description: extractedPrd.title });
+    const taskPrefix = await setSessionSlugAndPrefix(id, extractedPrd.title);
 
     let approvedPrdContent: string | null = null;
     const prdApproved = await new Promise<boolean>((resolve) => {
@@ -1287,12 +1303,16 @@ async function cmdPlan(sessionIdOrFlag?: string): Promise<void> {
     let taskFile;
     try {
       taskFile = await generateTasks(
-        agent, paths.prd, config.project.name, config.project.branch || `synth/${id}`, cwd, config.agent.model,
-        (chunk) => {
-          streamOutput += chunk;
-          const ids = streamOutput.match(/US-\d{3}/g);
-          taskCount = ids ? new Set(ids).size : 0;
-          planRoot.render(<tui.GeneratingView output={streamOutput} taskCount={taskCount} />);
+        agent, paths.prd, config.project.name, config.project.branch || `synth/${id}`, cwd,
+        {
+          model: config.agent.model,
+          taskPrefix,
+          onProgress: (chunk) => {
+            streamOutput += chunk;
+            const ids = streamOutput.match(/\b[A-Z]{2,5}-\d{3}\b/g);
+            taskCount = ids ? new Set(ids).size : 0;
+            planRoot.render(<tui.GeneratingView output={streamOutput} taskCount={taskCount} />);
+          },
         },
       );
     } catch (err) {
@@ -1391,12 +1411,12 @@ async function cmdPlan(sessionIdOrFlag?: string): Promise<void> {
   }
 
   await writeText(paths.prd, interviewMod.prdToMarkdown(prd));
-  await updateSessionMetadata(cwd, id, { description: prd.title });
+  const taskPrefix = await setSessionSlugAndPrefix(id, prd.title);
 
   logSuccess(`PRD saved to ${paths.prd}`);
 
   log("Generating tasks...\n");
-  const taskFile = await generateTasks(agent, paths.prd, config.project.name, config.project.branch || `synth/${id}`, cwd, config.agent.model);
+  const taskFile = await generateTasks(agent, paths.prd, config.project.name, config.project.branch || `synth/${id}`, cwd, { model: config.agent.model, taskPrefix });
 
   await saveTasks(paths.tasks, taskFile);
   await writeText(paths.progress, "## Codebase Patterns\n\n---\n\n");
