@@ -4,6 +4,8 @@ import type { TextareaRenderable } from "@opentui/core";
 import type { FinalizeMessage, FinalizePhase, ChatOption, CompletionSummary } from "../finalize/chat-types.js";
 import type { FinalizeOrchestrator } from "../finalize/orchestrator.js";
 import type { AgentAdapter } from "../agents/types.js";
+import type { SynthConfig } from "../config/types.js";
+import type { PlanPaths } from "../plans/types.js";
 import { boldAttr, colors, markdownSyntaxStyle } from "./theme.js";
 import { PhaseIndicator } from "./components/PhaseIndicator.js";
 import { OptionSelector } from "./components/OptionSelector.js";
@@ -13,6 +15,9 @@ import { copyToClipboard } from "../utils/clipboard.js";
 interface FinalizeAppProps {
   orchestrator: FinalizeOrchestrator;
   agent: AgentAdapter;
+  config: SynthConfig;
+  planPaths: PlanPaths;
+  cwd: string;
   onQuit: () => void;
   onComplete?: (summary: CompletionSummary) => void;
 }
@@ -55,10 +60,10 @@ function formatDuration(ms: number): string {
   return `${hrs}h ${remMins}m`;
 }
 
-export function FinalizeApp({ orchestrator, agent, onQuit, onComplete }: FinalizeAppProps): ReactNode {
+export function FinalizeApp({ orchestrator, agent, config, planPaths, cwd, onQuit, onComplete }: FinalizeAppProps): ReactNode {
   const [messages, setMessages] = useState<FinalizeMessage[]>(() => orchestrator.getMessages());
   const [currentPhase, setCurrentPhase] = useState<FinalizePhase>(() => orchestrator.getCurrentPhase());
-  const [isLoading, setIsLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
   const [streamingText, setStreamingText] = useState("");
   const [loadingStartTime, setLoadingStartTime] = useState(0);
 
@@ -74,11 +79,12 @@ export function FinalizeApp({ orchestrator, agent, onQuit, onComplete }: Finaliz
   const destroyedRef = useRef(false);
   useEffect(() => () => { destroyedRef.current = true; }, []);
 
-  // Subscribe to orchestrator phase changes
+  // Subscribe to orchestrator phase changes and sync messages
   useEffect(() => {
     return orchestrator.onPhaseChange((phase) => {
       if (!destroyedRef.current) {
         setCurrentPhase(phase);
+        setMessages([...orchestrator.getMessages()]);
       }
     });
   }, [orchestrator]);
@@ -94,6 +100,77 @@ export function FinalizeApp({ orchestrator, agent, onQuit, onComplete }: Finaliz
       onComplete?.(summary);
     });
   }, [currentPhase, orchestrator, onComplete]);
+
+  // Auto-start: trigger orchestrator.start() on mount
+  const startedRef = useRef(false);
+  useEffect(() => {
+    if (startedRef.current) return;
+    startedRef.current = true;
+
+    setIsLoading(true);
+    setLoadingStartTime(Date.now());
+
+    orchestrator.start(agent, config, planPaths, cwd, (chunk) => {
+      if (!destroyedRef.current) setStreamingText((prev) => prev + chunk);
+    }).then(() => {
+      if (!destroyedRef.current) {
+        setStreamingText("");
+        setMessages([...orchestrator.getMessages()]);
+        setIsLoading(false);
+      }
+    }).catch((err) => {
+      if (!destroyedRef.current) {
+        setStreamingText("");
+        setMessages((prev) => [
+          ...prev,
+          { role: "system", content: `Audit error: ${err instanceof Error ? err.message : String(err)}` },
+        ]);
+        setIsLoading(false);
+      }
+    });
+  }, [orchestrator, agent, config, planPaths, cwd]);
+
+  // Execute fixes when phase transitions to "executing-fixes"
+  const activeExecRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (activeExecRef.current) return;
+
+    if (currentPhase === "executing-fixes") {
+      activeExecRef.current = "executing-fixes";
+      setIsLoading(true);
+      setLoadingStartTime(Date.now());
+
+      orchestrator.executeFixes(agent, config, planPaths, () => {
+        if (!destroyedRef.current) setMessages([...orchestrator.getMessages()]);
+      }).then(() => {
+        activeExecRef.current = null;
+        if (!destroyedRef.current) {
+          setMessages([...orchestrator.getMessages()]);
+          setIsLoading(false);
+        }
+      }).catch(() => {
+        activeExecRef.current = null;
+        if (!destroyedRef.current) setIsLoading(false);
+      });
+    } else if (currentPhase === "creating-pr") {
+      activeExecRef.current = "creating-pr";
+      setIsLoading(true);
+      setLoadingStartTime(Date.now());
+
+      orchestrator.executePrCreation(config, planPaths, () => {
+        if (!destroyedRef.current) setMessages([...orchestrator.getMessages()]);
+      }).then(() => {
+        activeExecRef.current = null;
+        if (!destroyedRef.current) {
+          setMessages([...orchestrator.getMessages()]);
+          setIsLoading(false);
+        }
+      }).catch(() => {
+        activeExecRef.current = null;
+        if (!destroyedRef.current) setIsLoading(false);
+      });
+    }
+  }, [currentPhase, orchestrator, agent, config, planPaths]);
 
   const syncLineCount = useCallback(() => {
     if (destroyedRef.current) return;

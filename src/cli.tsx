@@ -66,15 +66,16 @@ async function loadFinalize() {
 
 // TUI imports are loaded dynamically to keep non-TUI commands fast.
 async function loadTui() {
-  const [{ createCliRenderer }, { createRoot }, { App }, { InterviewApp }, { GeneratingView }, { ReviewView }] = await Promise.all([
+  const [{ createCliRenderer }, { createRoot }, { App }, { InterviewApp }, { GeneratingView }, { ReviewView }, { FinalizeApp }] = await Promise.all([
     import("@opentui/core"),
     import("@opentui/react"),
     import("./tui/App.js"),
     import("./tui/InterviewApp.js"),
     import("./tui/GeneratingView.js"),
     import("./tui/ReviewView.js"),
+    import("./tui/FinalizeApp.js"),
   ]);
-  return { createCliRenderer, createRoot, App, InterviewApp, GeneratingView, ReviewView };
+  return { createCliRenderer, createRoot, App, InterviewApp, GeneratingView, ReviewView, FinalizeApp };
 }
 
 const VERSION = "0.5.0";
@@ -1352,7 +1353,7 @@ interface FinalizeRunContext {
 
 async function cmdFinalize(
   planId?: string,
-  _tuiContext?: TuiContext,
+  tuiContext?: TuiContext,
   runContext?: FinalizeRunContext,
 ): Promise<void> {
   const config = runContext?.config ?? await applyTheme();
@@ -1369,41 +1370,107 @@ async function cmdFinalize(
     process.exit(1);
   }
 
-  log(`${fmt.bold("synth finalize")} ${ansi.muted}─${ansi.reset} ${plan.metadata.id}\n`);
-
-  const [{ getAgent }, { finalize }] = await Promise.all([
-    loadAgentRegistry(),
-    loadFinalize(),
-  ]);
-  const agent = getAgent(config.agent.name);
-
-  const result = tuiEnabled
-    ? await withSpinner("Finalizing", () => finalize(config, agent, plan!.paths, cwd))
-    : await finalize(config, agent, plan.paths, cwd);
-
-  agent.dispose();
-
-  if (result.blocked) {
-    logError(`Blocked: ${result.blockReason}`);
+  // Re-entry guard: already finalized plans cannot be re-finalized
+  if (plan.metadata.status === "finalized") {
+    logError(`Plan '${plan.metadata.id}' is already finalized.`);
     process.exit(1);
   }
 
-  if (result.findings.length > 0) {
-    log(`\n${fmt.bold("Review findings:")}`);
-    const severityIcon: Record<string, string> = {
-      critical: `${ansi.error}✗${ansi.reset}`,
-      warning: `${ansi.warning}▲${ansi.reset}`,
-      info: `${ansi.muted}●${ansi.reset}`,
-    };
-    for (const f of result.findings) {
-      const icon = severityIcon[f.severity] ?? severityIcon.info;
-      log(`  ${icon} ${ansi.muted}[${f.perspective}]${ansi.reset} ${f.message}`);
-    }
-  }
+  if (tuiEnabled) {
+    // ── Interactive TUI mode ──
+    const [{ getAgent }, { FinalizeOrchestrator }] = await Promise.all([
+      loadAgentRegistry(),
+      import("./finalize/orchestrator.js"),
+    ]);
+    const tui = await loadTui();
 
-  if (result.prUrl) {
-    logSuccess(`PR created: ${result.prUrl}`);
-    await updatePlanMetadata(cwd, plan.metadata.id, { status: "finalized" });
+    const agent = getAgent(config.agent.name);
+    const orchestrator = new FinalizeOrchestrator();
+
+    const ownsRenderer = !tuiContext;
+    let renderer = tuiContext?.renderer ?? null;
+    let root = tuiContext?.root ?? null;
+
+    if (!renderer || !root) {
+      renderer = await tui.createCliRenderer({
+        exitOnCtrlC: false,
+        useKittyKeyboard: { disambiguate: true, alternateKeys: true },
+      });
+      root = tui.createRoot(renderer);
+    }
+
+    let cleanedUp = false;
+    const cleanup = () => {
+      if (cleanedUp) return;
+      cleanedUp = true;
+      if (ownsRenderer) {
+        root?.unmount();
+        renderer?.destroy();
+      }
+      agent.dispose();
+    };
+
+    // Ctrl+C exits cleanly without corrupting state
+    const sigintHandler = () => {
+      cleanup();
+      process.exit(0);
+    };
+    process.on("SIGINT", sigintHandler);
+
+    try {
+      // FinalizeApp auto-starts the orchestrator on mount and handles
+      // all phase transitions (executeFixes, executePrCreation) internally.
+      await new Promise<void>((resolve) => {
+        root!.render(
+          <tui.FinalizeApp
+            orchestrator={orchestrator}
+            agent={agent}
+            config={config}
+            planPaths={plan!.paths}
+            cwd={cwd}
+            onQuit={() => resolve()}
+          />,
+        );
+      });
+    } finally {
+      process.off("SIGINT", sigintHandler);
+      cleanup();
+    }
+  } else {
+    // ── Non-TUI: automated finalize pipeline ──
+    log(`${fmt.bold("synth finalize")} ${ansi.muted}─${ansi.reset} ${plan.metadata.id}\n`);
+
+    const [{ getAgent }, { finalize }] = await Promise.all([
+      loadAgentRegistry(),
+      loadFinalize(),
+    ]);
+    const agent = getAgent(config.agent.name);
+
+    const result = await finalize(config, agent, plan.paths, cwd);
+    agent.dispose();
+
+    if (result.blocked) {
+      logError(`Blocked: ${result.blockReason}`);
+      process.exit(1);
+    }
+
+    if (result.findings.length > 0) {
+      log(`\n${fmt.bold("Review findings:")}`);
+      const severityIcon: Record<string, string> = {
+        critical: `${ansi.error}✗${ansi.reset}`,
+        warning: `${ansi.warning}▲${ansi.reset}`,
+        info: `${ansi.muted}●${ansi.reset}`,
+      };
+      for (const f of result.findings) {
+        const icon = severityIcon[f.severity] ?? severityIcon.info;
+        log(`  ${icon} ${ansi.muted}[${f.perspective}]${ansi.reset} ${f.message}`);
+      }
+    }
+
+    if (result.prUrl) {
+      logSuccess(`PR created: ${result.prUrl}`);
+      await updatePlanMetadata(cwd, plan.metadata.id, { status: "finalized" });
+    }
   }
 }
 

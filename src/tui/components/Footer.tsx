@@ -15,6 +15,7 @@ const SHORTCUTS: Record<ViewMode, string> = {
   review: "Enter:start execution  Esc/q:save and quit",
   completion: "q:quit",
   "completion-finalize": "f:finalize  q:quit",
+  finalize: "Enter:send  Esc:quit",
 };
 
 export const Footer = memo(function Footer({ view, width }: FooterProps): ReactNode {
