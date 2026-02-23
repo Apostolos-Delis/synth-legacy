@@ -256,8 +256,7 @@ export function InterviewApp({ onSendMessage, onComplete, onQuit, initialMessage
   const MIN_INPUT_HEIGHT = 6;
   const maxInputHeight = Math.max(MIN_INPUT_HEIGHT, termHeight - HEADER_HEIGHT - MIN_MESSAGES_VISIBLE);
   const inputHeight = Math.min(Math.max(inputLineCount + BORDER, MIN_INPUT_HEIGHT), maxInputHeight);
-  // Explicit textarea height: total box minus borders, minus 1 row buffer so cursor never touches border
-  const textareaHeight = inputHeight - BORDER - 1;
+  const textareaHeight = inputHeight - BORDER;
 
   return (
     <box style={{ width: "100%", height: "100%", flexDirection: "column" }}>
@@ -356,32 +355,31 @@ export function InterviewApp({ onSendMessage, onComplete, onQuit, initialMessage
           />
         </box>
 
-        {/* Hint bar - positioned on bottom border */}
-        <box
-          style={{
-            position: "absolute",
-            bottom: 0,
-            left: 2,
-            right: 2,
-            height: 1,
-            flexDirection: "row",
-            justifyContent: "center",
-            alignItems: "center",
-            gap: 1,
-            backgroundColor: colors.bg.secondary,
-          }}
-        >
-          {isLoading ? (
-            <PhaseIndicator
-              phase={streamingText ? "Streaming response..." : "Generating response..."}
-              startTime={loadingStartTime}
-            />
-          ) : pendingConfirmation ? (
-            <text fg={colors.status.info}>Enter:confirm & generate  Type feedback to refine  Esc:quit</text>
-          ) : (
-            <text fg={colors.fg.muted}>Enter:send  Shift+Enter:newline  Ctrl+G:editor  Ctrl+W:del word  Esc:quit</text>
-          )}
-        </box>
+      </box>
+
+      {/* Hint bar - below the input area */}
+      <box
+        style={{
+          width: "100%",
+          height: 1,
+          flexDirection: "row",
+          justifyContent: "center",
+          alignItems: "center",
+          gap: 1,
+          paddingLeft: 2,
+          paddingRight: 2,
+        }}
+      >
+        {isLoading ? (
+          <PhaseIndicator
+            phase={streamingText ? "Streaming response..." : "Generating response..."}
+            startTime={loadingStartTime}
+          />
+        ) : pendingConfirmation ? (
+          <text fg={colors.status.info}>Enter:confirm & generate  Type feedback to refine  Esc:quit</text>
+        ) : (
+          <text fg={colors.fg.muted}>Enter:send  Shift+Enter:newline  Ctrl+G:editor  Ctrl+W:del word  Esc:quit</text>
+        )}
       </box>
     </box>
   );
