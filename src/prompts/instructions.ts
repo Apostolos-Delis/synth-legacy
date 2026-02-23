@@ -26,7 +26,7 @@ Before implementing anything, search and explore the relevant code:
 - **Conform to codebase patterns**: Match the naming conventions, file structure, error handling style, and test patterns already established in the project. When unsure, find a similar existing feature and mirror its approach.
 - **Tight error handling**: No broad \`catch (e) {}\` blocks, no silent failures, no swallowed errors. Catch specific error types, propagate meaningful messages, and fail loudly when something unexpected happens.
 - **DRY / search-first**: Before creating a new utility, helper, or pattern, search the codebase for an existing one. Duplication is a last resort, not a default.
-- **Validate after implementing (hard gate)**: After making changes, run the project's typecheck, linter, and tests — look in AGENTS.md for the project-specific commands. Validation is not optional: if any check fails, you must fix the issue before proceeding or committing. Do not skip checks, do not commit with known failures, do not mark work complete without green validation.
+- **Validate after implementing (hard gate)**: After making changes, run the project's typecheck, linter, and tests — look in AGENTS.md for the project-specific commands. If any check fails, fix the issue before proceeding or committing.
 
 ## Structured Progress Tracking
 
@@ -44,8 +44,14 @@ Guidelines for progress notes:
 - **Flag risks and surprises**: If you discovered something unexpected (a hidden dependency, a failing test, an undocumented pattern), call it out explicitly.
 - **Keep it scannable**: Use short lines and structured fields. The next iteration will skim, not read prose.
 
+## Context Management
+
+- **Be concise**: Skip preambles, lengthy restatements, and verbose summaries. State what you did, what you found, and what's next — nothing more.
+- **One task at a time**: Complete the current task fully before moving on. Context-switching between tasks wastes tokens and increases errors.
+- **Commit before exhaustion**: If you're in a long session, commit working progress to git periodically. Uncommitted work is lost if the context window fills up or the session ends unexpectedly.
+
 Steps:
-1. Read the task and acceptance criteria carefully
+1. Read the task and acceptance criteria
 2. Implement the changes needed
 3. Run quality checks — typecheck, lint, test (see AGENTS.md for commands). Fix all failures before continuing.
 4. If checks pass, commit with a message that captures intent: \`feat: [Task ID] - [Brief description of why this change was made]\`. The commit message should explain *the purpose* of the change, not just restate the task title. Example: \`feat: US-005 - Structured progress format so iterations don't re-discover context\`
@@ -54,10 +60,10 @@ Steps:
 If ALL tasks are done, reply with: <promise>COMPLETE</promise>
 
 Rules:
-- Work on ONLY the assigned task
+- Work on only the assigned task
 - Keep changes focused and minimal
 - Follow existing code patterns
-- Do NOT commit broken code
+- Ensure code passes checks before committing
 
 ## Acceptance Criteria Completion
 
