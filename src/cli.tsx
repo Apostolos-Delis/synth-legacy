@@ -893,9 +893,6 @@ async function resumeInterview(
       return;
     }
 
-    // Re-read PRD in case it was revised during review
-    prdMarkdown = await readText(paths.prd);
-
     let streamOutput = "";
     let taskCount = 0;
     planRoot.render(<tui.GeneratingView output={streamOutput} />);
@@ -903,7 +900,7 @@ async function resumeInterview(
     let taskFile;
     try {
       taskFile = await generateTasks(
-        agent, prdMarkdown, config.project.name, config.project.branch || `synth/${id}`, cwd, config.agent.model,
+        agent, paths.prd, config.project.name, config.project.branch || `synth/${id}`, cwd, config.agent.model,
         (chunk) => {
           streamOutput += chunk;
           const ids = streamOutput.match(/US-\d{3}/g);
@@ -1027,11 +1024,8 @@ async function resumeInterview(
 
     logSuccess(`PRD saved to ${paths.prd}`);
 
-    // Read from saved file so task generation always uses the on-disk PRD
-    const prdMarkdown = await readText(paths.prd);
-
     log("Generating tasks...\n");
-    const taskFile = await generateTasks(agent, prdMarkdown, config.project.name, config.project.branch || `synth/${id}`, cwd, config.agent.model);
+    const taskFile = await generateTasks(agent, paths.prd, config.project.name, config.project.branch || `synth/${id}`, cwd, config.agent.model);
 
     await saveTasks(paths.tasks, taskFile);
     await writeText(paths.progress, "## Codebase Patterns\n\n---\n\n");
@@ -1091,12 +1085,12 @@ async function cmdPlan(planIdOrFlag?: string): Promise<void> {
 
     const taskFile = tuiEnabled
       ? await withSpinner("Generating tasks from PRD", () =>
-          generateTasks(agent, prdContent, config.project.name, config.project.branch, cwd, config.agent.model),
+          generateTasks(agent, paths.prd, config.project.name, config.project.branch, cwd, config.agent.model),
           { successMessage: fmt.success("Tasks generated") },
         )
       : await (async () => {
           log("Generating tasks from PRD...");
-          return generateTasks(agent, prdContent, config.project.name, config.project.branch, cwd, config.agent.model);
+          return generateTasks(agent, paths.prd, config.project.name, config.project.branch, cwd, config.agent.model);
         })();
 
     await saveTasks(paths.tasks, taskFile);
@@ -1225,9 +1219,6 @@ async function cmdPlan(planIdOrFlag?: string): Promise<void> {
       return;
     }
 
-    // Re-read PRD in case it was revised during review
-    prdMarkdown = await readText(paths.prd);
-
     let streamOutput = "";
     let taskCount = 0;
     planRoot.render(<tui.GeneratingView output={streamOutput} />);
@@ -1235,7 +1226,7 @@ async function cmdPlan(planIdOrFlag?: string): Promise<void> {
     let taskFile;
     try {
       taskFile = await generateTasks(
-        agent, prdMarkdown, config.project.name, config.project.branch || `synth/${id}`, cwd, config.agent.model,
+        agent, paths.prd, config.project.name, config.project.branch || `synth/${id}`, cwd, config.agent.model,
         (chunk) => {
           streamOutput += chunk;
           const ids = streamOutput.match(/US-\d{3}/g);
@@ -1358,11 +1349,8 @@ async function cmdPlan(planIdOrFlag?: string): Promise<void> {
 
   logSuccess(`PRD saved to ${paths.prd}`);
 
-  // Read from saved file so task generation always uses the on-disk PRD
-  const prdMarkdown = await readText(paths.prd);
-
   log("Generating tasks...\n");
-  const taskFile = await generateTasks(agent, prdMarkdown, config.project.name, config.project.branch || `synth/${id}`, cwd, config.agent.model);
+  const taskFile = await generateTasks(agent, paths.prd, config.project.name, config.project.branch || `synth/${id}`, cwd, config.agent.model);
 
   await saveTasks(paths.tasks, taskFile);
   await writeText(paths.progress, "## Codebase Patterns\n\n---\n\n");

@@ -1,5 +1,6 @@
 import type { TaskFile } from "./types.js";
 import type { AgentAdapter } from "../agents/types.js";
+import { readText } from "../utils/fs.js";
 
 const PLANNER_PROMPT = `You are a task planner. Given a PRD (Product Requirements Document), generate a structured task list.
 
@@ -36,13 +37,14 @@ Rules:
 
 export async function generateTasks(
   agent: AgentAdapter,
-  prd: string,
+  prdPath: string,
   projectName: string,
   branchName: string,
   cwd: string,
   model?: string,
   onProgress?: (chunk: string) => void,
 ): Promise<TaskFile> {
+  const prd = await readText(prdPath);
   const prompt = `${PLANNER_PROMPT}
 
 Project: ${projectName}
