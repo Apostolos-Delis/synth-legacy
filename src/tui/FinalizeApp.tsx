@@ -11,7 +11,7 @@ import { PhaseIndicator } from "./components/PhaseIndicator.js";
 import { OptionSelector } from "./components/OptionSelector.js";
 import { openInEditor } from "../utils/editor.js";
 import { copyToClipboard } from "../utils/clipboard.js";
-import { formatDuration } from "../utils/format.js";
+import { readText, fileExists } from "../utils/fs.js";
 
 interface FinalizeAppProps {
   orchestrator: FinalizeOrchestrator;
@@ -64,6 +64,7 @@ export function FinalizeApp({ orchestrator, agent, config, planPaths, cwd, onQui
   const editorOpenRef = useRef(false);
 
   const [completionSummary, setCompletionSummary] = useState<CompletionSummary | null>(null);
+  const [prdContent, setPrdContent] = useState<string | null>(null);
   const completionFiredRef = useRef(false);
 
   const destroyedRef = useRef(false);
@@ -79,7 +80,7 @@ export function FinalizeApp({ orchestrator, agent, config, planPaths, cwd, onQui
     });
   }, [orchestrator]);
 
-  // Fetch completion summary when phase becomes "complete"
+  // Fetch completion summary and PRD content when phase becomes "complete"
   useEffect(() => {
     if (currentPhase !== "complete" || completionFiredRef.current) return;
     completionFiredRef.current = true;
@@ -89,7 +90,17 @@ export function FinalizeApp({ orchestrator, agent, config, planPaths, cwd, onQui
       setCompletionSummary(summary);
       onComplete?.(summary);
     });
-  }, [currentPhase, orchestrator, onComplete]);
+
+    // Read PRD markdown for the completion screen
+    fileExists(planPaths.prd).then((exists) => {
+      if (!exists || destroyedRef.current) return;
+      return readText(planPaths.prd);
+    }).then((content) => {
+      if (content && !destroyedRef.current) setPrdContent(content);
+    }).catch(() => {
+      // PRD file read is best-effort
+    });
+  }, [currentPhase, orchestrator, onComplete, planPaths.prd]);
 
   // Auto-start: trigger orchestrator.start() on mount
   const startedRef = useRef(false);
@@ -476,24 +487,11 @@ export function FinalizeApp({ orchestrator, agent, config, planPaths, cwd, onQui
                   <text fg={colors.accent.primary} attributes={boldAttr()}>{completionSummary.prUrl}</text>
                 </box>
               )}
-              <box style={{ paddingLeft: 2, flexDirection: "column" }}>
-                <box style={{ flexDirection: "row", gap: 2 }}>
-                  <text fg={colors.fg.muted}>Tasks completed</text>
-                  <text fg={colors.fg.primary}>{completionSummary.tasksCompleted}/{completionSummary.totalTasks}</text>
+              {prdContent && (
+                <box style={{ paddingLeft: 2, flexDirection: "column" }}>
+                  <markdown content={prdContent} syntaxStyle={markdownSyntaxStyle()} />
                 </box>
-                <box style={{ flexDirection: "row", gap: 2 }}>
-                  <text fg={colors.fg.muted}>Commits on branch</text>
-                  <text fg={colors.fg.primary}>{completionSummary.commitCount}</text>
-                </box>
-                <box style={{ flexDirection: "row", gap: 2 }}>
-                  <text fg={colors.fg.muted}>Review fixes applied</text>
-                  <text fg={colors.fg.primary}>{completionSummary.fixesApplied}</text>
-                </box>
-                <box style={{ flexDirection: "row", gap: 2 }}>
-                  <text fg={colors.fg.muted}>Duration</text>
-                  <text fg={colors.fg.primary}>{formatDuration(completionSummary.durationMs)}</text>
-                </box>
-              </box>
+              )}
             </box>
           )}
         </scrollbox>
