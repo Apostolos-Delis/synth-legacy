@@ -33,6 +33,10 @@ export class Interviewer {
     }
   }
 
+  restoreHistory(messages: InterviewMessage[]): void {
+    this.history = [...messages];
+  }
+
   getHistory(): InterviewMessage[] {
     return [...this.history];
   }

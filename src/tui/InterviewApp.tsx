@@ -11,6 +11,7 @@ interface InterviewAppProps {
   onSendMessage: (msg: string, onChunk: (chunk: string) => void) => Promise<{ response: string; done: boolean }>;
   onComplete: () => void;
   onQuit: () => void;
+  initialMessages?: InterviewMessage[];
 }
 
 function MessageBubble({ message }: { message: InterviewMessage }): ReactNode {
@@ -30,10 +31,12 @@ function MessageBubble({ message }: { message: InterviewMessage }): ReactNode {
   );
 }
 
-export function InterviewApp({ onSendMessage, onComplete, onQuit }: InterviewAppProps): ReactNode {
-  const [messages, setMessages] = useState<InterviewMessage[]>([
-    { role: "assistant", content: WELCOME_MESSAGE },
-  ]);
+export function InterviewApp({ onSendMessage, onComplete, onQuit, initialMessages }: InterviewAppProps): ReactNode {
+  const [messages, setMessages] = useState<InterviewMessage[]>(
+    initialMessages && initialMessages.length > 0
+      ? [{ role: "assistant", content: WELCOME_MESSAGE }, ...initialMessages]
+      : [{ role: "assistant", content: WELCOME_MESSAGE }],
+  );
   const [isLoading, setIsLoading] = useState(false);
   const [loadingStartTime, setLoadingStartTime] = useState(0);
   const [streamingText, setStreamingText] = useState("");
