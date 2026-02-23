@@ -873,6 +873,7 @@ async function cmdPlan(planIdOrFlag?: string): Promise<void> {
     await updatePlanMetadata(cwd, id, { description: extractedPrd.title });
 
     let streamOutput = "";
+    let taskCount = 0;
     planRoot.render(<tui.GeneratingView output={streamOutput} />);
 
     let taskFile;
@@ -881,7 +882,9 @@ async function cmdPlan(planIdOrFlag?: string): Promise<void> {
         agent, prdMarkdown, config.project.name, config.project.branch || `synth/${id}`, cwd, config.agent.model,
         (chunk) => {
           streamOutput += chunk;
-          planRoot.render(<tui.GeneratingView output={streamOutput} />);
+          const ids = streamOutput.match(/US-\d{3}/g);
+          taskCount = ids ? new Set(ids).size : 0;
+          planRoot.render(<tui.GeneratingView output={streamOutput} taskCount={taskCount} />);
         },
       );
     } catch (err) {
