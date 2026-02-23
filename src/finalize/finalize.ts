@@ -8,6 +8,7 @@ import { analyzeAndSplit, splitCommit } from "./splitter.js";
 import { createPr, generatePrBody, getDiffStats } from "./pr.js";
 import { spawn } from "../utils/process.js";
 import { fileExists, readText } from "../utils/fs.js";
+import { getCurrentBranch } from "../utils/git.js";
 
 export interface FinalizeResult {
   findings: ReviewFinding[];
@@ -105,7 +106,8 @@ export async function finalize(
     );
 
     const title = taskFile.description || config.project.name;
-    const result = await createPr(cwd, config.project.branch, title, body);
+    const branch = await getCurrentBranch(cwd);
+    const result = await createPr(cwd, branch, title, body);
     prUrl = result.url;
   }
 
