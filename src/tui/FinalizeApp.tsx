@@ -179,6 +179,9 @@ export function FinalizeApp({ orchestrator, agent, config, planPaths, cwd, onQui
     ? lastMessage.questionGroups
     : [];
   const showOptions = !isComplete && optionGroups.length > 0 && !isLoading;
+  const optionSelectorHeight = showOptions
+    ? Math.max(...optionGroups.map(g => g.options.length + 1)) * 2 + (optionGroups.length > 1 ? 2 : 0) + 2 + 4
+    : 0;
 
   const handleOptionSelect = useCallback(async (selectedAnswers: ChatOption[]) => {
     if (isLoading) return;
@@ -516,6 +519,7 @@ export function FinalizeApp({ orchestrator, agent, config, planPaths, cwd, onQui
         <box
           style={{
             width: "100%",
+            height: optionSelectorHeight,
             flexDirection: "column",
             backgroundColor: colors.bg.secondary,
             border: true,

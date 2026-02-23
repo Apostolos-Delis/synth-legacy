@@ -386,6 +386,7 @@ export function PrdReviewView({
         <box
           style={{
             width: "100%",
+            height: REVIEW_OPTIONS.length * 2 + 2 + 4,
             flexDirection: "column",
             backgroundColor: colors.bg.secondary,
             border: true,
