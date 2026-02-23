@@ -866,11 +866,35 @@ async function resumeInterview(
       return;
     }
 
-    // Continue with task generation (same flow as cmdPlan Phase 2+)
+    // Phase 2: PRD Review (same flow as cmdPlan)
     const extractedPrd = prd as import("./interview/types.js").GeneratedPrd;
-    const prdMarkdown = interviewMod.prdToMarkdown(extractedPrd);
-    await writeText(paths.prd, prdMarkdown);
+    let prdMarkdown = interviewMod.prdToMarkdown(extractedPrd);
     await updatePlanMetadata(cwd, id, { description: extractedPrd.title });
+
+    const prdApproved = await new Promise<boolean>((resolve) => {
+      planRoot.render(
+        <tui.PrdReviewView
+          prdMarkdown={prdMarkdown}
+          agent={agent}
+          planPaths={paths}
+          cwd={cwd}
+          model={config.agent.model}
+          onApprove={() => resolve(true)}
+          onQuit={() => resolve(false)}
+        />,
+      );
+    });
+
+    if (!prdApproved) {
+      process.off("SIGINT", sigintHandler);
+      cleanup();
+      agent.dispose();
+      log(`\nPlan saved. Run later with: ${fmt.bold(`synth run ${id}`)}`);
+      return;
+    }
+
+    // Re-read PRD in case it was revised during review
+    prdMarkdown = await readText(paths.prd);
 
     let streamOutput = "";
     let taskCount = 0;
@@ -998,11 +1022,13 @@ async function resumeInterview(
     }
 
     // Continue with task generation
-    const prdMarkdown = interviewMod.prdToMarkdown(prd);
-    await writeText(paths.prd, prdMarkdown);
+    await writeText(paths.prd, interviewMod.prdToMarkdown(prd));
     await updatePlanMetadata(cwd, id, { description: prd.title });
 
     logSuccess(`PRD saved to ${paths.prd}`);
+
+    // Read from saved file so task generation always uses the on-disk PRD
+    const prdMarkdown = await readText(paths.prd);
 
     log("Generating tasks...\n");
     const taskFile = await generateTasks(agent, prdMarkdown, config.project.name, config.project.branch || `synth/${id}`, cwd, config.agent.model);
@@ -1327,11 +1353,13 @@ async function cmdPlan(planIdOrFlag?: string): Promise<void> {
   }
 
   const { id, paths } = cliPlanInfo;
-  const prdMarkdown = interviewMod.prdToMarkdown(prd);
-  await writeText(paths.prd, prdMarkdown);
+  await writeText(paths.prd, interviewMod.prdToMarkdown(prd));
   await updatePlanMetadata(cwd, id, { description: prd.title });
 
   logSuccess(`PRD saved to ${paths.prd}`);
+
+  // Read from saved file so task generation always uses the on-disk PRD
+  const prdMarkdown = await readText(paths.prd);
 
   log("Generating tasks...\n");
   const taskFile = await generateTasks(agent, prdMarkdown, config.project.name, config.project.branch || `synth/${id}`, cwd, config.agent.model);
