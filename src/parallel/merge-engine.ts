@@ -15,6 +15,7 @@ export interface MergeOperation {
   status: "queued" | "in_progress" | "completed" | "failed" | "conflicted";
   backupTag?: string;
   error?: string;
+  conflictedFiles?: string[];
 }
 
 export interface MergeEngineOptions {
@@ -128,9 +129,10 @@ export class MergeEngine {
       return operation;
     }
 
-    // Conflict: abort merge and reset to backup
+    // Conflict: extract conflicted file paths, abort merge, and reset to backup
     operation.status = "conflicted";
     operation.error = mergeResult.stderr;
+    operation.conflictedFiles = parseConflictedFiles(mergeResult.stderr);
 
     const abortHandle = spawn({
       cmd: ["git", "merge", "--abort"],
@@ -173,4 +175,14 @@ export class MergeEngine {
   getSessionBranch(): string | null {
     return this.sessionBranch;
   }
+}
+
+/** Parse conflicted file paths from git merge stderr output. */
+function parseConflictedFiles(stderr: string): string[] {
+  const files: string[] = [];
+  for (const line of stderr.split("\n")) {
+    const match = line.match(/^CONFLICT\s.*:\s.*(?:in|of)\s+(.+)$/);
+    if (match) files.push(match[1].trim());
+  }
+  return files;
 }

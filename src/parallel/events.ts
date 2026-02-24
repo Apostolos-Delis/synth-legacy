@@ -65,16 +65,24 @@ export interface MergeFailedEvent {
 export interface ConflictDetectedEvent {
   type: "conflict:detected";
   timestamp: string;
+  taskId: string;
+  taskTitle: string;
+  files: string[];
 }
 
 export interface ConflictAiResolvingEvent {
   type: "conflict:ai-resolving";
   timestamp: string;
+  taskId: string;
+  filePath?: string;
 }
 
 export interface ConflictResolvedEvent {
   type: "conflict:resolved";
   timestamp: string;
+  taskId: string;
+  resolvedCount: number;
+  failedCount: number;
 }
 
 // Session-level events

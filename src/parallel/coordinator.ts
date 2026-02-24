@@ -177,14 +177,30 @@ export class ParallelCoordinator {
               taskId: processed.taskId,
             });
           } else if (processed.status === "conflicted") {
-            this.emit({ type: "conflict:detected", timestamp: this.timestamp() });
+            this.emit({
+              type: "conflict:detected",
+              timestamp: this.timestamp(),
+              taskId: processed.taskId,
+              taskTitle: processed.taskTitle,
+              files: processed.conflictedFiles ?? [],
+            });
 
             if (this.aiConflictResolution) {
-              this.emit({ type: "conflict:ai-resolving", timestamp: this.timestamp() });
+              this.emit({
+                type: "conflict:ai-resolving",
+                timestamp: this.timestamp(),
+                taskId: processed.taskId,
+              });
               // AI resolution not implemented in coordinator — treat as failed
               const resolved = false;
               if (resolved) {
-                this.emit({ type: "conflict:resolved", timestamp: this.timestamp() });
+                this.emit({
+                  type: "conflict:resolved",
+                  timestamp: this.timestamp(),
+                  taskId: processed.taskId,
+                  resolvedCount: processed.conflictedFiles?.length ?? 0,
+                  failedCount: 0,
+                });
                 mergedTaskIds.push(processed.taskId);
               } else {
                 this.handleFailedMerge(processed, failedTaskIds);
