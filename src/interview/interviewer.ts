@@ -23,7 +23,7 @@ export class Interviewer {
       model,
       readOnly: true,
       systemPrompt: INTERVIEWER_SYSTEM_PROMPT,
-      promptSuffix: "Continue the interview. If you have enough information, write the complete PRD starting with a level-1 heading.",
+      promptSuffix: "Continue the interview. Prefer inferring implementation details from context over asking the user. If you can confidently address all checklist areas, write the complete PRD starting with a level-1 heading.",
       maxHistoryWindow: 16,
       persist,
     });
