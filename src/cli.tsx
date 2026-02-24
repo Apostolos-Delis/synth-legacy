@@ -119,15 +119,25 @@ if (profileEnabled || profileJson) {
   globalTrace().enabled = true;
 }
 
-// Parse --parallel [N] flag: --parallel with no value defers to config.parallel.max_workers
+// Parse --parallel [N] / --no-parallel flags
+// Priority: --no-parallel (force serial) > --parallel (force parallel) > config.parallel.enabled
 const parallelIndex = args.indexOf("--parallel");
+const noParallelFlag = args.includes("--no-parallel");
 let parallelMode = false;
 let parallelWorkers: number | undefined;
-if (parallelIndex !== -1) {
+if (noParallelFlag) {
+  parallelMode = false;
+} else if (parallelIndex !== -1) {
   parallelMode = true;
   const next = args[parallelIndex + 1];
   if (next && /^\d+$/.test(next)) {
     parallelWorkers = parseInt(next, 10);
+  }
+}
+
+function applyParallelDefault(config: SynthConfig): void {
+  if (!noParallelFlag && parallelIndex === -1) {
+    parallelMode = config.parallel?.enabled ?? true;
   }
 }
 
@@ -424,6 +434,7 @@ async function cmdThemes(): Promise<void> {
 
 async function cmdRun(sessionId?: string, startIteration = 0, tuiContext?: TuiContext): Promise<void> {
   const config = await applyTheme();
+  applyParallelDefault(config);
 
   let plan;
   if (sessionId) {
@@ -2596,7 +2607,8 @@ async function main(): Promise<void> {
       log(`  ${ansi.primary}version${ansi.reset}                  Show version`);
 
       log(`\n${ansi.bold}Options:${ansi.reset}`);
-      log(`  ${ansi.muted}--parallel${ansi.reset} ${ansi.muted}[N]${ansi.reset}           Enable parallel execution (default: 8 workers)`);
+      log(`  ${ansi.muted}--parallel${ansi.reset} ${ansi.muted}[N]${ansi.reset}           Force parallel execution (default: 8 workers)`);
+      log(`  ${ansi.muted}--no-parallel${ansi.reset}             Force serial execution`);
       log(`  ${ansi.muted}--no-tui${ansi.reset}                 Disable TUI (plain text output)`);
       log(`  ${ansi.muted}--profile${ansi.reset}                Print timing report to stderr on exit`);
       log(`  ${ansi.muted}--profile-json${ansi.reset}           Print timing report as JSON to stderr`);

@@ -29,6 +29,7 @@ export const DEFAULT_CONFIG: SynthConfig = {
     create_pr: true,
   },
   parallel: {
+    enabled: true,
     max_workers: 8,
     ai_conflict_resolution: true,
     max_requeue_count: 1,

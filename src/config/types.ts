@@ -35,6 +35,7 @@ export interface SynthConfig {
     spinner?: string;
   };
   parallel?: {
+    enabled?: boolean;
     max_workers?: number;
     ai_conflict_resolution?: boolean;
     max_requeue_count?: number;

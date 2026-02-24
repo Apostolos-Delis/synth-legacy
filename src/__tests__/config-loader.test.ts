@@ -68,6 +68,7 @@ describe("loadConfig", () => {
     const dir = await mkdtemp(join(tmpdir(), "synth-test-"));
     try {
       const config = await loadConfig(dir);
+      expect(config.parallel?.enabled).toBe(true);
       expect(config.parallel?.max_workers).toBe(8);
       expect(config.parallel?.ai_conflict_resolution).toBe(true);
       expect(config.parallel?.max_requeue_count).toBe(1);
@@ -86,8 +87,22 @@ describe("loadConfig", () => {
       const config = await loadConfig(dir);
       expect(config.parallel?.max_workers).toBe(4);
       expect(config.parallel?.ai_conflict_resolution).toBe(false);
-      // Default preserved for unset field
+      // Defaults preserved for unset fields
+      expect(config.parallel?.enabled).toBe(true);
       expect(config.parallel?.max_requeue_count).toBe(1);
+    } finally {
+      await rm(dir, { recursive: true });
+    }
+  });
+
+  test("parallel.enabled can be disabled via toml", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "synth-test-"));
+    try {
+      await writeText(join(dir, "synth.toml"), `[parallel]\nenabled = false\n`);
+      const config = await loadConfig(dir);
+      expect(config.parallel?.enabled).toBe(false);
+      // Other defaults preserved
+      expect(config.parallel?.max_workers).toBe(8);
     } finally {
       await rm(dir, { recursive: true });
     }
