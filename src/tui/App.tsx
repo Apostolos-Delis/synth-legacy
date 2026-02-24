@@ -89,9 +89,15 @@ export function App({
     else if (curr === "blocked") showWarning("Execution blocked");
   }, [engineData.engineState, engineData.completionSummary, showSuccess, showInfo, showWarning]);
 
-  // Reset selection to active task when a new task starts executing
+  // Reset selection to active task when a new task starts executing (serial mode only).
+  // In parallel mode, currentTaskId bounces between workers rapidly — auto-following
+  // would override the user's manual j/k selection every few seconds.
   const prevTaskId = useRef(engineData.currentTaskId);
   useEffect(() => {
+    if (parallelRef.current) {
+      prevTaskId.current = engineData.currentTaskId;
+      return;
+    }
     if (engineData.currentTaskId && engineData.currentTaskId !== prevTaskId.current) {
       const idx = engineData.tasks.findIndex((t) => t.id === engineData.currentTaskId);
       if (idx >= 0) {
