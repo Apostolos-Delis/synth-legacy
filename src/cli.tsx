@@ -13,7 +13,7 @@ import {
 } from "./sessions/registry.js";
 import { deriveSessionSlug, deriveTaskPrefix } from "./sessions/slug.js";
 import { loadTasks, saveTasks, getProgress, resetOrphanedTasks, allTasksDone } from "./tasks/store.js";
-import { writeText, readText, readJson, fileExists, writeJson } from "./utils/fs.js";
+import { writeText, readText, readJson, fileExists, writeJson, removeFile } from "./utils/fs.js";
 import { spawn } from "./utils/process.js";
 import { loadTaskOutput, buildIterationMap } from "./engine/output-index.js";
 import { ansi, fmt, STATUS_ICONS, STATUS_COLORS, PRIORITY_COLORS, initTheme } from "./tui/theme.js";
@@ -770,6 +770,29 @@ async function cmdRun(sessionId?: string, startIteration = 0, tuiContext?: TuiCo
         cwd,
       );
 
+      // Swap signal handlers to be review-aware
+      process.off("SIGINT", onSigInt);
+      process.off("SIGTERM", onSigTerm);
+
+      let reviewCleaningUp = false;
+      const reviewCleanup = async () => {
+        if (reviewCleaningUp) return;
+        reviewCleaningUp = true;
+        reviewOrchestrator.stop();
+        await reviewOrchestrator.cleanupPartialFindings();
+        if (ownsRenderer) {
+          if (root) root.unmount();
+          if (renderer) renderer.destroy();
+        }
+        // Keep status as "reviewing" so resume re-enters review phase
+      };
+
+      const onReviewSigInt = () => { reviewCleanup().then(() => process.exit(0)); };
+      const onReviewSigTerm = () => { reviewCleanup().then(() => process.exit(0)); };
+      process.on("SIGINT", onReviewSigInt);
+      process.on("SIGTERM", onReviewSigTerm);
+
+      try {
       if (tuiEnabled && tuiData) {
         // Show review phase in TUI — reuse execution view with "reviewing" state
         tuiData.engineState = "reviewing";
@@ -896,6 +919,13 @@ async function cmdRun(sessionId?: string, startIteration = 0, tuiContext?: TuiCo
 
       // Review done — transition back to completed
       await updateSessionMetadata(cwd, plan.metadata.id, { status: "completed" });
+      } finally {
+        process.off("SIGINT", onReviewSigInt);
+        process.off("SIGTERM", onReviewSigTerm);
+        // Restore original signal handlers for the remaining finally block
+        process.on("SIGINT", onSigInt);
+        process.on("SIGTERM", onSigTerm);
+      }
     } else {
       // Non-completed states (blocked, paused) — skip review
       await updateSessionMetadata(cwd, plan.metadata.id, {
@@ -1114,12 +1144,28 @@ async function cmdResume(sessionId?: string): Promise<void> {
 
       if (!(await fileExists(plan.paths.reviewTasks))) {
         // No review tasks file — run full review from scratch
+        // Clean up any partial findings.md from previous interrupted attempt
+        await removeFile(plan.paths.reviewFindings);
+
         log(fmt.info(`Session ${id} review was interrupted before generating tasks — re-running review...`));
         const { ReviewOrchestrator } = await loadReviewOrchestrator();
         const reviewOrchestrator = new ReviewOrchestrator(
           config, agent, fallbackAgent, plan.paths, cwd,
         );
 
+        // Register signal handlers for clean interruption
+        const onSigInt = () => {
+          reviewOrchestrator.stop();
+          reviewOrchestrator.cleanupPartialFindings().then(() => process.exit(0));
+        };
+        const onSigTerm = () => {
+          reviewOrchestrator.stop();
+          reviewOrchestrator.cleanupPartialFindings().then(() => process.exit(0));
+        };
+        process.on("SIGINT", onSigInt);
+        process.on("SIGTERM", onSigTerm);
+
+        try {
         reviewOrchestrator.on((event) => {
           switch (event.type) {
             case "iteration:start":
@@ -1144,6 +1190,10 @@ async function cmdResume(sessionId?: string): Promise<void> {
           log(fmt.info("Review completed — no issues found"));
         }
         await updateSessionMetadata(cwd, id, { status: "completed" });
+        } finally {
+          process.off("SIGINT", onSigInt);
+          process.off("SIGTERM", onSigTerm);
+        }
       } else {
         // Review tasks file exists — check completion state
         const reviewTaskFile = await loadTasks(plan.paths.reviewTasks);
@@ -1171,6 +1221,13 @@ async function cmdResume(sessionId?: string): Promise<void> {
           log(fmt.info(`Resuming review task execution for session ${id}...`));
           const engine = new EngineClass(config, agent, fallbackAgent, reviewPaths, cwd);
 
+          // Register signal handlers for clean interruption during review task execution
+          const onSigInt = () => { engine.stop(); };
+          const onSigTerm = () => { engine.stop(); };
+          process.on("SIGINT", onSigInt);
+          process.on("SIGTERM", onSigTerm);
+
+          try {
           engine.on((event) => {
             switch (event.type) {
               case "iteration:start":
@@ -1191,6 +1248,10 @@ async function cmdResume(sessionId?: string): Promise<void> {
           await engine.run();
           log(fmt.info("Review task execution complete."));
           await updateSessionMetadata(cwd, id, { status: "completed" });
+          } finally {
+            process.off("SIGINT", onSigInt);
+            process.off("SIGTERM", onSigTerm);
+          }
         }
       }
       return;

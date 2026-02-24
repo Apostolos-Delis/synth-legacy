@@ -8,7 +8,7 @@ import type { ConversationMessage } from "../conversation/types.js";
 import { Reviewer } from "./reviewer.js";
 import { Engine } from "../engine/engine.js";
 import { saveTasks } from "../tasks/store.js";
-import { ensureDir, readText, writeText, writeJson, fileExists } from "../utils/fs.js";
+import { ensureDir, readText, writeText, writeJson, fileExists, removeFile } from "../utils/fs.js";
 
 export interface ReviewResult {
   findings: ReviewFinding[];
@@ -18,6 +18,9 @@ export interface ReviewResult {
 
 export class ReviewOrchestrator {
   private listeners: EngineEventListener[] = [];
+  private reviewEngine: Engine | null = null;
+  private phase: "idle" | "generating" | "executing" = "idle";
+  private stopped = false;
 
   constructor(
     private config: SynthConfig,
@@ -40,6 +43,17 @@ export class ReviewOrchestrator {
     }
   }
 
+  stop(): void {
+    this.stopped = true;
+    this.reviewEngine?.stop();
+  }
+
+  async cleanupPartialFindings(): Promise<void> {
+    if (this.phase === "generating") {
+      await removeFile(this.sessionPaths.reviewFindings);
+    }
+  }
+
   async run(onChunk?: (chunk: string) => void): Promise<ReviewResult> {
     // Step 1: Create review/ directory
     await ensureDir(this.sessionPaths.reviewRoot);
@@ -47,6 +61,7 @@ export class ReviewOrchestrator {
     this.emit({ type: "state:change", message: "reviewing" });
 
     // Step 2: Run Reviewer to generate findings
+    this.phase = "generating";
     const conversationMessages: ConversationMessage[] = [];
     const reviewer = new Reviewer(
       this.agent,
@@ -66,16 +81,26 @@ export class ReviewOrchestrator {
       ? await readText(this.sessionPaths.progress)
       : "";
 
-    const response = await reviewer.generateFindings(
-      prdContent,
-      progressContent,
-      onChunk,
-    );
+    let response: string;
+    try {
+      response = await reviewer.generateFindings(
+        prdContent,
+        progressContent,
+        onChunk,
+      );
+    } catch (err) {
+      if (this.stopped) {
+        // Interrupted during findings generation — clean up partial state
+        await this.cleanupPartialFindings();
+        throw err;
+      }
+      throw err;
+    }
 
     // Write findings.md
     await writeText(this.sessionPaths.reviewFindings, response);
 
-    // Write conversation.json
+    // Write conversation.json (preserved across interruptions for debugging)
     await writeJson(this.sessionPaths.reviewConversation, conversationMessages);
 
     // Step 3: Extract findings and convert to tasks
@@ -83,6 +108,7 @@ export class ReviewOrchestrator {
 
     // Handle zero findings — skip execution
     if (findings.length === 0) {
+      this.phase = "idle";
       this.emit({ type: "complete", message: "Review produced no findings" });
       return { findings, taskFile: null, executed: false };
     }
@@ -97,6 +123,7 @@ export class ReviewOrchestrator {
     await saveTasks(this.sessionPaths.reviewTasks, taskFile);
 
     // Step 4: Execute review tasks via Engine with review-specific paths
+    this.phase = "executing";
     const reviewPaths: SessionPaths = {
       ...this.sessionPaths,
       tasks: this.sessionPaths.reviewTasks,
@@ -104,7 +131,7 @@ export class ReviewOrchestrator {
       logs: `${this.sessionPaths.reviewRoot}/logs`,
     };
 
-    const engine = new Engine(
+    this.reviewEngine = new Engine(
       this.config,
       this.agent,
       this.fallbackAgent,
@@ -113,11 +140,12 @@ export class ReviewOrchestrator {
     );
 
     // Forward engine events to our listeners
-    engine.on((event) => this.emit(event));
+    this.reviewEngine.on((event) => this.emit(event));
 
-    await engine.run();
+    await this.reviewEngine.run();
 
     // Step 5: No third pass — return immediately after review tasks complete
+    this.phase = "idle";
     return { findings, taskFile, executed: true };
   }
 }
