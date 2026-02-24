@@ -73,6 +73,12 @@ async function loadReviewOrchestrator() {
   return { ReviewOrchestrator };
 }
 
+async function loadParallelCoordinator() {
+  const { ParallelCoordinator } = await import("./parallel/coordinator.js");
+  const { analyzeTaskGraph } = await import("./parallel/task-graph.js");
+  return { ParallelCoordinator, analyzeTaskGraph };
+}
+
 // TUI imports are loaded dynamically to keep non-TUI commands fast.
 async function loadTui() {
   const [{ createCliRenderer }, { createRoot }, { App }, { InterviewApp }, { GeneratingView }, { ReviewView }, { FinalizeApp }, { PrdReviewView }] = await Promise.all([
@@ -110,6 +116,18 @@ const profileJson = args.includes("--profile-json");
 
 if (profileEnabled || profileJson) {
   globalTrace().enabled = true;
+}
+
+// Parse --parallel [N] flag: --parallel with no value defaults to 8 workers
+const parallelIndex = args.indexOf("--parallel");
+let parallelWorkers: number | undefined;
+if (parallelIndex !== -1) {
+  const next = args[parallelIndex + 1];
+  if (next && /^\d+$/.test(next)) {
+    parallelWorkers = parseInt(next, 10);
+  } else {
+    parallelWorkers = 8;
+  }
 }
 
 async function applyTheme(): Promise<SynthConfig> {
@@ -464,6 +482,105 @@ async function cmdRun(sessionId?: string, startIteration = 0, tuiContext?: TuiCo
 
   await updateSessionMetadata(cwd, plan.metadata.id, { status: "executing" });
 
+  // Parallel execution path
+  if (parallelWorkers !== undefined) {
+    const { ParallelCoordinator, analyzeTaskGraph } = await loadParallelCoordinator();
+    const actionableTasks = taskFile.tasks.filter(
+      (t) => t.status === "open" || t.status === "in_progress",
+    );
+    const analysis = analyzeTaskGraph(actionableTasks);
+
+    if (actionableTasks.length < 3 || !analysis.recommendParallel) {
+      log(
+        fmt.warn(
+          `Parallel mode: only ${actionableTasks.length} actionable task(s) with max parallelism ${analysis.maxParallelism} — falling back to serial execution`,
+        ),
+      );
+    } else {
+      log(
+        fmt.info(
+          `Parallel mode: ${actionableTasks.length} tasks across ${analysis.groups.length} wave(s), max ${parallelWorkers} workers`,
+        ),
+      );
+
+      const coordinator = new ParallelCoordinator({
+        tasks: actionableTasks,
+        repoRoot: cwd,
+        project: config.project.name,
+        sessionPaths: plan.paths,
+        config: { maxWorkers: parallelWorkers },
+        executor: {
+          async execute(task, worktree) {
+            const handle = spawn({
+              cmd: ["synth", "resume", plan!.metadata.id],
+              cwd: worktree.path,
+            });
+            await handle.promise;
+            return {
+              workerId: `w-${task.id}`,
+              taskId: task.id,
+              taskTitle: task.title,
+              branch: worktree.branch,
+            };
+          },
+        },
+      });
+
+      coordinator.on((event) => {
+        switch (event.type) {
+          case "parallel:started":
+            log(fmt.info("Parallel execution started"));
+            break;
+          case "parallel:group-started":
+            log(fmt.info("Starting wave"));
+            break;
+          case "worker:started":
+            log(fmt.info(`Worker ${event.workerId} started`));
+            break;
+          case "worker:completed":
+            logSuccess(`Worker ${event.workerId} completed`);
+            break;
+          case "worker:failed":
+            logError(`Worker ${event.workerId} failed`);
+            break;
+          case "merge:completed":
+            logSuccess(`Merged task ${event.taskId}`);
+            break;
+          case "merge:failed":
+            logError(`Merge failed for task ${event.taskId}`);
+            break;
+          case "conflict:detected":
+            log(fmt.warn("Merge conflict detected"));
+            break;
+          case "parallel:completed":
+            logSuccess("Parallel execution completed");
+            break;
+          case "parallel:failed":
+            logError("Parallel execution failed");
+            break;
+        }
+      });
+
+      const onSigInt = () => { coordinator.abort(); };
+      process.on("SIGINT", onSigInt);
+
+      try {
+        const result = await coordinator.run();
+        log(
+          fmt.info(
+            `Parallel result: ${result.mergedTaskIds.length} merged, ${result.failedTaskIds.length} failed`,
+          ),
+        );
+      } finally {
+        process.off("SIGINT", onSigInt);
+        await runMod.releaseLock(plan.paths);
+      }
+
+      agent.dispose();
+      return;
+    }
+  }
+
   const fallbackAgent = config.agent.fallback
     ? getAgent(config.agent.fallback.name)
     : null;
@@ -598,6 +715,8 @@ async function cmdRun(sessionId?: string, startIteration = 0, tuiContext?: TuiCo
             const now = Date.now();
             taskStartTimes.set(event.taskId, now);
             tuiData.taskStartTimes[event.taskId] = now;
+            const task = tuiData.tasks.find((t) => t.id === event.taskId);
+            if (task) task.iterationCount++;
           }
           break;
         case "task:complete":
@@ -612,7 +731,7 @@ async function cmdRun(sessionId?: string, startIteration = 0, tuiContext?: TuiCo
             if (startTime) {
               const taskElapsed = Date.now() - startTime;
               const elapsedSecs = Math.floor(taskElapsed / 1000);
-              tuiData.taskElapsedMs[event.taskId] = taskElapsed;
+              tuiData.taskElapsedMs[event.taskId] = (tuiData.taskElapsedMs[event.taskId] ?? 0) + taskElapsed;
               const label = event.type === "task:complete" ? "Completed" : "Failed";
               const suffix = `\n${label} in ${elapsedSecs}s`;
               tuiData.taskOutputMap[event.taskId] = (tuiData.taskOutputMap[event.taskId] ?? "") + suffix;
@@ -850,6 +969,8 @@ async function cmdRun(sessionId?: string, startIteration = 0, tuiContext?: TuiCo
               if (event.taskId) {
                 tuiData.taskOutputMap[event.taskId] = "";
                 tuiData.taskStartTimes[event.taskId] = Date.now();
+                const task = tuiData.tasks.find((t) => t.id === event.taskId);
+                if (task) task.iterationCount++;
               }
               break;
             case "task:complete":
@@ -2364,6 +2485,7 @@ async function main(): Promise<void> {
       log(`  ${ansi.primary}version${ansi.reset}                  Show version`);
 
       log(`\n${ansi.bold}Options:${ansi.reset}`);
+      log(`  ${ansi.muted}--parallel${ansi.reset} ${ansi.muted}[N]${ansi.reset}           Enable parallel execution (default: 8 workers)`);
       log(`  ${ansi.muted}--no-tui${ansi.reset}                 Disable TUI (plain text output)`);
       log(`  ${ansi.muted}--profile${ansi.reset}                Print timing report to stderr on exit`);
       log(`  ${ansi.muted}--profile-json${ansi.reset}           Print timing report as JSON to stderr`);
