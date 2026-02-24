@@ -68,15 +68,15 @@ export function DashboardView({ state }: DashboardViewProps): ReactNode {
           )}
         </text>
       </box>
-      <text>{""}</text>
-      <box style={{ paddingLeft: 1 }}>
+      <box height={1}><text>{""}</text></box>
+      <box height={1} style={{ paddingLeft: 1 }}>
         <text>
           <span fg={colors.fg.muted} attributes={boldAttr()}>
             {"ID".padEnd(8)} {"Title".padEnd(40)} {"Status".padEnd(12)} {"Pri".padEnd(4)} {"Iters".padEnd(6)}{showTime ? " " + "Time".padEnd(7) : ""}{showTokens ? " " + "Tokens".padEnd(8) : ""} Result
           </span>
         </text>
       </box>
-      <box style={{ paddingLeft: 1 }}>
+      <box height={1} style={{ paddingLeft: 1 }}>
         <text>
           <span fg={colors.border.normal}>{"\u2500".repeat(Math.min(width - 2, showTokens ? 110 : showTime ? 95 : 85))}</span>
         </text>
@@ -124,7 +124,7 @@ export function DashboardView({ state }: DashboardViewProps): ReactNode {
         })}
       </scrollbox>
       {/* Summary row */}
-      <box style={{ paddingLeft: 1 }}>
+      <box height={1} style={{ paddingLeft: 1 }}>
         <text>
           <span fg={colors.border.normal}>{"\u2500".repeat(Math.min(width - 2, showTokens ? 110 : showTime ? 95 : 85))}</span>
         </text>
