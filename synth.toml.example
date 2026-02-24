@@ -21,8 +21,8 @@ backpressure_commands = ["bun run typecheck", "bun run lint"]
 
 [parallel]
 enabled = true                   # Use --no-parallel to override
-# max_workers = 8
-# ai_conflict_resolution = true
+max_workers = 8
+ai_conflict_resolution = true
 
 [finalize]
 auto_format = true

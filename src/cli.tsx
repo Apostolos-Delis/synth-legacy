@@ -193,6 +193,8 @@ backpressure_commands = []
 
 [parallel]
 enabled = true
+max_workers = 8
+ai_conflict_resolution = true
 
 [finalize]
 auto_format = true
