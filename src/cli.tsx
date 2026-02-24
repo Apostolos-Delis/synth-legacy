@@ -2125,20 +2125,122 @@ async function cmdFinalize(
     process.on("SIGINT", sigintHandler);
 
     try {
-      // FinalizeApp auto-starts the orchestrator on mount and handles
-      // all phase transitions (executeFixes, executePrCreation) internally.
-      await new Promise<void>((resolve) => {
-        root!.render(
-          <tui.FinalizeApp
-            orchestrator={orchestrator}
-            agent={agent}
-            config={config}
-            sessionPaths={plan!.paths}
-            cwd={cwd}
-            onQuit={() => resolve()}
-          />,
-        );
-      });
+      type FinalizeYield = "quit" | "parallel-execute";
+
+      // Yield loop: FinalizeApp can yield back to cmdFinalize for parallel execution,
+      // then we remount FinalizeApp to continue from the recheck/PR phase.
+      let running = true;
+      while (running) {
+        const action = await new Promise<FinalizeYield>((resolve) => {
+          root!.render(
+            <tui.FinalizeApp
+              orchestrator={orchestrator}
+              agent={agent}
+              config={config}
+              sessionPaths={plan!.paths}
+              cwd={cwd}
+              onQuit={() => resolve("quit")}
+              onParallelExecute={() => resolve("parallel-execute")}
+            />,
+          );
+        });
+
+        if (action === "quit") {
+          running = false;
+          break;
+        }
+
+        if (action === "parallel-execute") {
+          // 1. Convert fixes to tasks
+          const { fixTasksToTasks } = await import("./finalize/fix-converter.js");
+          const { createInitialTuiState, applyParallelEvent, buildFixParallelTuiData } = await import("./finalize/parallel-bridge.js");
+          const { ParallelCoordinator } = await loadParallelCoordinator();
+
+          const fixes = orchestrator.getConfirmedFixes();
+          const tasks = fixTasksToTasks(fixes, cwd);
+
+          // 2. Create coordinator
+          const coordinator = new ParallelCoordinator({
+            tasks,
+            repoRoot: cwd,
+            project: config.project.name,
+            sessionPaths: plan!.paths,
+            config: {
+              maxWorkers: config.parallel?.max_workers ?? 4,
+              aiConflictResolution: config.parallel?.ai_conflict_resolution,
+              maxRequeueCount: config.parallel?.max_requeue_count,
+            },
+            synthConfig: config,
+            agent,
+            fallbackAgent: null,
+          });
+
+          // 3. Build TUI state and mount App with parallel props
+          const tuiData = buildFixParallelTuiData(tasks, config, plan!.metadata.id);
+          const parallelState = createInitialTuiState(tasks.length);
+
+          const renderParallelTui = () => {
+            root!.render(
+              <tui.App
+                {...tuiData}
+                parallel={parallelState.header}
+                workers={parallelState.workers}
+                mergeItems={parallelState.mergeItems}
+                conflict={parallelState.conflict}
+                onQuit={() => coordinator.abort()}
+              />,
+            );
+          };
+
+          // Throttle renders to ~60fps (same pattern as main execution path)
+          let parallelRenderScheduled = false;
+          const renderParallelTuiThrottled = () => {
+            if (parallelRenderScheduled) return;
+            parallelRenderScheduled = true;
+            setTimeout(() => {
+              parallelRenderScheduled = false;
+              renderParallelTui();
+            }, 16);
+          };
+
+          coordinator.on((event) => {
+            applyParallelEvent(event, parallelState, () =>
+              coordinator.getWorkerDisplayStates(),
+            );
+            renderParallelTuiThrottled();
+          });
+
+          renderParallelTui();
+
+          // Deregister our SIGINT handler — coordinator manages its own
+          // graceful shutdown (worktree cleanup, worker teardown).
+          process.off("SIGINT", sigintHandler);
+          let result;
+          try {
+            result = await coordinator.run();
+          } finally {
+            process.on("SIGINT", sigintHandler);
+          }
+
+          // 4. Fall back to sequential if coordinator says serial
+          if (result.serial) {
+            await orchestrator.executeFixes(agent, config, plan!.paths, () => {});
+          } else {
+            // 5. Tell orchestrator fixes are done, advance to recheck
+            await orchestrator.completeFixExecution(
+              result.mergedTaskIds.length,
+              result.failedTaskIds.length,
+              agent,
+              config,
+              plan!.paths,
+              () => {},
+            );
+          }
+
+          // Loop back → remounts FinalizeApp at recheck/PR phase
+          continue;
+        }
+      }
     } finally {
       process.off("SIGINT", sigintHandler);
       cleanup();

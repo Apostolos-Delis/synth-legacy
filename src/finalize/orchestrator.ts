@@ -196,6 +196,29 @@ export class FinalizeOrchestrator {
     return this.prUrl;
   }
 
+  getConfirmedFixes(): FixTask[] {
+    return [...this.confirmedFixes];
+  }
+
+  async completeFixExecution(
+    mergedCount: number,
+    failedCount: number,
+    agent: AgentAdapter,
+    config: SynthConfig,
+    sessionPaths: SessionPaths,
+    onMessage: (msg: FinalizeMessage) => void,
+  ): Promise<OrchestratorResponse> {
+    const total = mergedCount + failedCount;
+    const summaryMsg: FinalizeMessage = {
+      role: "assistant",
+      content: `Parallel fix execution complete: ${mergedCount}/${total} fixes merged successfully${failedCount > 0 ? `, ${failedCount} failed` : ""}.`,
+    };
+    this.messages.push(summaryMsg);
+    onMessage(summaryMsg);
+
+    return this.recheckAfterFixes(agent, config, sessionPaths, onMessage);
+  }
+
   async getCompletionSummary(): Promise<CompletionSummary> {
     let tasksCompleted = 0;
     let totalTasks = 0;
@@ -1213,7 +1236,7 @@ export class FinalizeOrchestrator {
 // Helpers
 // ---------------------------------------------------------------------------
 
-function buildFixPrompt(fix: FixTask, cwd: string): string {
+export function buildFixPrompt(fix: FixTask, cwd: string): string {
   return [
     `You are a coding agent applying a fix identified during code review.`,
     ``,

@@ -16,6 +16,8 @@ import { useDestroyedRef } from "./hooks/useDestroyedRef.js";
 import { useSyncLineCount } from "./hooks/useSyncLineCount.js";
 import { calcInputSizing } from "./hooks/useInputSizing.js";
 
+const PARALLEL_THRESHOLD = 3;
+
 interface FinalizeAppProps {
   orchestrator: FinalizeOrchestrator;
   agent: AgentAdapter;
@@ -24,6 +26,7 @@ interface FinalizeAppProps {
   cwd: string;
   onQuit: () => void;
   onComplete?: (summary: CompletionSummary) => void;
+  onParallelExecute?: () => void;
 }
 
 const PHASE_LABELS: Record<FinalizePhase, string> = {
@@ -70,7 +73,7 @@ function MessageBubble({ message }: { message: FinalizeMessage }): ReactNode {
   );
 }
 
-export function FinalizeApp({ orchestrator, agent, config, sessionPaths, cwd, onQuit, onComplete }: FinalizeAppProps): ReactNode {
+export function FinalizeApp({ orchestrator, agent, config, sessionPaths, cwd, onQuit, onComplete, onParallelExecute }: FinalizeAppProps): ReactNode {
   const [messages, setMessages] = useState<FinalizeMessage[]>(() => orchestrator.getMessages());
   const [currentPhase, setCurrentPhase] = useState<FinalizePhase>(() => orchestrator.getCurrentPhase());
   const [isLoading, setIsLoading] = useState(true);
@@ -189,6 +192,13 @@ export function FinalizeApp({ orchestrator, agent, config, sessionPaths, cwd, on
     if (activeExecRef.current) return;
 
     if (currentPhase === "executing-fixes") {
+      // Delegate to parallel execution when above threshold and callback exists
+      const fixes = orchestrator.getConfirmedFixes();
+      if (fixes.length >= PARALLEL_THRESHOLD && onParallelExecute) {
+        onParallelExecute();
+        return;
+      }
+
       activeExecRef.current = "executing-fixes";
       setIsLoading(true);
       setLoadingStartTime(Date.now());
@@ -219,7 +229,7 @@ export function FinalizeApp({ orchestrator, agent, config, sessionPaths, cwd, on
     } else if (currentPhase === "creating-pr") {
       runPrCreation();
     }
-  }, [currentPhase, orchestrator, agent, config, sessionPaths, runPrCreation]);
+  }, [currentPhase, orchestrator, agent, config, sessionPaths, runPrCreation, onParallelExecute]);
 
   // Determine if the last assistant message has options
   const lastMessage = messages.length > 0 ? messages[messages.length - 1] : null;
