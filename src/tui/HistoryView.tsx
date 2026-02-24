@@ -169,7 +169,7 @@ export function HistoryView({ state, onBack }: HistoryViewProps): ReactNode {
           })}
         </scrollbox>
       )}
-      <Footer view="dashboard" width={width} />
+      <Footer view="history" width={width} />
     </box>
   );
 }
