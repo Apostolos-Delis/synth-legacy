@@ -7,6 +7,7 @@ export interface Task {
   verification?: { type: "command" | "regex"; value: string }[];
   priority: 1 | 2 | 3 | 4 | 5;
   status: "open" | "in_progress" | "done" | "failed" | "skipped";
+  affects?: string[];
   dependsOn?: string[];
   notes?: string;
   iterationCount: number;
