@@ -127,6 +127,12 @@ export interface ParallelCompletedEvent {
   timestamp: string;
 }
 
+export interface ParallelWarningEvent {
+  type: "parallel:warning";
+  timestamp: string;
+  message: string;
+}
+
 export interface ParallelFailedEvent {
   type: "parallel:failed";
   timestamp: string;
@@ -152,6 +158,7 @@ export type ParallelEvent =
   | ParallelGroupStartedEvent
   | ParallelGroupCompletedEvent
   | ParallelCompletedEvent
+  | ParallelWarningEvent
   | ParallelFailedEvent;
 
 export type ParallelEventListener = (event: ParallelEvent) => void;

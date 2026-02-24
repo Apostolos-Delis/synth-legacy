@@ -2,7 +2,7 @@ import { useState, useCallback, useRef, type ReactNode } from "react";
 import { useKeyboard } from "@opentui/react";
 import type { SelectRenderable, SelectOption, TextareaRenderable } from "@opentui/core";
 import type { ChatOption, QuestionGroup } from "../../finalize/chat-types.js";
-import { boldAttr, colors } from "../theme.js";
+import { boldAttr, boldUnderlineAttr, colors } from "../theme.js";
 
 export interface OptionSelectorProps {
   groups: QuestionGroup[];
@@ -205,9 +205,9 @@ export function OptionSelector({ groups, onSelect, showOther = true }: OptionSel
               <text
                 key={i}
                 fg={isActive ? colors.accent.primary : isAnswered ? colors.status.success : colors.fg.muted}
-                attributes={isActive ? boldAttr() : undefined}
+                attributes={isActive ? boldUnderlineAttr() : undefined}
               >
-                {prefix}{label}{isActive ? " \u25C0" : ""}
+                {prefix}{label}
               </text>
             );
           })}

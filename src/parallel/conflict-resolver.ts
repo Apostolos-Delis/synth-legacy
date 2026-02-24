@@ -1,4 +1,6 @@
+import { randomBytes } from "node:crypto";
 import { writeFileSync, unlinkSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawn } from "../utils/process.js";
 import type { AgentAdapter } from "../agents/types.js";
@@ -59,15 +61,19 @@ async function getConflictInfo(
 
 async function stageResolvedFile(file: string, content: string, cwd: string): Promise<void> {
   // Write content to a temp file, then hash it into git's object store
-  const tmpPath = join(cwd, `.git/synth-resolve-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  const tmpPath = join(tmpdir(), `synth-resolve-${Date.now()}-${randomBytes(4).toString('hex')}`);
   writeFileSync(tmpPath, content);
 
-  const hashHandle = spawn({
-    cmd: ["git", "hash-object", "-w", tmpPath],
-    cwd,
-  });
-  const hashResult = await hashHandle.promise;
-  unlinkSync(tmpPath);
+  let hashResult;
+  try {
+    const hashHandle = spawn({
+      cmd: ["git", "hash-object", "-w", tmpPath],
+      cwd,
+    });
+    hashResult = await hashHandle.promise;
+  } finally {
+    unlinkSync(tmpPath);
+  }
 
   if (hashResult.exitCode !== 0) {
     throw new Error(`Failed to hash resolved content for ${file}: ${hashResult.stderr}`);
@@ -157,6 +163,39 @@ export async function resolveConflicts(
   if (failedCount > 0) {
     await spawn({ cmd: ["git", "merge", "--abort"], cwd: repoRoot }).promise;
     return { resolved: false, resolvedCount, failedCount };
+  }
+
+  // Validate that the AI agent only modified the expected conflicted files
+  const allowlist = new Set(files);
+
+  const diffUnstagedHandle = spawn({
+    cmd: ["git", "diff", "--name-only"],
+    cwd: repoRoot,
+  });
+  const diffStagedHandle = spawn({
+    cmd: ["git", "diff", "--name-only", "--cached", "HEAD"],
+    cwd: repoRoot,
+  });
+  const [diffUnstagedResult, diffStagedResult] = await Promise.all([
+    diffUnstagedHandle.promise,
+    diffStagedHandle.promise,
+  ]);
+
+  const changedFiles = new Set<string>();
+  for (const output of [diffUnstagedResult.stdout, diffStagedResult.stdout]) {
+    for (const line of output.trim().split("\n")) {
+      if (line) changedFiles.add(line);
+    }
+  }
+
+  const unexpectedFiles = Array.from(changedFiles).filter((f) => !allowlist.has(f));
+  if (unexpectedFiles.length > 0) {
+    console.warn(
+      `[conflict-resolver] AI agent modified unexpected files: ${unexpectedFiles.join(", ")}. Reverting.`,
+    );
+    for (const file of unexpectedFiles) {
+      await spawn({ cmd: ["git", "checkout", "HEAD", "--", file], cwd: repoRoot }).promise;
+    }
   }
 
   // All files resolved — commit the merge

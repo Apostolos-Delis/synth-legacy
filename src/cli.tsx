@@ -118,15 +118,15 @@ if (profileEnabled || profileJson) {
   globalTrace().enabled = true;
 }
 
-// Parse --parallel [N] flag: --parallel with no value defaults to 8 workers
+// Parse --parallel [N] flag: --parallel with no value defers to config.parallel.max_workers
 const parallelIndex = args.indexOf("--parallel");
+let parallelMode = false;
 let parallelWorkers: number | undefined;
 if (parallelIndex !== -1) {
+  parallelMode = true;
   const next = args[parallelIndex + 1];
   if (next && /^\d+$/.test(next)) {
     parallelWorkers = parseInt(next, 10);
-  } else {
-    parallelWorkers = 8;
   }
 }
 
@@ -483,7 +483,7 @@ async function cmdRun(sessionId?: string, startIteration = 0, tuiContext?: TuiCo
   await updateSessionMetadata(cwd, plan.metadata.id, { status: "executing" });
 
   // Parallel execution path
-  if (parallelWorkers !== undefined) {
+  if (parallelMode) {
     const { ParallelCoordinator, analyzeTaskGraph } = await loadParallelCoordinator();
     const actionableTasks = taskFile.tasks.filter(
       (t) => t.status === "open" || t.status === "in_progress",
@@ -497,9 +497,10 @@ async function cmdRun(sessionId?: string, startIteration = 0, tuiContext?: TuiCo
         ),
       );
     } else {
+      const effectiveMaxWorkers = parallelWorkers ?? config.parallel?.max_workers ?? 8;
       log(
         fmt.info(
-          `Parallel mode: ${actionableTasks.length} tasks across ${analysis.groups.length} wave(s), max ${parallelWorkers} workers`,
+          `Parallel mode: ${actionableTasks.length} tasks across ${analysis.groups.length} wave(s), max ${effectiveMaxWorkers} workers`,
         ),
       );
 
@@ -512,7 +513,11 @@ async function cmdRun(sessionId?: string, startIteration = 0, tuiContext?: TuiCo
         repoRoot: cwd,
         project: config.project.name,
         sessionPaths: plan.paths,
-        config: { maxWorkers: parallelWorkers },
+        config: {
+          maxWorkers: parallelWorkers ?? config.parallel?.max_workers,
+          aiConflictResolution: config.parallel?.ai_conflict_resolution,
+          maxRequeueCount: config.parallel?.max_requeue_count,
+        },
         synthConfig: config,
         agent,
         fallbackAgent: parallelFallbackAgent,
@@ -547,14 +552,14 @@ async function cmdRun(sessionId?: string, startIteration = 0, tuiContext?: TuiCo
           case "parallel:completed":
             logSuccess("Parallel execution completed");
             break;
+          case "parallel:warning":
+            log(fmt.warn(event.message));
+            break;
           case "parallel:failed":
             logError("Parallel execution failed");
             break;
         }
       });
-
-      const onSigInt = () => { coordinator.abort(); };
-      process.on("SIGINT", onSigInt);
 
       try {
         const result = await coordinator.run();
@@ -564,7 +569,6 @@ async function cmdRun(sessionId?: string, startIteration = 0, tuiContext?: TuiCo
           ),
         );
       } finally {
-        process.off("SIGINT", onSigInt);
         await runMod.releaseLock(plan.paths);
       }
 

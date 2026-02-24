@@ -1,9 +1,14 @@
 import { createTextAttributes, SyntaxStyle } from "@opentui/core";
 
-// Lazy-initialized bold attribute — avoids module-order issues in compiled binaries
+// Lazy-initialized text attributes — avoids module-order issues in compiled binaries
 let _boldAttr: number | undefined;
 export function boldAttr(): number {
   return (_boldAttr ??= createTextAttributes({ bold: true }));
+}
+
+let _boldUnderlineAttr: number | undefined;
+export function boldUnderlineAttr(): number {
+  return (_boldUnderlineAttr ??= createTextAttributes({ bold: true, underline: true }));
 }
 
 // Lazy-initialized SyntaxStyle for <markdown> components

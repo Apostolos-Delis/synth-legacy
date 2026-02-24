@@ -1,5 +1,9 @@
 import { describe, test, expect, beforeEach, mock } from "bun:test";
-import { MergeEngine } from "./merge-engine.js";
+import {
+  MergeEngine,
+  parseConflictedFiles,
+  getConflictedFilesFromDiff,
+} from "./merge-engine.js";
 
 // Track all spawn calls for assertions
 let spawnCalls: { cmd: string[]; cwd?: string }[] = [];
@@ -384,6 +388,216 @@ describe("MergeEngine", () => {
 
       const op = await engine.processNext();
       expect(op!.backupTag).toBeUndefined();
+    });
+  });
+
+  describe("parseConflictedFiles", () => {
+    test("returns empty array for empty input", () => {
+      expect(parseConflictedFiles("")).toEqual([]);
+    });
+
+    test("returns empty array when no CONFLICT lines present", () => {
+      const stderr =
+        "Auto-merging src/index.ts\nAlready up to date.\n";
+      expect(parseConflictedFiles(stderr)).toEqual([]);
+    });
+
+    test("extracts file from content conflict", () => {
+      const stderr =
+        "CONFLICT (content): Merge conflict in src/utils/helper.ts";
+      expect(parseConflictedFiles(stderr)).toEqual([
+        "src/utils/helper.ts",
+      ]);
+    });
+
+    test("extracts file from add/add conflict", () => {
+      const stderr =
+        "CONFLICT (add/add): Merge conflict in newfile.ts";
+      expect(parseConflictedFiles(stderr)).toEqual(["newfile.ts"]);
+    });
+
+    test("extracts multiple conflicted files", () => {
+      const stderr = [
+        "Auto-merging src/a.ts",
+        "CONFLICT (content): Merge conflict in src/a.ts",
+        "Auto-merging src/b.ts",
+        "CONFLICT (content): Merge conflict in src/b.ts",
+        "CONFLICT (add/add): Merge conflict in src/c.ts",
+        "Automatic merge failed; fix conflicts and then commit the result.",
+      ].join("\n");
+      expect(parseConflictedFiles(stderr)).toEqual([
+        "src/a.ts",
+        "src/b.ts",
+        "src/c.ts",
+      ]);
+    });
+
+    test("handles file paths with spaces", () => {
+      const stderr =
+        "CONFLICT (content): Merge conflict in src/my file.ts";
+      expect(parseConflictedFiles(stderr)).toEqual([
+        "src/my file.ts",
+      ]);
+    });
+
+    test("handles deeply nested file paths", () => {
+      const stderr =
+        "CONFLICT (content): Merge conflict in src/a/b/c/d/e/file.ts";
+      expect(parseConflictedFiles(stderr)).toEqual([
+        "src/a/b/c/d/e/file.ts",
+      ]);
+    });
+
+    // modify/delete conflicts use a different message format that ends with
+    // "...left in tree." so the regex captures "tree." instead of the file path.
+    // This documents the current limitation.
+    test("does not extract correct file from modify/delete conflict", () => {
+      const stderr =
+        "CONFLICT (modify/delete): src/old.ts deleted in HEAD and modified in feature. Version feature of src/old.ts left in tree.";
+      const result = parseConflictedFiles(stderr);
+      // Current regex grabs text after the last "in" → "tree."
+      expect(result).toEqual(["tree."]);
+    });
+
+    // rename/delete conflicts also use a different format.
+    test("does not extract correct file from rename/delete conflict", () => {
+      const stderr =
+        "CONFLICT (rename/delete): src/old.ts renamed in feature and deleted in HEAD.";
+      const result = parseConflictedFiles(stderr);
+      // Current regex grabs text after the last "in" → "HEAD."
+      expect(result).toEqual(["HEAD."]);
+    });
+
+    test("handles mixed conflict types in single output", () => {
+      const stderr = [
+        "CONFLICT (content): Merge conflict in src/a.ts",
+        "CONFLICT (modify/delete): src/b.ts deleted in HEAD and modified in feature. Version feature of src/b.ts left in tree.",
+      ].join("\n");
+      const result = parseConflictedFiles(stderr);
+      expect(result).toEqual(["src/a.ts", "tree."]);
+    });
+
+    test("ignores trailing whitespace on conflict lines", () => {
+      const stderr =
+        "CONFLICT (content): Merge conflict in src/file.ts   ";
+      expect(parseConflictedFiles(stderr)).toEqual(["src/file.ts"]);
+    });
+
+    test("extracts file from rename/rename conflict", () => {
+      const stderr =
+        "CONFLICT (rename/rename): Rename src/old.ts->src/new-a.ts in HEAD. Rename src/old.ts->src/new-b.ts in feature.";
+      // The regex captures text after last "in" → "feature." which is imperfect,
+      // but documents current behavior for this conflict type.
+      const result = parseConflictedFiles(stderr);
+      expect(result).toEqual(["feature."]);
+    });
+  });
+
+  describe("getConflictedFilesFromDiff", () => {
+    test("returns file paths from git diff output", async () => {
+      spawnResults.set("--diff-filter=U", {
+        exitCode: 0,
+        stdout: "src/a.ts\nsrc/b.ts\n",
+        stderr: "",
+      });
+
+      const result = await getConflictedFilesFromDiff("/repo");
+      expect(result).toEqual(["src/a.ts", "src/b.ts"]);
+    });
+
+    test("returns empty array when git diff fails", async () => {
+      spawnResults.set("--diff-filter=U", {
+        exitCode: 1,
+        stdout: "",
+        stderr: "fatal: not a git repository",
+      });
+
+      const result = await getConflictedFilesFromDiff("/repo");
+      expect(result).toEqual([]);
+    });
+
+    test("returns empty array when no unmerged files", async () => {
+      spawnResults.set("--diff-filter=U", {
+        exitCode: 0,
+        stdout: "",
+        stderr: "",
+      });
+
+      const result = await getConflictedFilesFromDiff("/repo");
+      expect(result).toEqual([]);
+    });
+  });
+
+  describe("processNext fallback to getConflictedFilesFromDiff", () => {
+    test("falls back to git diff when parseConflictedFiles returns empty", async () => {
+      setLogHasCommits();
+      spawnResults.set("--ff-only", {
+        exitCode: 1,
+        stdout: "",
+        stderr: "Not possible to fast-forward",
+      });
+      // Merge fails but stderr has no CONFLICT lines
+      spawnResults.set(" -m ", {
+        exitCode: 1,
+        stdout: "",
+        stderr: "Automatic merge failed; fix conflicts and then commit the result.",
+      });
+      // The fallback git diff should find the conflicted files
+      spawnResults.set("--diff-filter=U", {
+        exitCode: 0,
+        stdout: "src/x.ts\nsrc/y.ts\n",
+        stderr: "",
+      });
+
+      const engine = makeEngine();
+      engine.enqueue({
+        workerId: "w1",
+        taskId: "COOR-001",
+        taskTitle: "Test task",
+        branch: "branch-1",
+      });
+
+      const op = await engine.processNext();
+      expect(op!.status).toBe("conflicted");
+      expect(op!.conflictedFiles).toEqual(["src/x.ts", "src/y.ts"]);
+
+      // Verify git diff was called as fallback
+      const diffCall = spawnCalls.find((c) =>
+        c.cmd.includes("--diff-filter=U"),
+      );
+      expect(diffCall).toBeDefined();
+    });
+
+    test("does not call git diff fallback when parseConflictedFiles finds files", async () => {
+      setLogHasCommits();
+      spawnResults.set("--ff-only", {
+        exitCode: 1,
+        stdout: "",
+        stderr: "Not possible to fast-forward",
+      });
+      spawnResults.set(" -m ", {
+        exitCode: 1,
+        stdout: "",
+        stderr: "CONFLICT (content): Merge conflict in src/file.ts",
+      });
+
+      const engine = makeEngine();
+      engine.enqueue({
+        workerId: "w1",
+        taskId: "COOR-001",
+        taskTitle: "Test task",
+        branch: "branch-1",
+      });
+
+      const op = await engine.processNext();
+      expect(op!.status).toBe("conflicted");
+      expect(op!.conflictedFiles).toEqual(["src/file.ts"]);
+
+      // git diff should NOT have been called
+      const diffCall = spawnCalls.find((c) =>
+        c.cmd.includes("--diff-filter=U"),
+      );
+      expect(diffCall).toBeUndefined();
     });
   });
 

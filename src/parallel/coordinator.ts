@@ -44,6 +44,7 @@ export interface ParallelResult {
   mergedTaskIds: string[];
   failedTaskIds: string[];
   serial: boolean;
+  error?: string;
 }
 
 export class ParallelCoordinator {
@@ -266,21 +267,34 @@ export class ParallelCoordinator {
       }
 
       // Merge session branch back to original branch
+      let mergeSucceeded = false;
+      let mergeError: string | undefined;
       if (this.originalBranch && this.sessionBranch) {
         await checkoutBranch(this.originalBranch, this.repoRoot);
         try {
           await mergeFF(this.sessionBranch, this.repoRoot);
+          mergeSucceeded = true;
         } catch {
-          // If FF fails, the session branch has diverged — leave on original
+          // FF merge failed — session branch has diverged from original.
+          // Leave the user on the session branch so their work is accessible.
+          await checkoutBranch(this.sessionBranch, this.repoRoot);
+          mergeError = `Fast-forward merge failed. Your work is on branch '${this.sessionBranch}'. Merge manually with: git merge ${this.sessionBranch}`;
+          this.emit({
+            type: "parallel:warning",
+            timestamp: this.timestamp(),
+            message: mergeError,
+          });
         }
       }
 
       await this.cleanup();
 
       this.deregisterSigintHandler();
-      this.emit({ type: "parallel:completed", timestamp: this.timestamp() });
+      if (mergeSucceeded) {
+        this.emit({ type: "parallel:completed", timestamp: this.timestamp() });
+      }
 
-      return { mergedTaskIds, failedTaskIds, serial: false };
+      return { mergedTaskIds, failedTaskIds, serial: false, error: mergeError };
     } catch (error) {
       this.deregisterSigintHandler();
       this.emit({ type: "parallel:failed", timestamp: this.timestamp() });

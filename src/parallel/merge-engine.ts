@@ -138,7 +138,12 @@ export class MergeEngine {
     // Conflict: extract conflicted file paths, abort merge, and reset to backup
     operation.status = "conflicted";
     operation.error = mergeResult.stderr;
-    operation.conflictedFiles = parseConflictedFiles(mergeResult.stderr);
+
+    let conflicted = parseConflictedFiles(mergeResult.stderr);
+    if (conflicted.length === 0) {
+      conflicted = await getConflictedFilesFromDiff(this.repoRoot);
+    }
+    operation.conflictedFiles = conflicted;
 
     const abortHandle = spawn({
       cmd: ["git", "merge", "--abort"],
@@ -184,11 +189,27 @@ export class MergeEngine {
 }
 
 /** Parse conflicted file paths from git merge stderr output. */
-function parseConflictedFiles(stderr: string): string[] {
+export function parseConflictedFiles(stderr: string): string[] {
   const files: string[] = [];
   for (const line of stderr.split("\n")) {
     const match = line.match(/^CONFLICT\s.*:\s.*(?:in|of)\s+(.+)$/);
     if (match) files.push(match[1].trim());
   }
   return files;
+}
+
+/** Reliable fallback: get conflicted files via git diff during an unresolved merge. */
+export async function getConflictedFilesFromDiff(
+  repoRoot: string,
+): Promise<string[]> {
+  const handle = spawn({
+    cmd: ["git", "diff", "--name-only", "--diff-filter=U"],
+    cwd: repoRoot,
+  });
+  const result = await handle.promise;
+  if (result.exitCode !== 0) return [];
+  return result.stdout
+    .trim()
+    .split("\n")
+    .filter((f) => f.length > 0);
 }
