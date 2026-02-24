@@ -12,7 +12,7 @@ import {
   deleteSession,
 } from "./sessions/registry.js";
 import { deriveSessionSlug, deriveTaskPrefix } from "./sessions/slug.js";
-import { loadTasks, saveTasks, getProgress, resetOrphanedTasks } from "./tasks/store.js";
+import { loadTasks, saveTasks, getProgress, resetOrphanedTasks, allTasksDone } from "./tasks/store.js";
 import { writeText, readText, readJson, fileExists, writeJson } from "./utils/fs.js";
 import { spawn } from "./utils/process.js";
 import { loadTaskOutput, buildIterationMap } from "./engine/output-index.js";
@@ -1093,6 +1093,106 @@ async function cmdResume(sessionId?: string): Promise<void> {
 
     case "blocked": {
       logError(`Session ${id} is blocked. Check logs in ${plan.paths.logs} for details.`);
+      return;
+    }
+
+    case "reviewing": {
+      const config = await applyTheme();
+      const [{ getAgent }, { Engine: EngineClass }] = await Promise.all([
+        loadAgentRegistry(),
+        loadEngine(),
+      ]);
+      const agent = getAgent(config.agent.name);
+      const detection = await agent.detect();
+      if (!detection.available) {
+        logError(`Agent '${config.agent.name}' not available: ${detection.error}`);
+        process.exit(1);
+      }
+      const fallbackAgent = config.agent.fallback
+        ? getAgent(config.agent.fallback.name)
+        : null;
+
+      if (!(await fileExists(plan.paths.reviewTasks))) {
+        // No review tasks file — run full review from scratch
+        log(fmt.info(`Session ${id} review was interrupted before generating tasks — re-running review...`));
+        const { ReviewOrchestrator } = await loadReviewOrchestrator();
+        const reviewOrchestrator = new ReviewOrchestrator(
+          config, agent, fallbackAgent, plan.paths, cwd,
+        );
+
+        reviewOrchestrator.on((event) => {
+          switch (event.type) {
+            case "iteration:start":
+              log(`\n${fmt.bold(`━━━ Review Iteration ${event.iteration} ━━━`)} ${fmt.label("task:", event.taskId ?? "")}`);
+              break;
+            case "task:complete":
+              logSuccess(`  ${event.taskId}: ${event.message}`);
+              break;
+            case "task:failed":
+              logError(`  ${event.taskId}: ${event.message}`);
+              break;
+            case "agent:stdout":
+              if (event.message) process.stdout.write(event.message);
+              break;
+          }
+        });
+
+        const reviewResult = await reviewOrchestrator.run();
+        if (reviewResult.findings.length > 0) {
+          log(fmt.info(`Review found ${reviewResult.findings.length} finding(s)${reviewResult.executed ? " — fix tasks executed" : ""}`));
+        } else {
+          log(fmt.info("Review completed — no issues found"));
+        }
+        await updateSessionMetadata(cwd, id, { status: "completed" });
+      } else {
+        // Review tasks file exists — check completion state
+        const reviewTaskFile = await loadTasks(plan.paths.reviewTasks);
+        const allDone = allTasksDone(reviewTaskFile);
+
+        if (allDone) {
+          // All review tasks complete — transition to completed
+          log(fmt.info(`Session ${id} review tasks are all done — marking completed.`));
+          await updateSessionMetadata(cwd, id, { status: "completed" });
+        } else {
+          // Incomplete review tasks — resume execution via Engine
+          const cleaned = resetOrphanedTasks(reviewTaskFile);
+          if (cleaned !== reviewTaskFile) {
+            await saveTasks(plan.paths.reviewTasks, cleaned);
+            log(fmt.warn("Reset orphaned in_progress review tasks from previous session"));
+          }
+
+          const reviewPaths: import("./sessions/types.js").SessionPaths = {
+            ...plan.paths,
+            tasks: plan.paths.reviewTasks,
+            progress: plan.paths.reviewProgress,
+            logs: `${plan.paths.reviewRoot}/logs`,
+          };
+
+          log(fmt.info(`Resuming review task execution for session ${id}...`));
+          const engine = new EngineClass(config, agent, fallbackAgent, reviewPaths, cwd);
+
+          engine.on((event) => {
+            switch (event.type) {
+              case "iteration:start":
+                log(`\n${fmt.bold(`━━━ Review Iteration ${event.iteration} ━━━`)} ${fmt.label("task:", event.taskId ?? "")}`);
+                break;
+              case "task:complete":
+                logSuccess(`  ${event.taskId}: ${event.message}`);
+                break;
+              case "task:failed":
+                logError(`  ${event.taskId}: ${event.message}`);
+                break;
+              case "agent:stdout":
+                if (event.message) process.stdout.write(event.message);
+                break;
+            }
+          });
+
+          await engine.run();
+          log(fmt.info("Review task execution complete."));
+          await updateSessionMetadata(cwd, id, { status: "completed" });
+        }
+      }
       return;
     }
 
