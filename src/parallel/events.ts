@@ -99,6 +99,11 @@ export interface ParallelCompletedEvent {
   timestamp: string;
 }
 
+export interface ParallelFailedEvent {
+  type: "parallel:failed";
+  timestamp: string;
+}
+
 export type ParallelEvent =
   | WorkerCreatedEvent
   | WorkerStartedEvent
@@ -115,6 +120,7 @@ export type ParallelEvent =
   | ParallelStartedEvent
   | ParallelGroupStartedEvent
   | ParallelGroupCompletedEvent
-  | ParallelCompletedEvent;
+  | ParallelCompletedEvent
+  | ParallelFailedEvent;
 
 export type ParallelEventListener = (event: ParallelEvent) => void;
