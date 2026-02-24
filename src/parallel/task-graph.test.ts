@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import { analyzeTaskGraph } from "./task-graph.js";
+import { analyzeTaskGraph, recommendParallelism } from "./task-graph.js";
 import type { Task } from "../tasks/types.js";
 
 function makeTask(overrides: Partial<Task>): Task {
@@ -223,5 +223,165 @@ describe("analyzeTaskGraph", () => {
       { depth: 0, taskIds: ["E"] },
       { depth: 1, taskIds: ["D"] },
     ]);
+  });
+});
+
+describe("recommendParallelism", () => {
+  test("returns recommendedWorkers, confidence, and reason", () => {
+    const tasks = [makeTask({ id: "A" }), makeTask({ id: "B" })];
+    const analysis = analyzeTaskGraph(tasks);
+    const result = recommendParallelism(tasks, analysis, 4);
+    expect(result).toHaveProperty("recommendedWorkers");
+    expect(result).toHaveProperty("confidence");
+    expect(result).toHaveProperty("reason");
+    expect(typeof result.recommendedWorkers).toBe("number");
+    expect(["high", "medium", "low"]).toContain(result.confidence);
+    expect(typeof result.reason).toBe("string");
+  });
+
+  test("no affects data returns defaultMax with confidence low", () => {
+    const tasks = [
+      makeTask({ id: "A" }),
+      makeTask({ id: "B" }),
+      makeTask({ id: "C" }),
+    ];
+    const analysis = analyzeTaskGraph(tasks);
+    const result = recommendParallelism(tasks, analysis, 6);
+    expect(result.recommendedWorkers).toBe(6);
+    expect(result.confidence).toBe("low");
+  });
+
+  test("empty affects arrays treated as no affects data", () => {
+    const tasks = [
+      makeTask({ id: "A", affects: [] }),
+      makeTask({ id: "B", affects: [] }),
+    ];
+    const analysis = analyzeTaskGraph(tasks);
+    const result = recommendParallelism(tasks, analysis, 4);
+    expect(result.confidence).toBe("low");
+    expect(result.recommendedWorkers).toBe(4);
+  });
+
+  test("disjoint affects returns defaultMax with confidence high", () => {
+    const tasks = [
+      makeTask({ id: "A", affects: ["src/a.ts"] }),
+      makeTask({ id: "B", affects: ["src/b.ts"] }),
+      makeTask({ id: "C", affects: ["src/c.ts"] }),
+    ];
+    const analysis = analyzeTaskGraph(tasks);
+    const result = recommendParallelism(tasks, analysis, 8);
+    expect(result.recommendedWorkers).toBe(8);
+    expect(result.confidence).toBe("high");
+  });
+
+  test(">30% tasks sharing files returns workers ≤50% of defaultMax", () => {
+    // 4 tasks, 3 share "shared.ts" → 75% overlap > 30%
+    const tasks = [
+      makeTask({ id: "A", affects: ["shared.ts", "a.ts"] }),
+      makeTask({ id: "B", affects: ["shared.ts", "b.ts"] }),
+      makeTask({ id: "C", affects: ["shared.ts", "c.ts"] }),
+      makeTask({ id: "D", affects: ["d.ts"] }),
+    ];
+    const analysis = analyzeTaskGraph(tasks);
+    const result = recommendParallelism(tasks, analysis, 8);
+    expect(result.recommendedWorkers).toBeLessThanOrEqual(4); // ≤50% of 8
+    expect(result.confidence).toBe("medium");
+  });
+
+  test("exactly 30% overlap does not reduce workers", () => {
+    // 10 tasks, 3 share files → exactly 30%, should NOT reduce
+    const tasks: Task[] = [];
+    for (let i = 0; i < 10; i++) {
+      tasks.push(
+        makeTask({
+          id: `T-${i}`,
+          affects: i < 3 ? ["shared.ts", `file${i}.ts`] : [`file${i}.ts`],
+        }),
+      );
+    }
+    const analysis = analyzeTaskGraph(tasks);
+    const result = recommendParallelism(tasks, analysis, 10);
+    // 30% is not >30%, so workers should be defaultMax
+    expect(result.recommendedWorkers).toBe(10);
+    expect(result.confidence).toBe("medium");
+  });
+
+  test("31% overlap reduces workers", () => {
+    // Need >30% sharing. Use ~13 tasks with 4 sharing = 30.7%
+    const tasks: Task[] = [];
+    for (let i = 0; i < 13; i++) {
+      tasks.push(
+        makeTask({
+          id: `T-${i}`,
+          affects: i < 4 ? ["shared.ts", `file${i}.ts`] : [`file${i}.ts`],
+        }),
+      );
+    }
+    const analysis = analyzeTaskGraph(tasks);
+    const result = recommendParallelism(tasks, analysis, 10);
+    expect(result.recommendedWorkers).toBeLessThanOrEqual(5);
+  });
+
+  test("worker count is always ≥1", () => {
+    const tasks = [
+      makeTask({ id: "A", affects: ["shared.ts"] }),
+      makeTask({ id: "B", affects: ["shared.ts"] }),
+    ];
+    const analysis = analyzeTaskGraph(tasks);
+    // Even with defaultMax=1, after 50% floor, should still be ≥1
+    const result = recommendParallelism(tasks, analysis, 1);
+    expect(result.recommendedWorkers).toBeGreaterThanOrEqual(1);
+  });
+
+  test("worker count is always ≤defaultMax", () => {
+    const tasks = [
+      makeTask({ id: "A", affects: ["a.ts"] }),
+      makeTask({ id: "B", affects: ["b.ts"] }),
+    ];
+    const analysis = analyzeTaskGraph(tasks);
+    const result = recommendParallelism(tasks, analysis, 3);
+    expect(result.recommendedWorkers).toBeLessThanOrEqual(3);
+  });
+
+  test("100% overlap with large defaultMax", () => {
+    const tasks = [
+      makeTask({ id: "A", affects: ["shared.ts"] }),
+      makeTask({ id: "B", affects: ["shared.ts"] }),
+      makeTask({ id: "C", affects: ["shared.ts"] }),
+      makeTask({ id: "D", affects: ["shared.ts"] }),
+    ];
+    const analysis = analyzeTaskGraph(tasks);
+    const result = recommendParallelism(tasks, analysis, 20);
+    expect(result.recommendedWorkers).toBeLessThanOrEqual(10); // ≤50% of 20
+    expect(result.recommendedWorkers).toBeGreaterThanOrEqual(1);
+    expect(result.confidence).toBe("medium");
+  });
+
+  test("mixed tasks: some with affects, some without", () => {
+    // Only tasks with affects are considered for overlap
+    const tasks = [
+      makeTask({ id: "A", affects: ["a.ts"] }),
+      makeTask({ id: "B", affects: ["b.ts"] }),
+      makeTask({ id: "C" }), // no affects
+    ];
+    const analysis = analyzeTaskGraph(tasks);
+    const result = recommendParallelism(tasks, analysis, 4);
+    // A and B are disjoint
+    expect(result.confidence).toBe("high");
+    expect(result.recommendedWorkers).toBe(4);
+  });
+
+  test("tasks not in any group are excluded from analysis", () => {
+    // A<->B form a cycle (excluded from groups), C and D are valid
+    const tasks = [
+      makeTask({ id: "A", dependsOn: ["B"], affects: ["shared.ts"] }),
+      makeTask({ id: "B", dependsOn: ["A"], affects: ["shared.ts"] }),
+      makeTask({ id: "C", affects: ["c.ts"] }),
+      makeTask({ id: "D", affects: ["d.ts"] }),
+    ];
+    const analysis = analyzeTaskGraph(tasks);
+    const result = recommendParallelism(tasks, analysis, 4);
+    // Only C and D considered (in groups), they're disjoint
+    expect(result.confidence).toBe("high");
   });
 });

@@ -1,5 +1,11 @@
 import type { Task } from "../tasks/types.js";
 
+export interface ParallelismRecommendation {
+  recommendedWorkers: number;
+  confidence: "high" | "medium" | "low";
+  reason: string;
+}
+
 export interface TaskGraphNode {
   taskId: string;
   depth: number;
@@ -120,5 +126,68 @@ export function analyzeTaskGraph(tasks: Task[]): TaskGraphAnalysis {
     maxParallelism,
     recommendParallel,
     nodes,
+  };
+}
+
+export function recommendParallelism(
+  tasks: Task[],
+  analysis: TaskGraphAnalysis,
+  defaultMax: number,
+): ParallelismRecommendation {
+  const clamp = (n: number) => Math.max(1, Math.min(defaultMax, Math.round(n)));
+
+  // Collect tasks that appear in parallel groups and have affects data
+  const groupTaskIds = new Set(analysis.groups.flatMap((g) => g.taskIds));
+  const tasksInGroups = tasks.filter((t) => groupTaskIds.has(t.id));
+  const tasksWithAffects = tasksInGroups.filter(
+    (t) => t.affects && t.affects.length > 0,
+  );
+
+  if (tasksWithAffects.length === 0) {
+    return {
+      recommendedWorkers: clamp(defaultMax),
+      confidence: "low",
+      reason: "No affects data available to analyze file overlap",
+    };
+  }
+
+  // Count tasks that share at least one file with another task
+  let tasksWithOverlap = 0;
+  for (let i = 0; i < tasksWithAffects.length; i++) {
+    const filesA = new Set(tasksWithAffects[i].affects!);
+    let shares = false;
+    for (let j = 0; j < tasksWithAffects.length; j++) {
+      if (i === j) continue;
+      if (tasksWithAffects[j].affects!.some((f) => filesA.has(f))) {
+        shares = true;
+        break;
+      }
+    }
+    if (shares) tasksWithOverlap++;
+  }
+
+  const overlapRatio = tasksWithOverlap / tasksWithAffects.length;
+
+  if (overlapRatio === 0) {
+    return {
+      recommendedWorkers: clamp(defaultMax),
+      confidence: "high",
+      reason: "All tasks affect disjoint files",
+    };
+  }
+
+  if (overlapRatio > 0.3) {
+    return {
+      recommendedWorkers: clamp(Math.floor(defaultMax * 0.5)),
+      confidence: "medium",
+      reason: `${Math.round(overlapRatio * 100)}% of tasks share affected files; reducing parallelism`,
+    };
+  }
+
+  // Some overlap but ≤30%
+  return {
+    recommendedWorkers: clamp(defaultMax),
+    confidence: "medium",
+    reason: `${Math.round(overlapRatio * 100)}% of tasks share affected files; within safe threshold`,
   };
 }
