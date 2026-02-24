@@ -11,6 +11,8 @@ export interface WorkerInfo {
   startTime: number;
   status: WorkerStatus;
   lastOutput: string;
+  branchName: string;
+  lastCommitSha: string;
 }
 
 interface WorkerPanelProps {
@@ -59,6 +61,7 @@ function WorkerRow({
   const paddedId = worker.id.padEnd(maxIdLen);
   const elapsed = formatElapsed(worker.startTime, now);
   const iterStr = `${worker.iteration}/${worker.maxIterations}`;
+  const shortSha = worker.lastCommitSha ? worker.lastCommitSha.slice(0, 7) : "";
   const outputMaxLen = titleMaxLen;
   const lastOut =
     worker.lastOutput.length > outputMaxLen
@@ -75,6 +78,14 @@ function WorkerRow({
       <span fg={STATUS_COLOR[worker.status]}>{icon}</span>
       {" "}
       <span fg={colors.fg.primary} attributes={boldAttr()}>{paddedId}</span>
+      {" "}
+      <span fg={colors.fg.muted}>{worker.branchName}</span>
+      {shortSha ? (
+        <>
+          {" "}
+          <span fg={colors.fg.dim}>{shortSha}</span>
+        </>
+      ) : null}
       {" "}
       <span fg={colors.fg.secondary}>{title}</span>
       {" "}
@@ -171,7 +182,9 @@ export const WorkerPanel = memo(function WorkerPanel({
       w.id === nw.id &&
       w.status === nw.status &&
       w.iteration === nw.iteration &&
-      w.lastOutput === nw.lastOutput
+      w.lastOutput === nw.lastOutput &&
+      w.branchName === nw.branchName &&
+      w.lastCommitSha === nw.lastCommitSha
     );
   });
 });
