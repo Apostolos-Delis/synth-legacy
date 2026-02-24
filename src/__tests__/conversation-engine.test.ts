@@ -179,6 +179,67 @@ describe("ConversationEngine", () => {
     });
   });
 
+  describe("message inclusion", () => {
+    test("all messages are always included in the prompt regardless of count", async () => {
+      let capturedPrompt = "";
+      const agent: AgentAdapter = {
+        name: "test-agent",
+        detect: async () => ({ available: true }),
+        execute(prompt: string, options: AgentExecuteOptions): AgentExecutionHandle {
+          capturedPrompt = prompt;
+          options.onStdout?.("r");
+          return {
+            pid: 1,
+            promise: Promise.resolve({ exitCode: 0, stdout: "r", stderr: "", timedOut: false }),
+            interrupt() {},
+          };
+        },
+        dispose() {},
+      };
+
+      const engine = makeEngine({ agent });
+      for (let i = 1; i <= 20; i++) {
+        await engine.send(`message-${i}`);
+      }
+
+      for (let i = 1; i <= 20; i++) {
+        expect(capturedPrompt).toContain(`User: message-${i}`);
+      }
+    });
+
+    test("prompt prefix is identical between a 1-message and 20-message conversation", async () => {
+      const prompts: string[] = [];
+      const agent: AgentAdapter = {
+        name: "test-agent",
+        detect: async () => ({ available: true }),
+        execute(prompt: string, options: AgentExecuteOptions): AgentExecutionHandle {
+          prompts.push(prompt);
+          options.onStdout?.("r");
+          return {
+            pid: 1,
+            promise: Promise.resolve({ exitCode: 0, stdout: "r", stderr: "", timedOut: false }),
+            interrupt() {},
+          };
+        },
+        dispose() {},
+      };
+
+      const engine1 = makeEngine({ agent });
+      await engine1.send("only message");
+      const oneMessagePrompt = prompts[prompts.length - 1];
+
+      const engine2 = makeEngine({ agent });
+      for (let i = 1; i <= 20; i++) {
+        await engine2.send(`msg-${i}`);
+      }
+      const twentyMessagePrompt = prompts[prompts.length - 1];
+
+      const expectedPrefix = "You are a test assistant.\n\nConversation so far:\n\n";
+      expect(oneMessagePrompt.startsWith(expectedPrefix)).toBe(true);
+      expect(twentyMessagePrompt.startsWith(expectedPrefix)).toBe(true);
+    });
+  });
+
   describe("agent failure handling", () => {
     test("agent rejection propagates to send caller", async () => {
       const agent: AgentAdapter = {
