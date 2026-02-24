@@ -401,7 +401,7 @@ export class Engine {
       if (success && this.config.execution.auto_commit) {
         if (done) {
           // Fire-and-forget: don't block completion on the final commit
-          this.autoCommit(task).catch(() => {});
+          this.autoCommit(task).catch((err) => this.emit({ type: "task:failed", taskId: task.id, message: `autoCommit failed: ${err?.message ?? err}` }));
         } else {
           await this.autoCommit(task);
         }
