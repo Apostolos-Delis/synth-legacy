@@ -400,8 +400,8 @@ export class Engine {
 
       if (success && this.config.execution.auto_commit) {
         if (done) {
-          // Fire-and-forget: don't block completion on the final commit
-          this.autoCommit(task).catch((err) => this.emit({ type: "task:failed", taskId: task.id, message: `autoCommit failed: ${err?.message ?? err}` }));
+          // Await with timeout: let autoCommit finish but don't block indefinitely
+          await Promise.race([this.autoCommit(task).catch((err) => this.emit({ type: "task:failed", taskId: task.id, message: `autoCommit failed: ${err?.message ?? err}` })), new Promise(resolve => setTimeout(resolve, 5000))]);
         } else {
           await this.autoCommit(task);
         }
