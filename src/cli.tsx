@@ -26,6 +26,8 @@ import { createSpinner, withSpinner } from "./tui/spinner.js";
 import { stripAnsi } from "./tui/utils.js";
 import type { TuiEngineData, TuiContext, CompletionSummary } from "./tui/types.js";
 import { formatDuration } from "./utils/format.js";
+import { TokenAccumulator } from "./engine/tokens.js";
+import type { IterationResult } from "./engine/types.js";
 
 // Heavy modules are lazy-loaded on first use to keep startup fast.
 // Follows the same pattern as loadTui() below.
@@ -297,6 +299,29 @@ async function cmdStatus(sessionId?: string): Promise<void> {
 }
 
 async function cmdConfig(): Promise<void> {
+  if (args.includes("--edit")) {
+    const configPath = join(cwd, "synth.toml");
+    if (!(await fileExists(configPath))) {
+      log(fmt.info("No synth.toml found, creating one..."));
+      await cmdInit();
+    }
+    const editor = process.env.EDITOR || process.env.VISUAL || "vi";
+    const parts = editor.split(/\s+/);
+    const proc = Bun.spawn([...parts, configPath], {
+      stdio: ["inherit", "inherit", "inherit"],
+    });
+    await proc.exited;
+
+    try {
+      await loadConfig(cwd);
+      logSuccess("Config valid");
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      logError(`Config error: ${message}`);
+    }
+    return;
+  }
+
   const config = await applyTheme();
   const json = JSON.stringify(config, null, 2);
   const colorized = json
@@ -305,6 +330,38 @@ async function cmdConfig(): Promise<void> {
     .replace(/: (\d+)/g, `: ${ansi.warning}$1${ansi.reset}`)
     .replace(/: (true|false)/g, `: ${ansi.magenta}$1${ansi.reset}`);
   log(colorized);
+}
+
+async function cmdDoctor(): Promise<void> {
+  const { runDoctorChecks } = await import("./doctor/doctor.js");
+  let config;
+  try {
+    config = await loadConfig(cwd);
+  } catch {
+    // Config may be invalid — doctor will report it
+  }
+
+  log(`${ansi.bold}synth doctor${ansi.reset}\n`);
+  const results = await runDoctorChecks(cwd, config);
+  const passed = results.filter((r) => r.status === "pass").length;
+  const failed = results.filter((r) => r.status === "fail").length;
+
+  for (const r of results) {
+    if (r.status === "pass") {
+      log(`  ${ansi.success}✓${ansi.reset} ${r.name}${r.message ? ` ${ansi.muted}(${r.message})${ansi.reset}` : ""}`);
+    } else if (r.status === "fail") {
+      log(`  ${ansi.error}✗${ansi.reset} ${r.name}: ${r.message ?? "failed"}`);
+      if (r.suggestion) log(`    ${ansi.muted}→ ${r.suggestion}${ansi.reset}`);
+    } else {
+      log(`  ${ansi.warning}⚠${ansi.reset} ${r.name}: ${r.message ?? "warning"}`);
+      if (r.suggestion) log(`    ${ansi.muted}→ ${r.suggestion}${ansi.reset}`);
+    }
+  }
+
+  const summaryColor = failed > 0 ? ansi.error : ansi.success;
+  log(`\n${summaryColor}${passed}/${results.length} checks passed${ansi.reset}`);
+
+  if (failed > 0) process.exit(1);
 }
 
 async function cmdThemes(): Promise<void> {
@@ -443,6 +500,7 @@ async function cmdRun(sessionId?: string, startIteration = 0, tuiContext?: TuiCo
       phaseStartTime: null,
       completionSummary: null,
       taskOutputMap: {},
+      tokenUsage: { sessionTotal: { inputTokens: 0, outputTokens: 0, totalTokens: 0 }, taskTotals: {}, hasData: false },
     };
 
     // Pre-load historical outputs for tasks completed in previous sessions
@@ -488,6 +546,7 @@ async function cmdRun(sessionId?: string, startIteration = 0, tuiContext?: TuiCo
   };
 
   const taskStartTimes = new Map<string, number>();
+  const tokenAccumulator = new TokenAccumulator();
 
   if (tuiEnabled) {
     engine.on((event) => {
@@ -576,6 +635,24 @@ async function cmdRun(sessionId?: string, startIteration = 0, tuiContext?: TuiCo
         case "agent:stderr":
           if (event.message) tuiData.output += stripAnsi(event.message);
           break;
+        case "iteration:end": {
+          const iterData = event.data as IterationResult | undefined;
+          if (iterData?.tokenUsage && event.taskId) {
+            tokenAccumulator.add(event.taskId, {
+              inputTokens: iterData.tokenUsage.inputTokens,
+              outputTokens: iterData.tokenUsage.outputTokens,
+              totalTokens: iterData.tokenUsage.inputTokens + iterData.tokenUsage.outputTokens,
+            });
+            tuiData.tokenUsage = {
+              sessionTotal: tokenAccumulator.getSessionTotal(),
+              taskTotals: Object.fromEntries(
+                tuiData.tasks.map((t) => [t.id, tokenAccumulator.getTaskTotal(t.id) ?? { inputTokens: 0, outputTokens: 0, totalTokens: 0 }]).filter(([, v]) => (v as { totalTokens: number }).totalTokens > 0),
+              ),
+              hasData: tokenAccumulator.hasData(),
+            };
+          }
+          break;
+        }
         case "complete":
           tuiData.engineState = "completed";
           break;
@@ -1875,6 +1952,9 @@ async function main(): Promise<void> {
     case "config":
       await cmdConfig();
       break;
+    case "doctor":
+      await cmdDoctor();
+      break;
     case "themes":
       await cmdThemes();
       break;
@@ -1912,7 +1992,8 @@ async function main(): Promise<void> {
       log(`  ${ansi.primary}show${ansi.reset} ${ansi.muted}<session-id>${ansi.reset}       Show session details`);
       log(`  ${ansi.primary}status${ansi.reset} ${ansi.muted}[<session-id>]${ansi.reset}   Session status`);
       log(`  ${ansi.primary}ps${ansi.reset}                       List running instances`);
-      log(`  ${ansi.primary}config${ansi.reset}                   Display configuration`);
+      log(`  ${ansi.primary}config${ansi.reset} ${ansi.muted}[--edit]${ansi.reset}          Display or edit configuration`);
+      log(`  ${ansi.primary}doctor${ansi.reset}                   Validate environment setup`);
       log(`  ${ansi.primary}themes${ansi.reset}                   List themes and spinners`);
 
       log(`\n${ansi.bold}System:${ansi.reset}`);
