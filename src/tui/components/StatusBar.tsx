@@ -18,6 +18,7 @@ interface StatusBarProps {
 const STATE_DISPLAY: Record<EngineState, { label: string; color: string; indicator: string }> = {
   idle: { label: "IDLE", color: colors.fg.muted, indicator: statusIndicators.idle },
   executing: { label: "RUNNING", color: colors.status.success, indicator: statusIndicators.executing },
+  reviewing: { label: "REVIEWING", color: colors.accent.primary, indicator: statusIndicators.reviewing },
   paused: { label: "PAUSED", color: colors.status.warning, indicator: statusIndicators.paused },
   blocked: { label: "BLOCKED", color: colors.status.error, indicator: statusIndicators.blocked },
   completed: { label: "DONE", color: colors.status.success, indicator: statusIndicators.completed },

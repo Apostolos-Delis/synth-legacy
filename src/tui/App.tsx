@@ -64,6 +64,7 @@ export function App({
     prevEngineState.current = curr;
 
     if (curr === "completed" && !engineData.completionSummary) showSuccess("All tasks complete!");
+    else if (curr === "reviewing") showInfo("Starting review phase...");
     else if (curr === "paused" && prev === "executing") showInfo("Execution paused");
     else if (curr === "blocked") showWarning("Execution blocked");
   }, [engineData.engineState, engineData.completionSummary, showSuccess, showInfo, showWarning]);

@@ -68,6 +68,11 @@ async function loadFinalize() {
   return { finalize };
 }
 
+async function loadReviewOrchestrator() {
+  const { ReviewOrchestrator } = await import("./review/orchestrator.js");
+  return { ReviewOrchestrator };
+}
+
 // TUI imports are loaded dynamically to keep non-TUI commands fast.
 async function loadTui() {
   const [{ createCliRenderer }, { createRoot }, { App }, { InterviewApp }, { GeneratingView }, { ReviewView }, { FinalizeApp }, { PrdReviewView }] = await Promise.all([
@@ -751,9 +756,152 @@ async function cmdRun(sessionId?: string, startIteration = 0, tuiContext?: TuiCo
     await engine.run(startIteration);
     const finalState = engine.getState();
     await runMod.endRun(plan.paths, finalState === "completed" ? "completed" : "paused");
-    await updateSessionMetadata(cwd, plan.metadata.id, {
-      status: finalState === "completed" ? "completed" : finalState === "blocked" ? "blocked" : "paused",
-    });
+
+    // ── Review phase: runs after successful execution, skipped if blocked ──
+    if (finalState === "completed") {
+      await updateSessionMetadata(cwd, plan.metadata.id, { status: "reviewing" });
+
+      const { ReviewOrchestrator } = await loadReviewOrchestrator();
+      const reviewOrchestrator = new ReviewOrchestrator(
+        config,
+        agent,
+        fallbackAgent,
+        plan.paths,
+        cwd,
+      );
+
+      if (tuiEnabled && tuiData) {
+        // Show review phase in TUI — reuse execution view with "reviewing" state
+        tuiData.engineState = "reviewing";
+        tuiData.currentTaskId = null;
+        tuiData.output = "";
+        tuiData.isThinking = true;
+        tuiData.currentPhase = "Generating review findings...";
+        tuiData.phaseStartTime = Date.now();
+        renderTui();
+
+        reviewOrchestrator.on((event) => {
+          if (!tuiData) return;
+          switch (event.type) {
+            case "state:change":
+              if (event.message === "reviewing") {
+                tuiData.engineState = "reviewing";
+              } else if (event.message) {
+                tuiData.engineState = event.message as TuiEngineData["engineState"];
+              }
+              break;
+            case "iteration:start":
+              tuiData.iteration = event.iteration ?? tuiData.iteration;
+              tuiData.currentTaskId = event.taskId ?? null;
+              tuiData.output = "";
+              break;
+            case "task:start":
+              tuiData.isThinking = true;
+              tuiData.currentPhase = "Executing review task...";
+              tuiData.phaseStartTime = event.timestamp ?? Date.now();
+              if (event.taskId) {
+                tuiData.taskOutputMap[event.taskId] = "";
+                tuiData.taskStartTimes[event.taskId] = Date.now();
+              }
+              break;
+            case "task:complete":
+            case "task:failed": {
+              tuiData.isThinking = false;
+              tuiData.currentPhase = null;
+              const task = tuiData.tasks.find((t) => t.id === event.taskId);
+              if (task) task.status = event.type === "task:complete" ? "done" : "failed";
+              break;
+            }
+            case "agent:stdout": {
+              const stripped = event.message ? stripAnsi(event.message) : "";
+              if (stripped) {
+                tuiData.output += stripped;
+                if (tuiData.currentTaskId && tuiData.currentTaskId in tuiData.taskOutputMap) {
+                  tuiData.taskOutputMap[tuiData.currentTaskId] += stripped;
+                }
+              }
+              renderTui();
+              return; // already rendered
+            }
+            case "agent:stderr":
+              if (event.message) tuiData.output += stripAnsi(event.message);
+              break;
+            case "phase:scanning":
+              tuiData.currentPhase = "Scanning project files...";
+              tuiData.phaseStartTime = event.timestamp ?? Date.now();
+              break;
+            case "phase:building-prompt":
+              tuiData.currentPhase = "Building prompt...";
+              tuiData.phaseStartTime = event.timestamp ?? Date.now();
+              break;
+            case "phase:spawning-agent":
+              tuiData.currentPhase = "Spawning agent...";
+              tuiData.phaseStartTime = event.timestamp ?? Date.now();
+              break;
+            case "phase:streaming":
+              tuiData.currentPhase = "Streaming response...";
+              tuiData.phaseStartTime = event.timestamp ?? Date.now();
+              break;
+            case "complete":
+              tuiData.isThinking = false;
+              tuiData.currentPhase = null;
+              break;
+          }
+          renderTui();
+        });
+
+        // Load and display review tasks in TUI as they're generated
+        const reviewResult = await reviewOrchestrator.run((chunk) => {
+          if (tuiData) {
+            tuiData.output += chunk;
+            renderTui();
+          }
+        });
+
+        // Merge review tasks into TUI task list if any were created
+        if (reviewResult.taskFile) {
+          tuiData.tasks = [...tuiData.tasks, ...reviewResult.taskFile.tasks];
+        }
+        tuiData.engineState = "completed";
+        renderTui();
+      } else {
+        // Non-TUI: log review progress to console
+        log(`\n${fmt.bold("━━━ Review Phase ━━━")}`);
+        log(fmt.info("Analyzing execution output for issues..."));
+
+        reviewOrchestrator.on((event) => {
+          switch (event.type) {
+            case "iteration:start":
+              log(`\n${fmt.bold(`━━━ Review Iteration ${event.iteration} ━━━`)} ${fmt.label("task:", event.taskId ?? "")}`);
+              break;
+            case "task:complete":
+              logSuccess(`  ${event.taskId}: ${event.message}`);
+              break;
+            case "task:failed":
+              logError(`  ${event.taskId}: ${event.message}`);
+              break;
+            case "agent:stdout":
+              if (event.message) process.stdout.write(event.message);
+              break;
+          }
+        });
+
+        const reviewResult = await reviewOrchestrator.run();
+        if (reviewResult.findings.length > 0) {
+          log(fmt.info(`Review found ${reviewResult.findings.length} finding(s)${reviewResult.executed ? " — fix tasks executed" : ""}`));
+        } else {
+          log(fmt.info("Review completed — no issues found"));
+        }
+      }
+
+      // Review done — transition back to completed
+      await updateSessionMetadata(cwd, plan.metadata.id, { status: "completed" });
+    } else {
+      // Non-completed states (blocked, paused) — skip review
+      await updateSessionMetadata(cwd, plan.metadata.id, {
+        status: finalState === "blocked" ? "blocked" : "paused",
+      });
+    }
 
     const durationMs = Date.now() - engineStartTime;
     const currentTasks = await loadTasks(plan.paths.tasks);

@@ -63,6 +63,7 @@ export const statusIndicators: Record<string, string> = {
   failed: "\u2717",
   skipped: "\u2298",
   executing: "\u25B6",
+  reviewing: "\u25B6",
   paused: "\u23F8",
   completed: "\u2713",
   idle: "\u25CB",

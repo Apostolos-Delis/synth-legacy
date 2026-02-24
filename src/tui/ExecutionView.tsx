@@ -16,7 +16,7 @@ interface ExecutionViewProps {
 export function ExecutionView({ state, selectedTaskIndex, navMode }: ExecutionViewProps): ReactNode {
   const [, tick] = useState(0);
   useEffect(() => {
-    if (state.engineState !== "executing") return;
+    if (state.engineState !== "executing" && state.engineState !== "reviewing") return;
     const id = setInterval(() => tick((n) => n + 1), 1000);
     return () => clearInterval(id);
   }, [state.engineState]);

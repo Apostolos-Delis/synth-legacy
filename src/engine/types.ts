@@ -1,6 +1,7 @@
 export type EngineState =
   | "idle"
   | "executing"
+  | "reviewing"
   | "paused"
   | "blocked"
   | "completed"
