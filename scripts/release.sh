@@ -82,18 +82,21 @@ BINARY="synth-${HOST_OS}-${HOST_ARCH}"
 info "Building ${BINARY}..."
 bun run "build:${HOST_OS}-${HOST_ARCH}"
 
+info "Compressing ${BINARY}..."
+gzip -9 -f "dist/${BINARY}"
+
 info "Pushing tag..."
 git push origin HEAD "$TAG"
 
-# Create GitHub release with host binary
-info "Creating GitHub release..."
+# Create GitHub release with compressed binary
+printf '\033[1;34m%s\033[0m ' "Creating GitHub release..."
 gh release create "$TAG" \
-  "dist/${BINARY}" \
+  "dist/${BINARY}.gz" \
   --title "v${NEXT}" \
   --generate-notes
 
 info "Attach other platform binaries via CI or manually with:"
-info "  gh release upload ${TAG} dist/synth-<os>-<arch>"
+info "  gzip -9 dist/synth-<os>-<arch> && gh release upload ${TAG} dist/synth-<os>-<arch>.gz"
 
 info "Released v${NEXT} 🎉"
 info "https://github.com/Apostolos-Delis/synth/releases/tag/${TAG}"

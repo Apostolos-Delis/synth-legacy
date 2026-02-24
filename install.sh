@@ -32,10 +32,12 @@ TAG="$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" | grep 
 
 info "Latest release: $TAG"
 
-URL="https://github.com/${REPO}/releases/download/${TAG}/${BINARY}"
+URL="https://github.com/${REPO}/releases/download/${TAG}/${BINARY}.gz"
 
-info "Downloading ${BINARY}..."
-curl -fsSL -o /tmp/synth "$URL" || error "Download failed — check that a release exists for ${os}-${arch}"
+info "Downloading ${BINARY}.gz..."
+curl -fsSL -o /tmp/synth.gz "$URL" || error "Download failed — check that a release exists for ${os}-${arch}"
+
+gunzip -f /tmp/synth.gz
 
 mkdir -p "$INSTALL_DIR"
 mv /tmp/synth "${INSTALL_DIR}/synth"

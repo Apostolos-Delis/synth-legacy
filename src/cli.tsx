@@ -2599,8 +2599,66 @@ async function cmdClean(): Promise<void> {
   }
 }
 
+function detectPlatform(): { os: string; arch: string } {
+  const platform = process.platform;
+  const arch = process.arch;
+  const os = platform === "darwin" ? "darwin" : platform === "linux" ? "linux" : "";
+  const mappedArch = arch === "arm64" ? "arm64" : arch === "x64" ? "x64" : "";
+  if (!os || !mappedArch) {
+    throw new Error(`Unsupported platform: ${platform}-${arch}`);
+  }
+  return { os, arch: mappedArch };
+}
+
+function formatBytes(bytes: number): string {
+  return (bytes / (1024 * 1024)).toFixed(1);
+}
+
+async function downloadAndInstall(
+  tag: string,
+  onProgress?: (received: number, total: number | null) => void,
+): Promise<void> {
+  const { os, arch } = detectPlatform();
+  const binary = `synth-${os}-${arch}.gz`;
+  const url = `https://github.com/${REPO}/releases/download/${tag}/${binary}`;
+
+  const res = await fetch(url, { redirect: "follow" });
+  if (!res.ok || !res.body) {
+    throw new Error(`Download failed (HTTP ${res.status}) — check that a release exists for ${os}-${arch}`);
+  }
+
+  const contentLength = res.headers.get("content-length");
+  const total = contentLength ? parseInt(contentLength, 10) : null;
+  let received = 0;
+
+  const chunks: Uint8Array[] = [];
+  for await (const chunk of res.body) {
+    chunks.push(chunk);
+    received += chunk.length;
+    onProgress?.(received, total);
+  }
+
+  const compressed = new Uint8Array(received);
+  let offset = 0;
+  for (const chunk of chunks) {
+    compressed.set(chunk, offset);
+    offset += chunk.length;
+  }
+
+  const decompressed = Bun.gunzipSync(compressed);
+
+  const installDir = process.env.SYNTH_INSTALL_DIR || `${process.env.HOME}/.local/bin`;
+  const installPath = `${installDir}/synth`;
+
+  const { mkdirSync, writeFileSync, chmodSync, renameSync } = await import("node:fs");
+  mkdirSync(installDir, { recursive: true });
+  const tmpPath = `${installPath}.tmp`;
+  writeFileSync(tmpPath, decompressed);
+  chmodSync(tmpPath, 0o755);
+  renameSync(tmpPath, installPath);
+}
+
 async function cmdUpdate(): Promise<void> {
-  await applyTheme();
   let release: { tag_name: string };
 
   if (tuiEnabled) {
@@ -2620,21 +2678,21 @@ async function cmdUpdate(): Promise<void> {
 
     spinner.stop(fmt.info(`New version available: ${VERSION} → ${latest}`));
 
-    const updateSpinner = createSpinner("Downloading update");
-    const handle = spawn({
-      cmd: ["bash", "-c", `curl -fsSL https://raw.githubusercontent.com/${REPO}/main/install.sh | bash`],
-      cwd,
-      onStdout: (chunk) => {
-        const line = chunk.trim();
-        if (line) updateSpinner.update(line);
-      },
-    });
-    const result = await handle.promise;
-    if (result.exitCode !== 0) {
-      updateSpinner.stop(fmt.error(`Update failed: ${result.stderr}`));
+    const updateSpinner = createSpinner("Downloading update...");
+    try {
+      await downloadAndInstall(release.tag_name, (received, total) => {
+        if (total) {
+          const pct = Math.round((received / total) * 100);
+          updateSpinner.update(`Downloading update... ${formatBytes(received)} / ${formatBytes(total)} MB (${pct}%)`);
+        } else {
+          updateSpinner.update(`Downloading update... ${formatBytes(received)} MB`);
+        }
+      });
+      updateSpinner.stop(fmt.success(`Updated to v${latest}`));
+    } catch (err) {
+      updateSpinner.stop(fmt.error(`Update failed: ${err instanceof Error ? err.message : err}`));
       process.exit(1);
     }
-    updateSpinner.stop(fmt.success(`Updated to v${latest}`));
   } else {
     log("Checking for updates...");
     const res = await fetch(`https://api.github.com/repos/${REPO}/releases/latest`);
@@ -2651,20 +2709,22 @@ async function cmdUpdate(): Promise<void> {
     }
 
     log(`New version available: ${VERSION} → ${latest}`);
-    log("Updating...\n");
+    log("Downloading...");
 
-    const handle = spawn({
-      cmd: ["bash", "-c", `curl -fsSL https://raw.githubusercontent.com/${REPO}/main/install.sh | bash`],
-      cwd,
-      onStdout: (chunk) => process.stdout.write(chunk),
-      onStderr: (chunk) => process.stderr.write(chunk),
-    });
-    const result = await handle.promise;
-    if (result.exitCode !== 0) {
-      logError(`Update failed: ${result.stderr}`);
+    try {
+      await downloadAndInstall(release.tag_name, (received, total) => {
+        if (total) {
+          const pct = Math.round((received / total) * 100);
+          process.stdout.write(`\r  ${formatBytes(received)} / ${formatBytes(total)} MB (${pct}%)`);
+        }
+      });
+      process.stdout.write("\n");
+      logSuccess(`Updated to v${latest}`);
+    } catch (err) {
+      process.stdout.write("\n");
+      logError(`Update failed: ${err instanceof Error ? err.message : err}`);
       process.exit(1);
     }
-    logSuccess(`Updated to v${latest}`);
   }
 }
 
