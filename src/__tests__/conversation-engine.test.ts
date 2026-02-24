@@ -21,7 +21,6 @@ function makeAgent(response = "ok"): AgentAdapter {
 
 function makeEngine(overrides: {
   agent?: AgentAdapter;
-  maxHistoryWindow?: number;
   persist?: (messages: ConversationMessage[]) => void | Promise<void>;
   promptSuffix?: string;
 } = {}) {
@@ -29,90 +28,12 @@ function makeEngine(overrides: {
     agent: overrides.agent ?? makeAgent(),
     cwd: "/tmp",
     systemPrompt: "You are a test assistant.",
-    maxHistoryWindow: overrides.maxHistoryWindow,
     persist: overrides.persist,
     promptSuffix: overrides.promptSuffix,
   });
 }
 
 describe("ConversationEngine", () => {
-  describe("truncation window", () => {
-    test("includes all messages when under maxHistoryWindow", async () => {
-      let capturedPrompt = "";
-      const agent = makeAgent("reply");
-      const origExecute = agent.execute.bind(agent);
-      agent.execute = (prompt: string, opts: AgentExecuteOptions) => {
-        capturedPrompt = prompt;
-        return origExecute(prompt, opts);
-      };
-
-      const engine = makeEngine({ agent, maxHistoryWindow: 10 });
-      await engine.send("hello");
-
-      expect(capturedPrompt).toContain("Conversation so far:");
-      expect(capturedPrompt).not.toContain("truncated");
-      expect(capturedPrompt).toContain("User: hello");
-    });
-
-    test("truncates older messages when exceeding maxHistoryWindow", async () => {
-      let capturedPrompt = "";
-      const agent: AgentAdapter = {
-        name: "test-agent",
-        detect: async () => ({ available: true }),
-        execute(prompt: string, options: AgentExecuteOptions): AgentExecutionHandle {
-          capturedPrompt = prompt;
-          options.onStdout?.("reply");
-          return {
-            pid: 1,
-            promise: Promise.resolve({ exitCode: 0, stdout: "reply", stderr: "", timedOut: false }),
-            interrupt() {},
-          };
-        },
-        dispose() {},
-      };
-
-      const engine = makeEngine({ agent, maxHistoryWindow: 2 });
-
-      // Send 3 messages — the first user+assistant pair should be truncated
-      await engine.send("msg1");
-      await engine.send("msg2");
-
-      // At prompt build time: [user:msg1, asst:reply, user:msg2] = 3 messages
-      // Window of 2 means only last 2 shown, 1 omitted
-      expect(capturedPrompt).toContain("truncated");
-      expect(capturedPrompt).toContain("1 messages omitted");
-      expect(capturedPrompt).toContain("User: msg2");
-      expect(capturedPrompt).not.toContain("User: msg1");
-    });
-
-    test("shows correct omission count as conversation grows", async () => {
-      let capturedPrompt = "";
-      const agent: AgentAdapter = {
-        name: "test-agent",
-        detect: async () => ({ available: true }),
-        execute(prompt: string, options: AgentExecuteOptions): AgentExecutionHandle {
-          capturedPrompt = prompt;
-          options.onStdout?.("r");
-          return {
-            pid: 1,
-            promise: Promise.resolve({ exitCode: 0, stdout: "r", stderr: "", timedOut: false }),
-            interrupt() {},
-          };
-        },
-        dispose() {},
-      };
-
-      const engine = makeEngine({ agent, maxHistoryWindow: 2 });
-
-      await engine.send("a");
-      await engine.send("b");
-      await engine.send("c");
-
-      // At prompt build time: [user:a, asst:r, user:b, asst:r, user:c] = 5, window 2 → 3 omitted
-      expect(capturedPrompt).toContain("3 messages omitted");
-    });
-  });
-
   describe("persist callback", () => {
     test("calls persist after each send with full history", async () => {
       const persisted: ConversationMessage[][] = [];
@@ -195,7 +116,7 @@ describe("ConversationEngine", () => {
       expect(capturedPrompt).toContain("User: follow-up");
     });
 
-    test("restored history counts toward truncation window", async () => {
+    test("restored history is fully included in prompt", async () => {
       let capturedPrompt = "";
       const agent: AgentAdapter = {
         name: "test-agent",
@@ -212,7 +133,7 @@ describe("ConversationEngine", () => {
         dispose() {},
       };
 
-      const engine = makeEngine({ agent, maxHistoryWindow: 2 });
+      const engine = makeEngine({ agent });
       engine.restoreHistory([
         { role: "user", content: "old1" },
         { role: "assistant", content: "old2" },
@@ -222,9 +143,12 @@ describe("ConversationEngine", () => {
 
       await engine.send("new");
 
-      // At prompt build time: 4 restored + 1 new user = 5, window 2 → 3 omitted
-      expect(capturedPrompt).toContain("3 messages omitted");
-      expect(capturedPrompt).not.toContain("User: old1");
+      expect(capturedPrompt).toContain("Conversation so far:");
+      expect(capturedPrompt).toContain("User: old1");
+      expect(capturedPrompt).toContain("Assistant: old2");
+      expect(capturedPrompt).toContain("User: old3");
+      expect(capturedPrompt).toContain("Assistant: old4");
+      expect(capturedPrompt).toContain("User: new");
     });
 
     test("getHistory returns restored messages plus new ones", async () => {

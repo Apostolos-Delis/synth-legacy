@@ -8,7 +8,6 @@ export interface ConversationEngineConfig {
   readOnly?: boolean;
   systemPrompt: string;
   promptSuffix?: string;
-  maxHistoryWindow?: number;
   persist?: (messages: ConversationMessage[]) => void | Promise<void>;
 }
 
@@ -20,7 +19,6 @@ export class ConversationEngine {
   private readonly readOnly: boolean;
   private readonly systemPrompt: string;
   private readonly promptSuffix: string;
-  private readonly maxHistoryWindow: number;
   private readonly persist?: (messages: ConversationMessage[]) => void | Promise<void>;
 
   constructor(config: ConversationEngineConfig) {
@@ -30,7 +28,6 @@ export class ConversationEngine {
     this.readOnly = config.readOnly ?? false;
     this.systemPrompt = config.systemPrompt;
     this.promptSuffix = config.promptSuffix ?? "";
-    this.maxHistoryWindow = config.maxHistoryWindow ?? 16;
     this.persist = config.persist;
   }
 
@@ -55,17 +52,11 @@ export class ConversationEngine {
   }
 
   private buildPrompt(): string {
-    const recentHistory = this.messages.slice(-this.maxHistoryWindow);
-    const truncated = this.messages.length > this.maxHistoryWindow;
-
-    const turns = recentHistory
+    const turns = this.messages
       .map((m) => `${m.role === "user" ? "User" : "Assistant"}: ${m.content}`)
       .join("\n\n");
 
-    const prefix = truncated
-      ? `${this.systemPrompt}\n\n[Earlier conversation truncated — ${this.messages.length - this.maxHistoryWindow} messages omitted]\n\nRecent conversation:\n\n`
-      : `${this.systemPrompt}\n\nConversation so far:\n\n`;
-
+    const prefix = `${this.systemPrompt}\n\nConversation so far:\n\n`;
     const suffix = this.promptSuffix ? `\n\n${this.promptSuffix}` : "";
 
     return `${prefix}${turns}${suffix}`;

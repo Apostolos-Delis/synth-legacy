@@ -56,16 +56,6 @@ Each call to `Interviewer.respond(userMessage)`:
    - Auto-persists conversation state to `interview.json`
 2. Checks if the response contains a JSON PRD (extraction attempt)
 
-### Sliding Window Context
-
-To prevent context window overflow in long interviews, the ConversationEngine uses a sliding window of the **last 16 messages** (configurable via `maxHistoryWindow`). When messages are truncated, a note is prepended:
-
-```
-[Earlier conversation truncated — N messages omitted]
-```
-
-This keeps the prompt size manageable while preserving the most recent and relevant context.
-
 ### Auto-Persistence
 
 Conversation state is automatically persisted to `interview.json` after every message exchange via the engine's `persist` callback. This means a crash or interruption at any point preserves all prior messages, enabling robust resume.

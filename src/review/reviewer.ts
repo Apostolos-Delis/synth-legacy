@@ -27,7 +27,7 @@ export class Reviewer {
       readOnly: false,
       systemPrompt: REVIEW_AGENT_SYSTEM_PROMPT,
       promptSuffix: REVIEW_PROMPT_SUFFIX,
-      maxHistoryWindow: 16,
+
       persist,
     });
   }

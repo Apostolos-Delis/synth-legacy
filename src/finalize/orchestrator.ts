@@ -32,7 +32,7 @@ export interface GitOps {
   getCurrentBranch(cwd: string): Promise<string>;
 }
 
-const MAX_HISTORY = 20;
+
 const OPTION_CLOSED_RE = /\[OPTION(\*?)\]([^[]*)\[\/OPTION\]/g;
 const OPTION_UNCLOSED_RE = /\[OPTION(\*?)\]([^\n]*)/g;
 const OPTION_ORPHAN_CLOSE_RE = /\[\/OPTION\]/g;
@@ -335,7 +335,6 @@ export class FinalizeOrchestrator {
       cwd,
       model: config.agent.model,
       systemPrompt: buildAuditSystemPrompt(),
-      maxHistoryWindow: MAX_HISTORY,
       persist: async () => {
         await ensureDir(sessionPaths.root);
         await this.persistState();
@@ -383,7 +382,6 @@ export class FinalizeOrchestrator {
       cwd,
       model: config.agent.model,
       systemPrompt: buildAuditSystemPrompt(),
-      maxHistoryWindow: MAX_HISTORY,
       persist: async () => {
         await ensureDir(sessionPaths.root);
         await this.persistState();
