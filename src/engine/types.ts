@@ -47,6 +47,7 @@ export interface IterationResult {
   completionDetected: boolean;
   output: string;
   duration: number;
+  tokenUsage?: { inputTokens: number; outputTokens: number };
 }
 
 export type EngineEventListener = (event: EngineEvent) => void;

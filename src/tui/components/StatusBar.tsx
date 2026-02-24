@@ -2,6 +2,7 @@ import { memo, type ReactNode } from "react";
 import type { EngineState } from "../../engine/types.js";
 import type { NavMode } from "../types.js";
 import { colors, statusIndicators } from "../theme.js";
+import { formatTokenCount } from "../../engine/tokens.js";
 
 interface StatusBarProps {
   state: EngineState;
@@ -11,6 +12,7 @@ interface StatusBarProps {
   width: number;
   currentPhase?: string | null;
   navMode?: NavMode;
+  currentTaskTokens?: number | null;
 }
 
 const STATE_DISPLAY: Record<EngineState, { label: string; color: string; indicator: string }> = {
@@ -30,13 +32,18 @@ export const StatusBar = memo(function StatusBar({
   width,
   currentPhase,
   navMode,
+  currentTaskTokens,
 }: StatusBarProps): ReactNode {
   const display = STATE_DISPLAY[state];
   const elapsed = Math.round(elapsedMs / 1000);
 
   const navHints = navMode === "output-scroll"
     ? "j/k:scroll  esc:back  q:quit"
-    : "j/k:tasks  enter:scroll  p:pause  d:dashboard  q:quit";
+    : "j/k:tasks  enter:scroll  p:pause  d:dashboard  h:history  q:quit";
+
+  const tokenDisplay = currentTaskTokens != null && currentTaskTokens > 0
+    ? `${formatTokenCount(currentTaskTokens)} tok`
+    : "N/A";
 
   return (
     <box
@@ -53,6 +60,8 @@ export const StatusBar = memo(function StatusBar({
         <span fg={colors.fg.secondary}>iter {iteration}</span>
         <span fg={colors.fg.muted}>{" │ "}</span>
         <span fg={colors.fg.secondary}>{elapsed}s</span>
+        <span fg={colors.fg.muted}>{" │ "}</span>
+        <span fg={tokenDisplay === "N/A" ? colors.fg.muted : colors.accent.secondary}>{tokenDisplay}</span>
         {currentPhase && (
           <>
             <span fg={colors.fg.muted}>{" │ "}</span>
@@ -71,5 +80,6 @@ export const StatusBar = memo(function StatusBar({
   prev.width === next.width &&
   prev.currentPhase === next.currentPhase &&
   prev.navMode === next.navMode &&
+  prev.currentTaskTokens === next.currentTaskTokens &&
   Math.floor(prev.elapsedMs / 1000) === Math.floor(next.elapsedMs / 1000),
 );

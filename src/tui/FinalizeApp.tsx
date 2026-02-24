@@ -563,7 +563,6 @@ export function FinalizeApp({ orchestrator, agent, config, sessionPaths, cwd, on
             width: "100%",
             height: optionSelectorHeight,
             flexDirection: "column",
-            backgroundColor: colors.bg.secondary,
             border: true,
             borderColor: colors.border.active,
             paddingLeft: 1,

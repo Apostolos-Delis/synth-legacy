@@ -169,6 +169,15 @@ export function OptionSelector({ groups, onSelect, showOther = true }: OptionSel
         return;
       }
 
+      // Enter — explicitly select the focused option (don't rely on native <select>)
+      if (key.name === "return" && !key.shift && !key.ctrl && !key.meta) {
+        key.preventDefault?.();
+        const idx = selectedIndicesRef.current[tab] ?? 0;
+        const selectOpts = toSelectOptions(current.options, showOtherRef.current);
+        handleSelect(idx, selectOpts[idx] ?? null);
+        return;
+      }
+
       // Tab / Shift+Tab for multi-question navigation
       if (key.name === "tab" && g.length > 1) {
         key.preventDefault?.();
@@ -221,10 +230,8 @@ export function OptionSelector({ groups, onSelect, showOther = true }: OptionSel
           focused={true}
           showDescription={true}
           wrapSelection={true}
-          backgroundColor={colors.bg.secondary}
           textColor={colors.fg.secondary}
           descriptionColor={colors.fg.muted}
-          selectedBackgroundColor={colors.bg.highlight}
           selectedTextColor={colors.accent.primary}
           selectedDescriptionColor={colors.fg.secondary}
           onSelect={handleSelect}

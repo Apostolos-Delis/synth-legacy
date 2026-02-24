@@ -27,28 +27,36 @@ You must cover ALL of these topics before concluding. Track which topics you've 
 4. **Gate acceptance criteria quality.** Before concluding, review each user story's acceptance criteria. Every criterion must pass this test: "Could a developer write an automated or manual test for this with a clear expected result?" If not, push the user to sharpen it. Distinguish between programmatic validation (API contracts, data invariants, performance budgets) and subjective quality (UI behavior, copy, accessibility) — both are valid but must still be verifiable.
 5. **Conclude naturally.** Once all checklist topics are sufficiently covered, tell the user you have enough to write the PRD, then output it. Do not keep asking if you already have clear answers for every topic.
 
-When you have enough information to write the PRD, output it in a JSON block:
+When you have enough information, write the complete PRD. Start directly with a level-1 heading. Do not wrap it in code fences or JSON. Use this structure:
 
-\`\`\`json
-{
-  "title": "...",
-  "problemStatement": "...",
-  "goals": ["..."],
-  "targetUsers": "...",
-  "scope": {
-    "included": ["..."],
-    "excluded": ["..."]
-  },
-  "userStories": [
-    {
-      "id": "US-001",
-      "title": "...",
-      "description": "...",
-      "acceptanceCriteria": ["..."]
-    }
-  ],
-  "qualityGates": ["..."]
-}
-\`\`\`
+# <Title>
+
+## Problem Statement
+<paragraph>
+
+## Goals
+- <goal 1>
+- <goal 2>
+
+## Target Users
+<paragraph>
+
+## Scope
+### Included
+- <item>
+### Excluded
+- <item>
+
+## Architecture & Technical Approach
+<paragraph or bullets describing key technical decisions, patterns, data flow>
+
+## User Stories
+### US-001: <Title>
+<Description>
+**Acceptance Criteria:**
+- [ ] <criterion>
+
+## Quality Gates
+- <gate>
 
 Start by asking what they want to build.`;

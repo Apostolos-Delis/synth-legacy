@@ -4,11 +4,10 @@ import type { TextareaRenderable } from "@opentui/core";
 import type { AgentAdapter } from "../agents/types.js";
 import { boldAttr, colors, markdownSyntaxStyle } from "./theme.js";
 import { PhaseIndicator } from "./components/PhaseIndicator.js";
-import { OptionSelector } from "./components/OptionSelector.js";
 import { ToastContainer } from "./components/Toast.js";
 import { useToast } from "./hooks/useToast.js";
-import type { ChatOption, QuestionGroup } from "../finalize/chat-types.js";
 import { openInEditor } from "../utils/editor.js";
+import { isAffirmative } from "../utils/text.js";
 import { useDestroyedRef } from "./hooks/useDestroyedRef.js";
 import { useSyncLineCount } from "./hooks/useSyncLineCount.js";
 import { calcInputSizing } from "./hooks/useInputSizing.js";
@@ -22,13 +21,6 @@ interface PrdReviewViewProps {
   onQuit: () => void;
 }
 
-const REVIEW_OPTIONS: ChatOption[] = [
-  { label: "Execute Session", description: "Approve the PRD and proceed to task generation", value: "approve" },
-  { label: "Request Changes", description: "Type follow-up feedback to revise the PRD", value: "revise" },
-];
-
-const REVIEW_GROUPS: QuestionGroup[] = [{ question: "", options: REVIEW_OPTIONS }];
-
 export function PrdReviewView({
   prdMarkdown,
   agent,
@@ -41,7 +33,6 @@ export function PrdReviewView({
   const [isLoading, setIsLoading] = useState(false);
   const [loadingStartTime, setLoadingStartTime] = useState(0);
   const [streamingText, setStreamingText] = useState("");
-  const [showTextInput, setShowTextInput] = useState(false);
   const [revision, setRevision] = useState(0);
   const textareaRef = useRef<TextareaRenderable>(null);
   const { height: termHeight } = useTerminalDimensions();
@@ -52,27 +43,20 @@ export function PrdReviewView({
   const destroyedRef = useDestroyedRef();
   const { inputLineCount, setInputLineCount, syncLineCount } = useSyncLineCount(textareaRef, destroyedRef);
 
-  const handleOptionSelect = useCallback(async (selectedAnswers: ChatOption[]) => {
-    const option = selectedAnswers[0];
-    if (option.value === "approve") {
-      onApprove(prdContent);
-    } else if (option.value === "revise") {
-      setShowTextInput(true);
-    }
-  }, [prdContent, onApprove]);
-
   const handleSubmit = useCallback(async () => {
     if (isLoading) return;
     const textarea = textareaRef.current;
     if (!textarea) return;
 
     const value = (textarea.plainText ?? "").trim();
-    if (!value) {
-      // Empty input goes back to option selector
-      setShowTextInput(false);
+
+    // Empty input or affirmative text = approve PRD
+    if (!value || isAffirmative(value)) {
+      onApprove(prdContent);
       return;
     }
 
+    // Non-affirmative text = revision feedback
     textarea.editBuffer.setText("");
     setInputLineCount(1);
     setIsLoading(true);
@@ -109,18 +93,15 @@ export function PrdReviewView({
           setRevision((r) => r + 1);
           setStreamingText("");
           setIsLoading(false);
-          setShowTextInput(false);
         }
         return;
       } catch (err) {
-        // Don't retry if the component was unmounted or user cancelled
         if (destroyedRef.current) return;
         if (err instanceof Error && (err.name === "AbortError" || err.message.includes("cancel"))) {
           setStreamingText("");
           setIsLoading(false);
           return;
         }
-        // Auto-retry on first attempt; show toast after final failure
       }
     }
 
@@ -129,7 +110,7 @@ export function PrdReviewView({
       setStreamingText("");
       setIsLoading(false);
     }
-  }, [isLoading, prdContent, agent, cwd, model, showError]);
+  }, [isLoading, prdContent, agent, cwd, model, showError, onApprove]);
 
   useKeyboard(useCallback((key: { name: string; shift?: boolean; ctrl?: boolean; meta?: boolean; option?: boolean; preventDefault?: () => void }) => {
     const textarea = textareaRef.current;
@@ -140,15 +121,13 @@ export function PrdReviewView({
       key.name === "linefeed" ||
       (key.name === "j" && key.ctrl)
     ) {
-      if (!showTextInput) return;
       key.preventDefault?.();
       textarea?.newLine();
       return;
     }
 
-    // Enter to send (bare, unmodified) — only in text input mode
+    // Enter to send (bare, unmodified)
     if (key.name === "return" && !key.shift && !key.ctrl && !key.meta) {
-      if (!showTextInput) return; // OptionSelector handles its own Enter
       key.preventDefault?.();
       handleSubmit();
       return;
@@ -156,10 +135,6 @@ export function PrdReviewView({
 
     // Escape or Ctrl+C to quit
     if (key.name === "escape") {
-      if (showTextInput && !isLoading) {
-        setShowTextInput(false);
-        return;
-      }
       onQuit();
       return;
     }
@@ -171,7 +146,7 @@ export function PrdReviewView({
     // Ctrl+G — open in $EDITOR
     if (key.name === "g" && key.ctrl) {
       key.preventDefault?.();
-      if (!textarea || isLoading || editorOpenRef.current || !showTextInput) return;
+      if (!textarea || isLoading || editorOpenRef.current) return;
       editorOpenRef.current = true;
       const currentText = textarea.plainText ?? "";
       renderer.suspend();
@@ -190,8 +165,8 @@ export function PrdReviewView({
       return;
     }
 
-    // Text editing shortcuts (only in text input mode)
-    if (!textarea || isLoading || !showTextInput) return;
+    // Text editing shortcuts
+    if (!textarea || isLoading) return;
 
     if ((key.ctrl && key.name === "w") || (key.option && key.name === "backspace")) {
       key.preventDefault?.();
@@ -239,7 +214,7 @@ export function PrdReviewView({
       if (key.name === "up") { key.preventDefault?.(); textarea.moveCursorUp({ select: true }); return; }
       if (key.name === "down") { key.preventDefault?.(); textarea.moveCursorDown({ select: true }); return; }
     }
-  }, [handleSubmit, onQuit, isLoading, showTextInput, syncLineCount, renderer]));
+  }, [handleSubmit, onQuit, isLoading, syncLineCount, renderer]));
 
   const { inputHeight, textareaHeight } = calcInputSizing(termHeight, inputLineCount);
 
@@ -321,7 +296,7 @@ export function PrdReviewView({
         >
           <PhaseIndicator phase="Streaming revision..." startTime={loadingStartTime} />
         </box>
-      ) : showTextInput ? (
+      ) : (
         <box
           style={{
             width: "100%",
@@ -347,27 +322,10 @@ export function PrdReviewView({
             <textarea
               ref={textareaRef}
               style={{ flexGrow: 1, height: textareaHeight }}
-              placeholder="Describe what changes you'd like to the PRD..."
+              placeholder="Press Enter to approve, or type changes..."
               focused={true}
             />
           </box>
-        </box>
-      ) : (
-        <box
-          style={{
-            width: "100%",
-            height: REVIEW_OPTIONS.length * 2 + 2 + 4,
-            flexDirection: "column",
-            backgroundColor: colors.bg.secondary,
-            border: true,
-            borderColor: colors.border.active,
-            paddingLeft: 1,
-            paddingRight: 1,
-            paddingTop: 1,
-            paddingBottom: 1,
-          }}
-        >
-          <OptionSelector groups={REVIEW_GROUPS} onSelect={handleOptionSelect} showOther={false} />
         </box>
       )}
 
@@ -386,10 +344,8 @@ export function PrdReviewView({
       >
         {isLoading ? (
           <text fg={colors.fg.muted}>Esc:cancel</text>
-        ) : showTextInput ? (
-          <text fg={colors.fg.muted}>Enter:send  Shift+Enter:newline  Ctrl+G:editor  Esc:back</text>
         ) : (
-          <text fg={colors.fg.muted}>j/k:navigate  Enter:select  Esc:quit</text>
+          <text fg={colors.fg.muted}>Enter:approve  Type feedback to revise  Ctrl+G:editor  Esc:quit</text>
         )}
       </box>
 

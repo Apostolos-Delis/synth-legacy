@@ -2,7 +2,7 @@ import type { Task } from "../tasks/types.js";
 import type { EngineState } from "../engine/types.js";
 import type { InterviewMessage } from "../interview/types.js";
 
-export type ViewMode = "execution" | "dashboard" | "interview" | "generating" | "review" | "completion" | "completion-finalize" | "finalize";
+export type ViewMode = "execution" | "dashboard" | "history" | "config" | "interview" | "generating" | "review" | "completion" | "completion-finalize" | "finalize";
 export type NavMode = "task-scroll" | "output-scroll";
 
 export interface TuiContext {
@@ -22,6 +22,12 @@ export interface CompletionSummary {
   summaryFilePath: string;
 }
 
+export interface TokenUsageData {
+  sessionTotal: { inputTokens: number; outputTokens: number; totalTokens: number };
+  taskTotals: Record<string, { inputTokens: number; outputTokens: number; totalTokens: number }>;
+  hasData: boolean;
+}
+
 export interface TuiEngineData {
   engineState: EngineState;
   iteration: number;
@@ -39,6 +45,11 @@ export interface TuiEngineData {
   phaseStartTime: number | null;
   completionSummary: CompletionSummary | null;
   taskOutputMap: Record<string, string>;
+  taskElapsedMs: Record<string, number>;
+  taskStartTimes: Record<string, number>;
+  iterationEntries: { iteration: number; taskId: string; status: string; timestamp: number }[];
+  configDisplay: string;
+  tokenUsage: TokenUsageData;
 }
 
 export interface TuiState extends TuiEngineData {

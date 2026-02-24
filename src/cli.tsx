@@ -26,6 +26,8 @@ import { createSpinner, withSpinner } from "./tui/spinner.js";
 import { stripAnsi } from "./tui/utils.js";
 import type { TuiEngineData, TuiContext, CompletionSummary } from "./tui/types.js";
 import { formatDuration } from "./utils/format.js";
+import { TokenAccumulator } from "./engine/tokens.js";
+import type { IterationResult } from "./engine/types.js";
 
 // Heavy modules are lazy-loaded on first use to keep startup fast.
 // Follows the same pattern as loadTui() below.
@@ -47,12 +49,13 @@ async function loadRunModule() {
     acquireLock: mod.acquireLock,
     releaseLock: mod.releaseLock,
     endRun: mod.endRun,
+    checkLock: mod.checkLock,
   };
 }
 
 async function loadInterviewer() {
-  const { Interviewer, prdToMarkdown, WELCOME_MESSAGE } = await import("./interview/interviewer.js");
-  return { Interviewer, prdToMarkdown, WELCOME_MESSAGE };
+  const { Interviewer, extractPrdTitle, WELCOME_MESSAGE } = await import("./interview/interviewer.js");
+  return { Interviewer, extractPrdTitle, WELCOME_MESSAGE };
 }
 
 async function loadPlanner() {
@@ -296,6 +299,29 @@ async function cmdStatus(sessionId?: string): Promise<void> {
 }
 
 async function cmdConfig(): Promise<void> {
+  if (args.includes("--edit")) {
+    const configPath = join(cwd, "synth.toml");
+    if (!(await fileExists(configPath))) {
+      log(fmt.info("No synth.toml found, creating one..."));
+      await cmdInit();
+    }
+    const editor = process.env.EDITOR || process.env.VISUAL || "vi";
+    const parts = editor.split(/\s+/);
+    const proc = Bun.spawn([...parts, configPath], {
+      stdio: ["inherit", "inherit", "inherit"],
+    });
+    await proc.exited;
+
+    try {
+      await loadConfig(cwd);
+      logSuccess("Config valid");
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      logError(`Config error: ${message}`);
+    }
+    return;
+  }
+
   const config = await applyTheme();
   const json = JSON.stringify(config, null, 2);
   const colorized = json
@@ -304,6 +330,38 @@ async function cmdConfig(): Promise<void> {
     .replace(/: (\d+)/g, `: ${ansi.warning}$1${ansi.reset}`)
     .replace(/: (true|false)/g, `: ${ansi.magenta}$1${ansi.reset}`);
   log(colorized);
+}
+
+async function cmdDoctor(): Promise<void> {
+  const { runDoctorChecks } = await import("./doctor/doctor.js");
+  let config;
+  try {
+    config = await loadConfig(cwd);
+  } catch {
+    // Config may be invalid — doctor will report it
+  }
+
+  log(`${ansi.bold}synth doctor${ansi.reset}\n`);
+  const results = await runDoctorChecks(cwd, config);
+  const passed = results.filter((r) => r.status === "pass").length;
+  const failed = results.filter((r) => r.status === "fail").length;
+
+  for (const r of results) {
+    if (r.status === "pass") {
+      log(`  ${ansi.success}✓${ansi.reset} ${r.name}${r.message ? ` ${ansi.muted}(${r.message})${ansi.reset}` : ""}`);
+    } else if (r.status === "fail") {
+      log(`  ${ansi.error}✗${ansi.reset} ${r.name}: ${r.message ?? "failed"}`);
+      if (r.suggestion) log(`    ${ansi.muted}→ ${r.suggestion}${ansi.reset}`);
+    } else {
+      log(`  ${ansi.warning}⚠${ansi.reset} ${r.name}: ${r.message ?? "warning"}`);
+      if (r.suggestion) log(`    ${ansi.muted}→ ${r.suggestion}${ansi.reset}`);
+    }
+  }
+
+  const summaryColor = failed > 0 ? ansi.error : ansi.success;
+  log(`\n${summaryColor}${passed}/${results.length} checks passed${ansi.reset}`);
+
+  if (failed > 0) process.exit(1);
 }
 
 async function cmdThemes(): Promise<void> {
@@ -442,23 +500,36 @@ async function cmdRun(sessionId?: string, startIteration = 0, tuiContext?: TuiCo
       phaseStartTime: null,
       completionSummary: null,
       taskOutputMap: {},
+      taskElapsedMs: {},
+      taskStartTimes: {},
+      iterationEntries: [],
+      configDisplay: JSON.stringify(config, null, 2),
+      tokenUsage: { sessionTotal: { inputTokens: 0, outputTokens: 0, totalTokens: 0 }, taskTotals: {}, hasData: false },
     };
 
-    // Pre-load historical outputs for tasks completed in previous sessions
+    // Pre-load historical outputs and iteration entries for tasks completed in previous sessions
     const completedTasks = taskFile.tasks.filter((t) => t.status === "done");
-    if (completedTasks.length > 0) {
-      buildIterationMap(plan.paths.progress).then(async (iterMap) => {
-        if (!tuiData || iterMap.length === 0) return;
-        for (const task of completedTasks) {
-          if (tuiData.taskOutputMap[task.id]) continue;
-          const output = await loadTaskOutput(plan!.paths.logs, task.id, iterMap);
-          if (output && !tuiData.taskOutputMap[task.id]) {
-            tuiData.taskOutputMap[task.id] = output;
-          }
+    buildIterationMap(plan.paths.progress).then(async (iterMap) => {
+      if (!tuiData || iterMap.length === 0) return;
+      // Populate iteration entries from progress.md history
+      for (const entry of iterMap) {
+        tuiData.iterationEntries.push({
+          iteration: entry.iteration,
+          taskId: entry.taskId,
+          status: "done",
+          timestamp: 0, // historical entries don't have precise timestamps
+        });
+      }
+      // Load outputs for completed tasks
+      for (const task of completedTasks) {
+        if (tuiData.taskOutputMap[task.id]) continue;
+        const output = await loadTaskOutput(plan!.paths.logs, task.id, iterMap);
+        if (output && !tuiData.taskOutputMap[task.id]) {
+          tuiData.taskOutputMap[task.id] = output;
         }
-        renderTui();
-      });
-    }
+      }
+      renderTui();
+    });
   }
 
   let firstTokenRendered = false;
@@ -487,6 +558,7 @@ async function cmdRun(sessionId?: string, startIteration = 0, tuiContext?: TuiCo
   };
 
   const taskStartTimes = new Map<string, number>();
+  const tokenAccumulator = new TokenAccumulator();
 
   if (tuiEnabled) {
     engine.on((event) => {
@@ -504,7 +576,9 @@ async function cmdRun(sessionId?: string, startIteration = 0, tuiContext?: TuiCo
           tuiData.phaseStartTime = event.timestamp ?? Date.now();
           if (event.taskId) {
             tuiData.taskOutputMap[event.taskId] = "";
-            taskStartTimes.set(event.taskId, Date.now());
+            const now = Date.now();
+            taskStartTimes.set(event.taskId, now);
+            tuiData.taskStartTimes[event.taskId] = now;
           }
           break;
         case "task:complete":
@@ -517,7 +591,9 @@ async function cmdRun(sessionId?: string, startIteration = 0, tuiContext?: TuiCo
           if (event.taskId) {
             const startTime = taskStartTimes.get(event.taskId);
             if (startTime) {
-              const elapsedSecs = Math.floor((Date.now() - startTime) / 1000);
+              const taskElapsed = Date.now() - startTime;
+              const elapsedSecs = Math.floor(taskElapsed / 1000);
+              tuiData.taskElapsedMs[event.taskId] = taskElapsed;
               const label = event.type === "task:complete" ? "Completed" : "Failed";
               const suffix = `\n${label} in ${elapsedSecs}s`;
               tuiData.taskOutputMap[event.taskId] = (tuiData.taskOutputMap[event.taskId] ?? "") + suffix;
@@ -575,6 +651,32 @@ async function cmdRun(sessionId?: string, startIteration = 0, tuiContext?: TuiCo
         case "agent:stderr":
           if (event.message) tuiData.output += stripAnsi(event.message);
           break;
+        case "iteration:end": {
+          const iterData = event.data as IterationResult | undefined;
+          if (event.taskId && event.iteration != null) {
+            tuiData.iterationEntries.push({
+              iteration: event.iteration,
+              taskId: event.taskId,
+              status: iterData?.success ? "done" : "failed",
+              timestamp: Date.now(),
+            });
+          }
+          if (iterData?.tokenUsage && event.taskId) {
+            tokenAccumulator.add(event.taskId, {
+              inputTokens: iterData.tokenUsage.inputTokens,
+              outputTokens: iterData.tokenUsage.outputTokens,
+              totalTokens: iterData.tokenUsage.inputTokens + iterData.tokenUsage.outputTokens,
+            });
+            tuiData.tokenUsage = {
+              sessionTotal: tokenAccumulator.getSessionTotal(),
+              taskTotals: Object.fromEntries(
+                tuiData.tasks.map((t) => [t.id, tokenAccumulator.getTaskTotal(t.id) ?? { inputTokens: 0, outputTokens: 0, totalTokens: 0 }]).filter(([, v]) => (v as { totalTokens: number }).totalTokens > 0),
+              ),
+              hasData: tokenAccumulator.hasData(),
+            };
+          }
+          break;
+        }
         case "complete":
           tuiData.engineState = "completed";
           break;
@@ -846,12 +948,23 @@ async function cmdResume(sessionId?: string): Promise<void> {
       return;
     }
 
+    case "executing": {
+      const { checkLock } = await loadRunModule();
+      const lockStatus = await checkLock(plan.paths);
+      if (lockStatus.locked) {
+        logError(`Session ${id} is currently running (pid ${lockStatus.lock!.pid}). Cannot resume an active session.`);
+        process.exit(1);
+      }
+      // Lock is stale — session crashed without cleanup. Safe to resume.
+      break;
+    }
+
     case "planning": {
       log(fmt.info(`Session ${id} is in planning phase — starting execution.`));
       break; // fall through to execution resume below
     }
 
-    // executing, paused — fall through to execution resume below
+    // paused — fall through to execution resume below
   }
 
   const { loadRun } = await loadRunModule();
@@ -893,14 +1006,14 @@ async function resumeInterview(
 
   const agent = getAgent(config.agent.name);
 
-  let prd: import("./interview/types.js").GeneratedPrd | null = null;
+  let prdMarkdown: string | null = null;
   const { id, paths } = { id: plan.metadata.id, paths: plan.paths };
 
   const interviewer = new interviewMod.Interviewer(agent, cwd, config.agent.model, async (messages) => {
     const state: import("./interview/types.js").InterviewState = {
       messages: messages as import("./interview/types.js").InterviewMessage[],
       interviewerHistory: messages as import("./interview/types.js").InterviewMessage[],
-      prdPending: !prd,
+      prdPending: !prdMarkdown,
     };
     await writeJson(paths.interview, state);
   });
@@ -933,9 +1046,9 @@ async function resumeInterview(
           initialMessages={savedState.interviewerHistory}
           onSendMessage={async (msg, onChunk) => {
             const response = await interviewer.respond(msg, onChunk);
-            const extracted = interviewer.extractPrd(response);
-            if (extracted) prd = extracted;
-            return { response, done: !!extracted };
+            const extractedMd = interviewer.extractPrdMarkdown(response);
+            if (extractedMd) prdMarkdown = extractedMd;
+            return { response, done: !!extractedMd };
           }}
           onComplete={() => resolve(true)}
           onQuit={() => resolve(false)}
@@ -950,7 +1063,7 @@ async function resumeInterview(
       return;
     }
 
-    if (!prd) {
+    if (!prdMarkdown) {
       process.off("SIGINT", sigintHandler);
       cleanup();
       agent.dispose();
@@ -958,15 +1071,13 @@ async function resumeInterview(
     }
 
     // Phase 2: PRD Review (same flow as cmdPlan)
-    const extractedPrd = prd as import("./interview/types.js").GeneratedPrd;
-    const prdMarkdown = interviewMod.prdToMarkdown(extractedPrd);
-    const taskPrefix = await setSessionSlugAndPrefix(id, extractedPrd.title);
+    const taskPrefix = await setSessionSlugAndPrefix(id, interviewMod.extractPrdTitle(prdMarkdown));
 
     let approvedPrdContent: string | null = null;
     const prdApproved = await new Promise<boolean>((resolve) => {
       planRoot.render(
         <tui.PrdReviewView
-          prdMarkdown={prdMarkdown}
+          prdMarkdown={prdMarkdown!}
           agent={agent}
           cwd={cwd}
           model={config.agent.model}
@@ -1078,7 +1189,7 @@ async function resumeInterview(
       });
     };
 
-    while (!prd) {
+    while (!prdMarkdown) {
       const userInput = await askQuestion();
       if (userInput === null) {
         agent.dispose();
@@ -1088,28 +1199,28 @@ async function resumeInterview(
       const response = await interviewer.respond(userInput);
       log(`\n${ansi.magenta}Synth:${ansi.reset}`);
       log(response);
-      prd = interviewer.extractPrd(response);
+      prdMarkdown = interviewer.extractPrdMarkdown(response);
 
-      if (prd) {
-        log(`\n${ansi.primary}Does this all look good? Press Enter to generate the PRD and tasks, or type feedback to refine.${ansi.reset}`);
+      if (prdMarkdown) {
+        log(`\n${ansi.primary}Does this all look good? Press Enter to generate the PRD, or type feedback to refine.${ansi.reset}`);
         const confirmation = await askQuestion();
         if (confirmation === null) {
           agent.dispose();
           return;
         }
         if (confirmation.trim()) {
-          prd = null;
+          prdMarkdown = null;
           const refinement = await interviewer.respond(confirmation);
           log(`\n${ansi.magenta}Synth:${ansi.reset}`);
           log(refinement);
-          prd = interviewer.extractPrd(refinement);
+          prdMarkdown = interviewer.extractPrdMarkdown(refinement);
         }
       }
     }
 
     // Continue with task generation
-    await writeText(paths.prd, interviewMod.prdToMarkdown(prd));
-    const taskPrefix = await setSessionSlugAndPrefix(id, prd.title);
+    await writeText(paths.prd, prdMarkdown);
+    const taskPrefix = await setSessionSlugAndPrefix(id, interviewMod.extractPrdTitle(prdMarkdown));
 
     logSuccess(`PRD saved to ${paths.prd}`);
 
@@ -1214,7 +1325,7 @@ async function cmdStart(sessionIdOrFlag?: string): Promise<void> {
 
   const agent = getAgent(config.agent.name);
 
-  let prd: import("./interview/types.js").GeneratedPrd | null = null;
+  let prdMarkdown: string | null = null;
 
   // Create session early so we have paths for interview state persistence
   const { id, paths } = await createSession(cwd, "");
@@ -1223,7 +1334,7 @@ async function cmdStart(sessionIdOrFlag?: string): Promise<void> {
     const state: import("./interview/types.js").InterviewState = {
       messages: messages as import("./interview/types.js").InterviewMessage[],
       interviewerHistory: messages as import("./interview/types.js").InterviewMessage[],
-      prdPending: !prd,
+      prdPending: !prdMarkdown,
     };
     await writeJson(paths.interview, state);
   });
@@ -1254,9 +1365,9 @@ async function cmdStart(sessionIdOrFlag?: string): Promise<void> {
         <tui.InterviewApp
           onSendMessage={async (msg, onChunk) => {
             const response = await interviewer.respond(msg, onChunk);
-            const extracted = interviewer.extractPrd(response);
-            if (extracted) prd = extracted;
-            return { response, done: !!extracted };
+            const extractedMd = interviewer.extractPrdMarkdown(response);
+            if (extractedMd) prdMarkdown = extractedMd;
+            return { response, done: !!extractedMd };
           }}
           onComplete={() => resolve(true)}
           onQuit={() => resolve(false)}
@@ -1271,7 +1382,7 @@ async function cmdStart(sessionIdOrFlag?: string): Promise<void> {
       return;
     }
 
-    if (!prd) {
+    if (!prdMarkdown) {
       process.off("SIGINT", sigintHandler);
       cleanup();
       agent.dispose();
@@ -1279,15 +1390,13 @@ async function cmdStart(sessionIdOrFlag?: string): Promise<void> {
     }
 
     // Phase 2: PRD Review (user can revise before task generation)
-    const extractedPrd = prd as import("./interview/types.js").GeneratedPrd;
-    const prdMarkdown = interviewMod.prdToMarkdown(extractedPrd);
-    const taskPrefix = await setSessionSlugAndPrefix(id, extractedPrd.title);
+    const taskPrefix = await setSessionSlugAndPrefix(id, interviewMod.extractPrdTitle(prdMarkdown));
 
     let approvedPrdContent: string | null = null;
     const prdApproved = await new Promise<boolean>((resolve) => {
       planRoot.render(
         <tui.PrdReviewView
-          prdMarkdown={prdMarkdown}
+          prdMarkdown={prdMarkdown!}
           agent={agent}
           cwd={cwd}
           model={config.agent.model}
@@ -1390,7 +1499,7 @@ async function cmdStart(sessionIdOrFlag?: string): Promise<void> {
       });
     };
 
-    while (!prd) {
+    while (!prdMarkdown) {
       const userInput = await askQuestion();
       if (userInput === null) {
         agent.dispose();
@@ -1400,34 +1509,34 @@ async function cmdStart(sessionIdOrFlag?: string): Promise<void> {
       const response = await interviewer.respond(userInput);
       log(`\n${ansi.magenta}Synth:${ansi.reset}`);
       log(response);
-      prd = interviewer.extractPrd(response);
+      prdMarkdown = interviewer.extractPrdMarkdown(response);
 
-      if (prd) {
-        log(`\n${ansi.primary}Does this all look good? Press Enter to generate the PRD and tasks, or type feedback to refine.${ansi.reset}`);
+      if (prdMarkdown) {
+        log(`\n${ansi.primary}Does this all look good? Press Enter to generate the PRD, or type feedback to refine.${ansi.reset}`);
         const confirmation = await askQuestion();
         if (confirmation === null) {
           agent.dispose();
           return;
         }
         if (confirmation.trim()) {
-          prd = null;
+          prdMarkdown = null;
           const refinement = await interviewer.respond(confirmation);
           log(`\n${ansi.magenta}Synth:${ansi.reset}`);
           log(refinement);
-          prd = interviewer.extractPrd(refinement);
+          prdMarkdown = interviewer.extractPrdMarkdown(refinement);
         }
       }
     }
   }
 
   // Non-TUI path continues here (TUI path returns early above)
-  if (!prd) {
+  if (!prdMarkdown) {
     agent.dispose();
     return;
   }
 
-  await writeText(paths.prd, interviewMod.prdToMarkdown(prd));
-  const taskPrefix = await setSessionSlugAndPrefix(id, prd.title);
+  await writeText(paths.prd, prdMarkdown);
+  const taskPrefix = await setSessionSlugAndPrefix(id, interviewMod.extractPrdTitle(prdMarkdown));
 
   logSuccess(`PRD saved to ${paths.prd}`);
 
@@ -1867,6 +1976,9 @@ async function main(): Promise<void> {
     case "config":
       await cmdConfig();
       break;
+    case "doctor":
+      await cmdDoctor();
+      break;
     case "themes":
       await cmdThemes();
       break;
@@ -1904,7 +2016,8 @@ async function main(): Promise<void> {
       log(`  ${ansi.primary}show${ansi.reset} ${ansi.muted}<session-id>${ansi.reset}       Show session details`);
       log(`  ${ansi.primary}status${ansi.reset} ${ansi.muted}[<session-id>]${ansi.reset}   Session status`);
       log(`  ${ansi.primary}ps${ansi.reset}                       List running instances`);
-      log(`  ${ansi.primary}config${ansi.reset}                   Display configuration`);
+      log(`  ${ansi.primary}config${ansi.reset} ${ansi.muted}[--edit]${ansi.reset}          Display or edit configuration`);
+      log(`  ${ansi.primary}doctor${ansi.reset}                   Validate environment setup`);
       log(`  ${ansi.primary}themes${ansi.reset}                   List themes and spinners`);
 
       log(`\n${ansi.bold}System:${ansi.reset}`);

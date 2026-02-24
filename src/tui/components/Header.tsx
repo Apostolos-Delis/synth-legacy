@@ -1,5 +1,6 @@
 import { memo, type ReactNode } from "react";
 import { boldAttr, colors } from "../theme.js";
+import { formatTokenCount } from "../../engine/tokens.js";
 
 interface HeaderProps {
   projectName: string;
@@ -11,6 +12,7 @@ interface HeaderProps {
   done: number;
   total: number;
   width: number;
+  sessionTokens?: number | null;
 }
 
 function formatElapsed(ms: number): string {
@@ -39,8 +41,12 @@ export const Header = memo(function Header({
   done,
   total,
   width,
+  sessionTokens,
 }: HeaderProps): ReactNode {
   const pct = total > 0 ? Math.round((done / total) * 100) : 0;
+  const tokenDisplay = sessionTokens != null && sessionTokens > 0
+    ? `${formatTokenCount(sessionTokens)} tokens`
+    : "N/A";
 
   return (
     <box
@@ -63,6 +69,8 @@ export const Header = memo(function Header({
         <span fg={colors.fg.muted}>{" │ "}</span>
         <span fg={colors.fg.secondary}>iter {iteration}/{maxIterations}</span>
         <span fg={colors.fg.muted}>{" │ "}</span>
+        <span fg={colors.fg.secondary}>{tokenDisplay}</span>
+        <span fg={colors.fg.muted}>{" │ "}</span>
         <span fg={colors.fg.secondary}>{formatElapsed(elapsedMs)}</span>
       </text>
     </box>
@@ -76,5 +84,6 @@ export const Header = memo(function Header({
   prev.done === next.done &&
   prev.total === next.total &&
   prev.width === next.width &&
+  prev.sessionTokens === next.sessionTokens &&
   Math.floor(prev.elapsedMs / 1000) === Math.floor(next.elapsedMs / 1000),
 );

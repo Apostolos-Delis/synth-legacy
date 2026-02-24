@@ -3,6 +3,8 @@ import { useKeyboard, useRenderer } from "@opentui/react";
 import type { TuiState, TuiEngineData, ViewMode, NavMode } from "./types.js";
 import { ExecutionView } from "./ExecutionView.js";
 import { DashboardView } from "./DashboardView.js";
+import { HistoryView } from "./HistoryView.js";
+import { ConfigView } from "./ConfigView.js";
 import { CompletionView } from "./CompletionView.js";
 import { HelpOverlay } from "./components/HelpOverlay.js";
 import { ConfirmationDialog } from "./components/ConfirmationDialog.js";
@@ -132,9 +134,11 @@ export function App({
         return;
       }
 
-      // Ctrl+C shows confirmation during execution
-      if (key.name === "c" && key.ctrl && engineStateRef.current === "executing") {
-        setShowQuitConfirm(true);
+      // Ctrl+C shows confirmation during execution, or is ignored otherwise
+      if (key.name === "c" && key.ctrl) {
+        if (engineStateRef.current === "executing") {
+          setShowQuitConfirm(true);
+        }
         return;
       }
 
@@ -169,6 +173,11 @@ export function App({
         }
       }
 
+      // History and config views handle their own keyboard events
+      if (viewRef.current === "history" || viewRef.current === "config") {
+        return;
+      }
+
       switch (key.name) {
         case "?":
           setShowHelp(true);
@@ -189,6 +198,12 @@ export function App({
           break;
         case "d":
           setView((v) => (v === "dashboard" ? "execution" : "dashboard"));
+          break;
+        case "h":
+          setView((v) => (v === "history" ? "execution" : "history"));
+          break;
+        case "c":
+          setView((v) => (v === "config" ? "execution" : "config"));
           break;
         case "p":
           if (engineStateRef.current === "executing") {
@@ -215,17 +230,34 @@ export function App({
     );
   }
 
-  // Render both views — active view gets full size, inactive gets hidden.
-  // This avoids mount/unmount cycles on view switch for single-frame transitions.
+  const historyState: TuiState = useMemo(
+    () => ({ ...engineData, view: "history" as ViewMode }),
+    [engineData],
+  );
+  const configState: TuiState = useMemo(
+    () => ({ ...engineData, view: "config" as ViewMode }),
+    [engineData],
+  );
+
+  // Render views — active view gets full size, others hidden.
+  const isExecution = view === "execution";
   const isDashboard = view === "dashboard";
+  const isHistory = view === "history";
+  const isConfig = view === "config";
 
   return (
     <box style={{ width: "100%", height: "100%", position: "relative" }}>
-      <box style={isDashboard ? hiddenStyle : visibleStyle}>
+      <box style={isExecution ? visibleStyle : hiddenStyle}>
         <ExecutionView state={executionState} selectedTaskIndex={selectedTaskIndex} navMode={navMode} />
       </box>
       <box style={isDashboard ? visibleStyle : hiddenStyle}>
         <DashboardView state={dashboardState} />
+      </box>
+      <box style={isHistory ? visibleStyle : hiddenStyle}>
+        <HistoryView state={historyState} onBack={() => setView("execution")} />
+      </box>
+      <box style={isConfig ? visibleStyle : hiddenStyle}>
+        <ConfigView state={configState} onBack={() => setView("execution")} />
       </box>
       <ToastContainer toasts={toasts} />
       <HelpOverlay visible={showHelp} />

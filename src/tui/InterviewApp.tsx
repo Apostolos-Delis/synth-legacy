@@ -8,6 +8,7 @@ import { PhaseIndicator } from "./components/PhaseIndicator.js";
 import { openInEditor } from "../utils/editor.js";
 import { copyToClipboard } from "../utils/clipboard.js";
 import { formatDuration } from "../utils/format.js";
+import { isAffirmative } from "../utils/text.js";
 import { useDestroyedRef } from "./hooks/useDestroyedRef.js";
 import { useSyncLineCount } from "./hooks/useSyncLineCount.js";
 import { calcInputSizing } from "./hooks/useInputSizing.js";
@@ -66,13 +67,13 @@ export function InterviewApp({ onSendMessage, onComplete, onQuit, initialMessage
       return;
     }
 
-    // Confirmation state: empty input = confirm, non-empty = continue refining
+    // Confirmation state: empty input or affirmative = confirm, else continue refining
     if (pendingConfirmation) {
-      if (!value) {
+      if (!value || isAffirmative(value)) {
         onComplete();
         return;
       }
-      // User typed feedback — continue the interview
+      // User typed non-affirmative feedback — continue the interview
       setPendingConfirmation(false);
     }
 
@@ -145,6 +146,13 @@ export function InterviewApp({ onSendMessage, onComplete, onQuit, initialMessage
         const lastAssistant = messages.filter((m) => m.role === "assistant").at(-1);
         if (lastAssistant) copyToClipboard(lastAssistant.content);
       }
+      return;
+    }
+
+    // Ctrl+E — force-proceed (execute)
+    if (key.name === "e" && key.ctrl && !isLoading) {
+      key.preventDefault?.();
+      onComplete();
       return;
     }
 
@@ -254,7 +262,7 @@ export function InterviewApp({ onSendMessage, onComplete, onQuit, initialMessage
         return;
       }
     }
-  }, [handleSubmit, onQuit, isLoading, syncLineCount, renderer, messages]));
+  }, [handleSubmit, onComplete, onQuit, isLoading, syncLineCount, renderer, messages]));
 
   const { inputHeight, textareaHeight } = calcInputSizing(termHeight, inputLineCount);
 
@@ -318,7 +326,7 @@ export function InterviewApp({ onSendMessage, onComplete, onQuit, initialMessage
           )}
           {pendingConfirmation && !isLoading && (
             <box style={{ width: "100%", flexDirection: "column", marginBottom: 1, paddingLeft: 1 }}>
-              <text fg={colors.status.info}>Does this all look good? Press Enter to generate the PRD and tasks, or type feedback to refine.</text>
+              <text fg={colors.status.info}>Does this all look good? Press Enter to generate the PRD, or type feedback to refine.</text>
             </box>
           )}
         </scrollbox>
@@ -376,7 +384,7 @@ export function InterviewApp({ onSendMessage, onComplete, onQuit, initialMessage
             startTime={loadingStartTime}
           />
         ) : pendingConfirmation ? (
-          <text fg={colors.status.info}>Enter:confirm & generate  Type feedback to refine  Esc:quit</text>
+          <text fg={colors.status.info}>Enter:confirm & generate  Type feedback to refine  Ctrl+E:execute  Esc:quit</text>
         ) : (
           <text fg={colors.fg.muted}>Enter:send  Shift+Enter:newline  Ctrl+G:editor  Ctrl+W:del word  Esc:quit</text>
         )}
