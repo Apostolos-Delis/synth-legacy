@@ -53,10 +53,14 @@ export const StatusBar = memo(function StatusBar({
   const elapsed = Math.round(elapsedMs / 1000);
 
   const navHints = navMode === "output-scroll"
-    ? "j/k:scroll  esc:back  q:quit"
+    ? "j/k:scroll  w:workers  m:merge  tab:next  esc:back  q:quit"
     : navMode === "worker-panel"
-      ? "w:output  esc:back  q:quit"
-      : "j/k:tasks  enter:scroll  p:pause  d:dashboard  h:history  q:quit";
+      ? "w:output  m:merge  tab:next  esc:back  q:quit"
+      : navMode === "merge-panel"
+        ? "m:back  w:workers  tab:next  esc:back  q:quit"
+        : navMode === "conflict-panel"
+          ? "tab:next  esc:back  q:quit"
+          : "j/k:tasks  enter:scroll  w:workers  m:merge  p:pause  d:dashboard  q:quit";
 
   const tokenDisplay = currentTaskTokens != null && currentTaskTokens > 0
     ? `${formatTokenCount(currentTaskTokens)} tok`

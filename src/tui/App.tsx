@@ -2,6 +2,7 @@ import { useState, useCallback, useRef, useEffect, type ReactNode } from "react"
 import { useKeyboard, useRenderer } from "@opentui/react";
 import type { TuiState, TuiEngineData, ViewMode, NavMode } from "./types.js";
 import { ExecutionView } from "./ExecutionView.js";
+import { ParallelExecutionView } from "./ParallelExecutionView.js";
 import { DashboardView } from "./DashboardView.js";
 import { HistoryView } from "./HistoryView.js";
 import { ConfigView } from "./ConfigView.js";
@@ -12,6 +13,9 @@ import { ToastContainer } from "./components/Toast.js";
 import { useToast } from "./hooks/useToast.js";
 import type { ParallelHeaderInfo, ParallelCompletionInfo } from "./components/Header.js";
 import type { ParallelStatusInfo } from "./components/StatusBar.js";
+import type { WorkerInfo } from "./components/WorkerPanel.js";
+import type { MergeQueueItem } from "./components/MergeQueuePanel.js";
+import type { ConflictInfo } from "./components/ConflictResolutionPanel.js";
 
 interface AppProps extends TuiEngineData {
   defaultView?: ViewMode;
@@ -22,6 +26,9 @@ interface AppProps extends TuiEngineData {
   parallel?: ParallelHeaderInfo | null;
   parallelCompletion?: ParallelCompletionInfo | null;
   parallelStatus?: ParallelStatusInfo | null;
+  workers?: WorkerInfo[];
+  mergeItems?: MergeQueueItem[];
+  conflict?: ConflictInfo | null;
 }
 
 export function App({
@@ -33,6 +40,9 @@ export function App({
   parallel,
   parallelCompletion,
   parallelStatus,
+  workers = [],
+  mergeItems = [],
+  conflict = null,
   ...engineData
 }: AppProps): ReactNode {
   const [view, setView] = useState<ViewMode>(defaultView);
@@ -151,7 +161,7 @@ export function App({
         return;
       }
 
-      // Execution view navigation (j/k/arrows/enter/escape/w)
+      // Execution view navigation (j/k/arrows/enter/escape/w/m)
       if (viewRef.current === "execution") {
         const taskCount = tasksRef.current.length;
         const isParallel = !!parallelRef.current;
@@ -159,6 +169,24 @@ export function App({
         // 'w' toggles between WorkerPanel and OutputPane in parallel mode
         if (key.name === "w" && isParallel) {
           setNavMode((m) => m === "worker-panel" ? "output-scroll" : "worker-panel");
+          return;
+        }
+
+        // 'm' toggles merge queue panel in parallel mode
+        if (key.name === "m" && isParallel) {
+          setNavMode((m) => m === "merge-panel" ? "task-scroll" : "merge-panel");
+          return;
+        }
+
+        // Tab cycles through parallel panels: worker -> output -> merge -> conflict -> worker
+        if (key.name === "tab" && isParallel) {
+          setNavMode((m) => {
+            if (m === "worker-panel") return "output-scroll";
+            if (m === "output-scroll") return "merge-panel";
+            if (m === "merge-panel") return "conflict-panel";
+            if (m === "conflict-panel") return "worker-panel";
+            return "worker-panel";
+          });
           return;
         }
 
@@ -179,6 +207,26 @@ export function App({
             return;
           }
           // In output-scroll, don't intercept j/k/arrows — scrollbox handles them
+          if (key.name === "j" || key.name === "k" || key.name === "up" || key.name === "down") {
+            return;
+          }
+        }
+
+        if (navModeRef.current === "merge-panel") {
+          if (key.name === "escape") {
+            setNavMode("task-scroll");
+            return;
+          }
+          if (key.name === "j" || key.name === "k" || key.name === "up" || key.name === "down") {
+            return;
+          }
+        }
+
+        if (navModeRef.current === "conflict-panel") {
+          if (key.name === "escape") {
+            setNavMode("task-scroll");
+            return;
+          }
           if (key.name === "j" || key.name === "k" || key.name === "up" || key.name === "down") {
             return;
           }
@@ -266,14 +314,28 @@ export function App({
   return (
     <box style={{ width: "100%", height: "100%", position: "relative" }}>
       <box style={isExecution ? visibleStyle : hiddenStyle}>
-        <ExecutionView
-          state={executionState}
-          selectedTaskIndex={selectedTaskIndex}
-          navMode={navMode}
-          parallel={parallel}
-          parallelCompletion={parallelCompletion}
-          parallelStatus={parallelStatus}
-        />
+        {parallel ? (
+          <ParallelExecutionView
+            state={executionState}
+            selectedTaskIndex={selectedTaskIndex}
+            navMode={navMode}
+            parallel={parallel}
+            parallelCompletion={parallelCompletion}
+            parallelStatus={parallelStatus}
+            workers={workers}
+            mergeItems={mergeItems}
+            conflict={conflict}
+          />
+        ) : (
+          <ExecutionView
+            state={executionState}
+            selectedTaskIndex={selectedTaskIndex}
+            navMode={navMode}
+            parallel={parallel}
+            parallelCompletion={parallelCompletion}
+            parallelStatus={parallelStatus}
+          />
+        )}
       </box>
       <box style={isDashboard ? visibleStyle : hiddenStyle}>
         <DashboardView state={dashboardState} />
