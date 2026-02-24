@@ -3,11 +3,14 @@
 import { join } from "node:path";
 import { loadConfig } from "./config/loader.js";
 import type { SynthConfig } from "./config/types.js";
+import { globalConfigPath } from "./config/paths.js";
+import { PERSONAL_CONFIG_TEMPLATE } from "./config/defaults.js";
 import { getPlatform, type SleepInhibitor } from "./platform/index.js";
 import {
   createSession,
   getSession,
   listSessions,
+  listAllSessions,
   getMostRecentSession,
   updateSessionMetadata,
   deleteSession,
@@ -173,14 +176,11 @@ async function cmdInit(): Promise<void> {
     template = await readText(examplePath);
   } else {
     const name = cwd.split("/").pop() ?? "my-project";
-    template = `[project]
+    template = `# Project config — personal prefs go in: synth config --global --edit
+
+[project]
 name = "${name}"
 branch = "feature/synth"
-
-[agent]
-name = "claude"
-model = "opus"
-timeout = 600000
 
 [execution]
 max_iterations = 20
@@ -190,11 +190,6 @@ auto_commit = true
 [guardrails]
 max_consecutive_failures = 3
 backpressure_commands = []
-
-[parallel]
-enabled = true
-max_workers = 8
-ai_conflict_resolution = true
 
 [finalize]
 auto_format = true
@@ -231,7 +226,8 @@ async function resolvePlanId(input?: string): Promise<string | undefined> {
 
 async function cmdLs(): Promise<void> {
   const showAll = args.includes("--all") || args.includes("-a");
-  const allPlans = await listSessions(cwd);
+  const globalMode = args.includes("--global") || args.includes("-g");
+  const allPlans = globalMode ? await listAllSessions() : await listSessions(cwd);
   const plans = showAll
     ? allPlans
     : allPlans.filter((p) => p.status !== "completed" && p.status !== "finalized");
@@ -245,14 +241,24 @@ async function cmdLs(): Promise<void> {
     return;
   }
 
-  const label = showAll ? "Sessions (all)" : "Sessions";
+  const label = showAll
+    ? globalMode ? "Sessions (all repos, all)" : "Sessions (all)"
+    : globalMode ? "Sessions (all repos)" : "Sessions";
   const hidden = allPlans.length - plans.length;
   const suffix = hidden > 0 ? ` ${ansi.muted}(${hidden} completed hidden, use --all)${ansi.reset}` : "";
   log(`${fmt.bold(label)}${suffix}\n`);
-  log(
-    `  ${ansi.muted}${"#".padEnd(4)} ${"ID".padEnd(25)} ${"Status".padEnd(12)} ${"Tasks".padEnd(10)} Created${ansi.reset}`,
-  );
-  log(`  ${ansi.muted}${"─".repeat(74)}${ansi.reset}`);
+
+  if (globalMode) {
+    log(
+      `  ${ansi.muted}${"#".padEnd(4)} ${"ID".padEnd(25)} ${"Repo".padEnd(22)} ${"Status".padEnd(12)} ${"Tasks".padEnd(10)} Created${ansi.reset}`,
+    );
+    log(`  ${ansi.muted}${"─".repeat(96)}${ansi.reset}`);
+  } else {
+    log(
+      `  ${ansi.muted}${"#".padEnd(4)} ${"ID".padEnd(25)} ${"Status".padEnd(12)} ${"Tasks".padEnd(10)} Created${ansi.reset}`,
+    );
+    log(`  ${ansi.muted}${"─".repeat(74)}${ansi.reset}`);
+  }
 
   for (let i = 0; i < plans.length; i++) {
     const plan = plans[i];
@@ -266,8 +272,9 @@ async function cmdLs(): Promise<void> {
             : ansi.muted;
     const icon = STATUS_ICONS[plan.status] ?? "○";
     const date = fmt.dim(new Date(plan.createdAt).toLocaleDateString());
+    const repoCol = globalMode ? `${fmt.dim(plan.repoKey.padEnd(22))} ` : "";
     log(
-      `  ${ansi.primary}${String(i + 1).padEnd(4)}${ansi.reset}${plan.id.padEnd(25)} ${statusColor}${icon} ${plan.status.padEnd(10)}${ansi.reset} ${`${plan.tasksCompleted}/${plan.taskCount}`.padEnd(10)} ${date}`,
+      `  ${ansi.primary}${String(i + 1).padEnd(4)}${ansi.reset}${plan.id.padEnd(25)} ${repoCol}${statusColor}${icon} ${plan.status.padEnd(10)}${ansi.reset} ${`${plan.tasksCompleted}/${plan.taskCount}`.padEnd(10)} ${date}`,
     );
   }
 }
@@ -338,7 +345,42 @@ async function cmdStatus(sessionId?: string): Promise<void> {
 }
 
 async function cmdConfig(): Promise<void> {
-  if (args.includes("--edit")) {
+  const isGlobal = args.includes("--global");
+  const isEdit = args.includes("--edit");
+
+  if (isGlobal) {
+    const gp = globalConfigPath();
+    if (isEdit) {
+      if (!(await fileExists(gp))) {
+        await writeText(gp, PERSONAL_CONFIG_TEMPLATE);
+        logSuccess(`Created ${gp}`);
+      }
+      const editor = process.env.EDITOR || process.env.VISUAL || "vi";
+      const parts = editor.split(/\s+/);
+      const proc = Bun.spawn([...parts, gp], {
+        stdio: ["inherit", "inherit", "inherit"],
+      });
+      await proc.exited;
+      try {
+        await loadConfig(cwd);
+        logSuccess("Config valid");
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : String(err);
+        logError(`Config error: ${message}`);
+      }
+    } else {
+      if (!(await fileExists(gp))) {
+        log(fmt.info(`No personal config found at ${gp}`));
+        log(fmt.muted(`Create one with: synth config --global --edit`));
+        return;
+      }
+      const raw = await readText(gp);
+      log(raw);
+    }
+    return;
+  }
+
+  if (isEdit) {
     const configPath = join(cwd, "synth.toml");
     if (!(await fileExists(configPath))) {
       log(fmt.info("No synth.toml found, creating one..."));
@@ -2576,27 +2618,60 @@ async function cmdPs(): Promise<void> {
   }
 }
 
-async function cmdClean(): Promise<void> {
-  const plans = await listSessions(cwd);
-  const stale = plans.filter(
-    (p) => p.status === "interviewing" && p.taskCount === 0,
-  );
+const TERMINAL_STATUSES = new Set(["completed", "finalized", "failed"]);
+const STALE_THRESHOLD_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
-  if (stale.length === 0) {
-    log(fmt.dim("Nothing to clean."));
+async function cmdRm(): Promise<void> {
+  const staleFlag = args.includes("--stale");
+  const ids = args.slice(1).filter((a) => !a.startsWith("-"));
+
+  if (!staleFlag && ids.length === 0) {
+    log(`Usage: synth rm <id> [<id>...]`);
+    log(`       synth rm --stale`);
     return;
   }
 
-  log(fmt.bold(`Removing ${stale.length} abandoned session(s):\n`));
-  for (const plan of stale) {
-    const date = fmt.dim(new Date(plan.createdAt).toLocaleDateString());
-    const deleted = await deleteSession(cwd, plan.id);
+  if (staleFlag) {
+    const sessions = await listSessions(cwd);
+    const now = Date.now();
+    const stale = sessions.filter(
+      (s) => !TERMINAL_STATUSES.has(s.status) && now - new Date(s.updatedAt).getTime() > STALE_THRESHOLD_MS,
+    );
+
+    if (stale.length === 0) {
+      log(fmt.dim("No stale sessions found."));
+      return;
+    }
+
+    log(fmt.bold(`Removing ${stale.length} stale session(s):\n`));
+    for (const s of stale) {
+      const date = fmt.dim(new Date(s.updatedAt).toLocaleDateString());
+      const deleted = await deleteSession(cwd, s.id);
+      if (deleted) {
+        logSuccess(`${s.id} ${ansi.muted}(${s.status}, last updated ${date})${ansi.reset}`);
+      } else {
+        logError(`${s.id} — not found on disk`);
+      }
+    }
+    return;
+  }
+
+  for (const id of ids) {
+    const resolved = await resolvePlanId(id);
+    if (!resolved) continue;
+    const deleted = await deleteSession(cwd, resolved);
     if (deleted) {
-      logSuccess(`${plan.id} ${ansi.muted}(interviewing, ${date})${ansi.reset}`);
+      logSuccess(`Removed ${resolved}`);
     } else {
-      logError(`${plan.id} — not found on disk`);
+      logError(`Session '${resolved}' not found`);
     }
   }
+}
+
+async function cmdClean(): Promise<void> {
+  // clean is an alias for `rm --stale` — inject the flag
+  if (!args.includes("--stale")) args.push("--stale");
+  await cmdRm();
 }
 
 function detectPlatform(): { os: string; arch: string } {
@@ -2826,6 +2901,9 @@ async function main(): Promise<void> {
     case "ps":
       await cmdPs();
       break;
+    case "rm":
+      await cmdRm();
+      break;
     case "clean":
       await cmdClean();
       break;
@@ -2849,17 +2927,18 @@ async function main(): Promise<void> {
       log(`  ${ansi.primary}resume${ansi.reset} ${ansi.muted}[<session-id>]${ansi.reset}             Resume a paused or interrupted session`);
 
       log(`\n${ansi.bold}Inspect:${ansi.reset}`);
-      log(`  ${ansi.primary}ls${ansi.reset} ${ansi.muted}[--all]${ansi.reset}              List sessions (hides completed)`);
+      log(`  ${ansi.primary}ls${ansi.reset} ${ansi.muted}[--all] [--global]${ansi.reset}     List sessions (hides completed; --global for all repos)`);
       log(`  ${ansi.primary}show${ansi.reset} ${ansi.muted}<session-id>${ansi.reset}       Show session details`);
       log(`  ${ansi.primary}status${ansi.reset} ${ansi.muted}[<session-id>]${ansi.reset}   Session status`);
       log(`  ${ansi.primary}ps${ansi.reset}                       List running instances`);
-      log(`  ${ansi.primary}config${ansi.reset} ${ansi.muted}[--edit]${ansi.reset}          Display or edit configuration`);
+      log(`  ${ansi.primary}config${ansi.reset} ${ansi.muted}[--edit] [--global]${ansi.reset}  Display or edit configuration`);
       log(`  ${ansi.primary}doctor${ansi.reset}                   Validate environment setup`);
       log(`  ${ansi.primary}themes${ansi.reset}                   List themes and spinners`);
 
       log(`\n${ansi.bold}System:${ansi.reset}`);
       log(`  ${ansi.primary}init${ansi.reset}                     Create synth.toml`);
-      log(`  ${ansi.primary}clean${ansi.reset}                    Remove abandoned sessions`);
+      log(`  ${ansi.primary}rm${ansi.reset} ${ansi.muted}<id>... | --stale${ansi.reset}     Remove sessions (or stale sessions >7 days)`);
+      log(`  ${ansi.primary}clean${ansi.reset}                    Alias for 'rm --stale'`);
       log(`  ${ansi.primary}update${ansi.reset}                   Update to latest version`);
       log(`  ${ansi.primary}version${ansi.reset}                  Show version`);
 

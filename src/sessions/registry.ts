@@ -239,6 +239,32 @@ export async function getMostRecentSession(
   return getSession(cwd, sessions[0].id);
 }
 
+export async function listAllSessions(): Promise<SessionMetadata[]> {
+  await ensureMigration();
+  if (!(await dirExists(SESSIONS_DIR))) return [];
+
+  const repos = await readdir(SESSIONS_DIR, { withFileTypes: true });
+  const sessions: SessionMetadata[] = [];
+
+  for (const repo of repos) {
+    if (!repo.isDirectory()) continue;
+    const repoDir = join(SESSIONS_DIR, repo.name);
+    const entries = await readdir(repoDir, { withFileTypes: true });
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+      const metaPath = join(repoDir, entry.name, "metadata.json");
+      if (await fileExists(metaPath)) {
+        sessions.push(await readJson<SessionMetadata>(metaPath));
+      }
+    }
+  }
+
+  sessions.sort(
+    (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime(),
+  );
+  return sessions;
+}
+
 export async function deleteSession(cwd: string, sessionId: string): Promise<boolean> {
   await ensureMigration();
   const repoKey = await getRepoKey(cwd);
