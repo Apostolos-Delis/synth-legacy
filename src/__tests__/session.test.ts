@@ -1,5 +1,6 @@
 import { describe, test, expect } from "bun:test";
 import { hostname } from "node:os";
+import { join } from "node:path";
 import {
   createRun,
   loadRun,
@@ -9,9 +10,10 @@ import {
   releaseLock,
   checkLock,
 } from "../run/run.js";
-import { writeJson } from "../utils/fs.js";
+import { writeJson, readJson } from "../utils/fs.js";
 import { makeSessionPaths, withTmpDir } from "./helpers.js";
 import type { LockFile } from "../run/types.js";
+import type { SessionMetadata, SessionPaths } from "../sessions/types.js";
 
 describe("run lifecycle", () => {
   test("createRun writes run.json with correct structure", async () => {
@@ -188,6 +190,119 @@ describe("lock semantics", () => {
       ]);
       const wins = results.filter(Boolean);
       expect(wins).toHaveLength(1);
+    });
+  });
+});
+
+describe("SessionPaths review fields", () => {
+  const reviewFields: (keyof SessionPaths)[] = [
+    "reviewRoot",
+    "reviewFindings",
+    "reviewTasks",
+    "reviewProgress",
+    "reviewConversation",
+  ];
+
+  test("all review fields exist on SessionPaths", () => {
+    const paths = makeSessionPaths("/fake/root");
+    for (const field of reviewFields) {
+      expect(paths[field]).toBeDefined();
+      expect(typeof paths[field]).toBe("string");
+    }
+  });
+
+  test("review fields point to review/ subdirectory", () => {
+    const paths = makeSessionPaths("/fake/root");
+    const expectedReviewRoot = join("/fake/root", "review");
+
+    expect(paths.reviewRoot).toBe(expectedReviewRoot);
+    expect(paths.reviewFindings).toBe(join(expectedReviewRoot, "findings.md"));
+    expect(paths.reviewTasks).toBe(join(expectedReviewRoot, "tasks.json"));
+    expect(paths.reviewProgress).toBe(join(expectedReviewRoot, "progress.md"));
+    expect(paths.reviewConversation).toBe(join(expectedReviewRoot, "conversation.json"));
+  });
+
+  test("review paths are nested under session root", () => {
+    const paths = makeSessionPaths("/some/session");
+    for (const field of reviewFields) {
+      expect(paths[field].startsWith(paths.root)).toBe(true);
+    }
+  });
+});
+
+describe("makeSessionPaths review paths", () => {
+  test("includes all review path keys", () => {
+    const paths = makeSessionPaths("/tmp/test-session");
+    expect(paths).toHaveProperty("reviewRoot");
+    expect(paths).toHaveProperty("reviewFindings");
+    expect(paths).toHaveProperty("reviewTasks");
+    expect(paths).toHaveProperty("reviewProgress");
+    expect(paths).toHaveProperty("reviewConversation");
+  });
+
+  test("review paths are consistent across calls with same root", () => {
+    const a = makeSessionPaths("/tmp/session-a");
+    const b = makeSessionPaths("/tmp/session-a");
+    expect(a.reviewRoot).toBe(b.reviewRoot);
+    expect(a.reviewFindings).toBe(b.reviewFindings);
+    expect(a.reviewTasks).toBe(b.reviewTasks);
+    expect(a.reviewProgress).toBe(b.reviewProgress);
+    expect(a.reviewConversation).toBe(b.reviewConversation);
+  });
+});
+
+describe("reviewing session status", () => {
+  test("'reviewing' can be written and read back as session metadata status", async () => {
+    await withTmpDir(async (dir) => {
+      const metaPath = join(dir, "metadata.json");
+      const metadata: SessionMetadata = {
+        id: "test-session",
+        repoKey: "test/repo",
+        description: "test",
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        status: "reviewing",
+        taskCount: 5,
+        tasksCompleted: 5,
+      };
+
+      await writeJson(metaPath, metadata);
+      const loaded = await readJson<SessionMetadata>(metaPath);
+
+      expect(loaded.status).toBe("reviewing");
+    });
+  });
+
+  test("metadata can transition from executing to reviewing", async () => {
+    await withTmpDir(async (dir) => {
+      const metaPath = join(dir, "metadata.json");
+      const initial: SessionMetadata = {
+        id: "test-session",
+        repoKey: "test/repo",
+        description: "test",
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        status: "executing",
+        taskCount: 3,
+        tasksCompleted: 3,
+      };
+
+      await writeJson(metaPath, initial);
+
+      // Simulate what updateSessionMetadata does internally
+      const loaded = await readJson<SessionMetadata>(metaPath);
+      const updated: SessionMetadata = {
+        ...loaded,
+        status: "reviewing",
+        updatedAt: new Date().toISOString(),
+      };
+      await writeJson(metaPath, updated);
+
+      const final = await readJson<SessionMetadata>(metaPath);
+      expect(final.status).toBe("reviewing");
+      expect(new Date(final.updatedAt).getTime()).toBeGreaterThanOrEqual(
+        new Date(initial.updatedAt).getTime(),
+      );
     });
   });
 });
