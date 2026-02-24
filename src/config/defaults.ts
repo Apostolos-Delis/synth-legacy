@@ -41,3 +41,24 @@ export const DEFAULT_CONFIG: SynthConfig = {
     enabled: true,
   },
 };
+
+export const PERSONAL_CONFIG_TEMPLATE = `# ~/.synth/config.toml — Personal synth preferences
+# These apply to all projects. Project synth.toml overrides these values.
+
+[agent]
+name = "claude"              # "claude" | "codex"
+model = "opus"
+timeout = 600000             # 10 min per iteration
+
+[tui]
+# theme = "tokyonight"      # Built-in: tokyonight, onedark, catppuccin, dracula, solarized, nord, gruvbox
+# spinner = "dots"           # Presets: dots, braille, line, moon, bounce, arc, box, arrows
+
+[parallel]
+enabled = true
+max_workers = 8
+ai_conflict_resolution = true
+
+[notifications]
+enabled = true
+`;

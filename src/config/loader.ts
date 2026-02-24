@@ -1,8 +1,8 @@
-import { parse } from "smol-toml";
 import { join, basename } from "node:path";
 import type { SynthConfig } from "./types.js";
 import { DEFAULT_CONFIG } from "./defaults.js";
-import { fileExists, readText } from "../utils/fs.js";
+import { globalConfigPath } from "./paths.js";
+import { readTomlFile } from "./writer.js";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function deepMerge(base: any, override: any): any {
@@ -26,16 +26,13 @@ function deepMerge(base: any, override: any): any {
 export async function loadConfig(
   cwd: string,
   overrides?: Partial<SynthConfig>,
+  globalPath?: string,
 ): Promise<SynthConfig> {
-  const configPath = join(cwd, "synth.toml");
-  let fileConfig: Record<string, unknown> = {};
+  const globalConfig = await readTomlFile(globalPath ?? globalConfigPath());
+  const fileConfig = await readTomlFile(join(cwd, "synth.toml"));
 
-  if (await fileExists(configPath)) {
-    const raw = await readText(configPath);
-    fileConfig = parse(raw) as Record<string, unknown>;
-  }
-
-  let config: SynthConfig = deepMerge(DEFAULT_CONFIG, fileConfig);
+  let config: SynthConfig = deepMerge(DEFAULT_CONFIG, globalConfig);
+  config = deepMerge(config, fileConfig);
   if (overrides) {
     config = deepMerge(config, overrides);
   }

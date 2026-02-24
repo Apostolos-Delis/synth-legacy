@@ -121,4 +121,71 @@ describe("loadConfig", () => {
       await rm(dir, { recursive: true });
     }
   });
+
+  test("global config merges over defaults", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "synth-test-"));
+    const globalFile = join(dir, "global-config.toml");
+    try {
+      await writeText(globalFile, `[agent]\nmodel = "sonnet"\n\n[tui]\ntheme = "dracula"\n`);
+      const config = await loadConfig(dir, undefined, globalFile);
+      expect(config.agent.model).toBe("sonnet");
+      expect(config.tui.theme).toBe("dracula");
+      // Defaults preserved for unset values
+      expect(config.agent.name).toBe("claude");
+      expect(config.execution.max_iterations).toBe(20);
+    } finally {
+      await rm(dir, { recursive: true });
+    }
+  });
+
+  test("project config overrides global config", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "synth-test-"));
+    const globalFile = join(dir, "global-config.toml");
+    try {
+      await writeText(globalFile, `[agent]\nmodel = "sonnet"\n\n[parallel]\nmax_workers = 4\n`);
+      await writeText(join(dir, "synth.toml"), `[agent]\nmodel = "opus"\n`);
+      const config = await loadConfig(dir, undefined, globalFile);
+      expect(config.agent.model).toBe("opus");
+      // Global value preserved when project doesn't override
+      expect(config.parallel?.max_workers).toBe(4);
+    } finally {
+      await rm(dir, { recursive: true });
+    }
+  });
+
+  test("full 3-layer merge: defaults → global → project → overrides", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "synth-test-"));
+    const globalFile = join(dir, "global-config.toml");
+    try {
+      await writeText(globalFile, `[agent]\nmodel = "sonnet"\ntimeout = 300000\n\n[tui]\ntheme = "dracula"\n`);
+      await writeText(join(dir, "synth.toml"), `[agent]\nmodel = "opus"\n\n[project]\nname = "test-proj"\n`);
+      const config = await loadConfig(dir, { agent: { name: "codex", model: "opus", timeout: 600_000, skip_permissions: true } }, globalFile);
+      // Override wins
+      expect(config.agent.name).toBe("codex");
+      // Project wins over global
+      expect(config.agent.model).toBe("opus");
+      // Global wins over default
+      expect(config.tui.theme).toBe("dracula");
+      // Project-specific
+      expect(config.project.name).toBe("test-proj");
+      // Default preserved
+      expect(config.execution.max_iterations).toBe(20);
+    } finally {
+      await rm(dir, { recursive: true });
+    }
+  });
+
+  test("missing global config file behaves identically to before", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "synth-test-"));
+    const globalFile = join(dir, "nonexistent-global.toml");
+    try {
+      await writeText(join(dir, "synth.toml"), `[project]\nname = "test"\n`);
+      const config = await loadConfig(dir, undefined, globalFile);
+      expect(config.project.name).toBe("test");
+      expect(config.agent.name).toBe("claude");
+      expect(config.execution.max_iterations).toBe(20);
+    } finally {
+      await rm(dir, { recursive: true });
+    }
+  });
 });

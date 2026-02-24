@@ -1,14 +1,9 @@
+# Project config — personal prefs (agent, tui, parallel, notifications)
+# go in your personal config: synth config --global --edit
+
 [project]
 name = "my-app"
 branch = "feature/my-feature"
-
-[agent]
-name = "claude"             # "claude" | "codex"
-model = "opus"
-timeout = 600000            # 10 min per iteration
-
-[agent.fallback]
-name = "codex"
 
 [execution]
 max_iterations = 20
@@ -19,17 +14,8 @@ auto_commit = true
 max_consecutive_failures = 3
 backpressure_commands = ["bun run typecheck", "bun run lint"]
 
-[parallel]
-enabled = true                   # Use --no-parallel to override
-max_workers = 8
-ai_conflict_resolution = true
-
 [finalize]
 auto_format = true
 split_commits = true
 self_review = true
 create_pr = true
-
-# [tui]
-# theme = "tokyonight"            # Built-in: tokyonight, onedark, catppuccin, dracula, solarized, nord, gruvbox
-# spinner = "dots"                # Presets: dots, braille, line, moon, bounce, arc, box, arrows

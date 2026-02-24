@@ -5,6 +5,7 @@ import type { SynthConfig } from "../config/types.js";
 import { spawn } from "../utils/process.js";
 import { fileExists, readText } from "../utils/fs.js";
 import { getPlatform } from "../platform/index.js";
+import { globalConfigPath } from "../config/paths.js";
 
 export interface DoctorCheckResult {
   name: string;
@@ -140,6 +141,21 @@ async function checkConfigFile(cwd: string): Promise<DoctorCheckResult> {
   }
 }
 
+async function checkGlobalConfigFile(): Promise<DoctorCheckResult> {
+  const gp = globalConfigPath();
+  if (!(await fileExists(gp))) {
+    return { name: "~/.synth/config.toml", status: "pass", message: "not present (optional)" };
+  }
+  try {
+    const content = await readText(gp);
+    parse(content);
+    return { name: "~/.synth/config.toml", status: "pass", message: "valid" };
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    return { name: "~/.synth/config.toml", status: "fail", message: `parse error: ${message}`, suggestion: "fix the TOML syntax in ~/.synth/config.toml" };
+  }
+}
+
 async function checkBackpressure(config?: SynthConfig): Promise<DoctorCheckResult[]> {
   if (!config?.guardrails?.backpressure_commands?.length) return [];
   const results: DoctorCheckResult[] = [];
@@ -169,6 +185,7 @@ export async function runDoctorChecks(cwd: string, config?: SynthConfig): Promis
   if (ghResult) results.push(ghResult);
 
   results.push(await checkConfigFile(cwd));
+  results.push(await checkGlobalConfigFile());
   results.push(...await checkBackpressure(config));
 
   return results;
