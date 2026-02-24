@@ -1,4 +1,4 @@
-import { join } from "node:path";
+import { join, basename } from "node:path";
 import { homedir } from "node:os";
 import { readdir, rename, rm } from "node:fs/promises";
 import type { SessionMetadata, SessionPaths } from "./types.js";
@@ -120,7 +120,7 @@ async function getRepoKey(cwd: string): Promise<string> {
   }
 
   // Fallback: directory name
-  return cwd.split("/").pop() ?? "unknown";
+  return basename(cwd) || "unknown";
 }
 
 function sessionPaths(repoKey: string, sessionId: string): SessionPaths {

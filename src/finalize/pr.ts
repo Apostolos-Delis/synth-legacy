@@ -3,6 +3,7 @@ import type { FinalizeError } from "./chat-types.js";
 import { spawn } from "../utils/process.js";
 import type { ReviewFinding } from "./review.js";
 import { formatAuditForPr, type AuditResult } from "./audit.js";
+import { getPlatform } from "../platform/index.js";
 
 export function generatePrBody(
   taskFile: TaskFile,
@@ -81,8 +82,8 @@ const ERROR_PATTERNS: ErrorPattern[] = [
   {
     test: (l) => l.includes("command not found") || l.includes("not found: gh") || l.includes("no such file or directory: gh"),
     errorType: "gh-not-installed",
-    message: "GitHub CLI (gh) is not installed. Install it with: brew install gh",
-    suggestedFix: "Install the GitHub CLI: brew install gh",
+    message: `GitHub CLI (gh) is not installed. Install it with: ${getPlatform().installHint("gh")}`,
+    suggestedFix: `Install the GitHub CLI: ${getPlatform().installHint("gh")}`,
   },
   {
     test: (l) => l.includes("not logged") || l.includes("auth login") || l.includes("authentication required") || l.includes("authentication failed") || l.includes("401"),

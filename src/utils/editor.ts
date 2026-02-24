@@ -1,13 +1,14 @@
 import { mkdtemp, rmdir, unlink, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { getPlatform } from "../platform/index.js";
 
 /**
  * Open content in the user's preferred external editor.
  * Returns the edited text on success, or null on error/non-zero exit.
  */
 export async function openInEditor(content: string): Promise<string | null> {
-  const editor = process.env.VISUAL || process.env.EDITOR || "vi";
+  const editor = process.env.VISUAL || process.env.EDITOR || getPlatform().defaultEditor();
   const dir = await mkdtemp(join(tmpdir(), "synth-edit-"));
   const tmpFile = join(dir, "SYNTH_PROMPT.md");
 

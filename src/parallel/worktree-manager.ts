@@ -2,6 +2,7 @@ import { join, dirname } from "node:path";
 import { rm, rmdir } from "node:fs/promises";
 import { spawn } from "../utils/process.js";
 import { dirExists } from "../utils/fs.js";
+import { getPlatform } from "../platform/index.js";
 
 export interface WorktreeInfo {
   workerId: string;
@@ -46,23 +47,8 @@ export class WorktreeManager {
   }
 
   async checkDiskSpace(): Promise<void> {
-    const handle = spawn({
-      cmd: ["df", "-m", this.repoRoot],
-      cwd: this.repoRoot,
-    });
-    const result = await handle.promise;
-    if (result.exitCode !== 0) {
-      throw new Error(`Failed to check disk space: ${result.stderr}`);
-    }
-    // Parse the "Available" column from df output (second line)
-    const lines = result.stdout.trim().split("\n");
-    if (lines.length < 2) {
-      throw new Error("Unexpected df output format");
-    }
-    const columns = lines[1].split(/\s+/);
-    // df -m columns: Filesystem, 1M-blocks, Used, Available, Use%, Mounted on
-    const availableMb = parseInt(columns[3], 10);
-    if (isNaN(availableMb) || availableMb < MIN_DISK_MB) {
+    const availableMb = await getPlatform().getAvailableDiskMb(this.repoRoot);
+    if (availableMb < MIN_DISK_MB) {
       throw new Error("Insufficient disk space");
     }
   }

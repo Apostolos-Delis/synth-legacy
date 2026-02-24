@@ -17,6 +17,7 @@ export interface SynthConfig {
     max_iterations: number;
     iteration_delay: number;
     auto_commit: boolean;
+    prevent_sleep?: boolean;
   };
   guardrails: {
     max_consecutive_failures: number;

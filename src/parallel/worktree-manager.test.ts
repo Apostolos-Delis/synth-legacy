@@ -7,6 +7,7 @@ let spawnResults: Map<string, { exitCode: number; stdout: string; stderr: string
 let dirExistsResults: Map<string, boolean> = new Map();
 let removedPaths: string[] = [];
 let rmdirPaths: string[] = [];
+let mockAvailableDiskMb = 10000;
 
 function defaultSpawnResult() {
   return {
@@ -50,6 +51,13 @@ mock.module("../utils/fs.js", () => ({
   dirExists: async (path: string) => dirExistsResults.get(path) ?? false,
 }));
 
+// Mock platform
+mock.module("../platform/index.js", () => ({
+  getPlatform: () => ({
+    getAvailableDiskMb: async () => mockAvailableDiskMb,
+  }),
+}));
+
 // Mock node:fs/promises
 mock.module("node:fs/promises", () => ({
   rm: async (path: string) => {
@@ -69,14 +77,7 @@ function makeManager(opts?: { maxWorktrees?: number }) {
 }
 
 function setDfOutput(availableMb: number) {
-  spawnResults.set(
-    "df -m",
-    {
-      exitCode: 0,
-      stdout: `Filesystem    1M-blocks     Used Available Capacity  Mounted on\n/dev/disk1   500000   200000   ${availableMb}    40%    /\n`,
-      stderr: "",
-    },
-  );
+  mockAvailableDiskMb = availableMb;
 }
 
 beforeEach(() => {
@@ -85,7 +86,7 @@ beforeEach(() => {
   dirExistsResults = new Map();
   removedPaths = [];
   rmdirPaths = [];
-  setDfOutput(10000); // plenty of space by default
+  mockAvailableDiskMb = 10000; // plenty of space by default
 });
 
 describe("sanitizeBranchName", () => {

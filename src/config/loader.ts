@@ -1,5 +1,5 @@
 import { parse } from "smol-toml";
-import { join } from "node:path";
+import { join, basename } from "node:path";
 import type { SynthConfig } from "./types.js";
 import { DEFAULT_CONFIG } from "./defaults.js";
 import { fileExists, readText } from "../utils/fs.js";
@@ -42,7 +42,7 @@ export async function loadConfig(
 
   // Auto-detect project name from directory if not set
   if (!config.project.name) {
-    config.project.name = cwd.split("/").pop() ?? "unknown";
+    config.project.name = basename(cwd) || "unknown";
   }
 
   return config;

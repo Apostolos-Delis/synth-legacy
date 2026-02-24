@@ -4,6 +4,7 @@ import { homedir } from "node:os";
 import type { SynthConfig } from "../config/types.js";
 import { spawn } from "../utils/process.js";
 import { fileExists, readText } from "../utils/fs.js";
+import { getPlatform } from "../platform/index.js";
 
 export interface DoctorCheckResult {
   name: string;
@@ -130,7 +131,7 @@ async function checkGh(config?: SynthConfig): Promise<DoctorCheckResult | null> 
   if (!config?.finalize?.create_pr) return null;
   const result = await checkCommand("gh", ["--version"]);
   if (!result.available) {
-    return { name: "gh CLI", status: "fail", message: "required for PR creation", suggestion: "install with: brew install gh && gh auth login" };
+    return { name: "gh CLI", status: "fail", message: "required for PR creation", suggestion: `install with: ${getPlatform().installHint("gh")} && gh auth login` };
   }
   return { name: "gh CLI", status: "pass", message: result.version };
 }

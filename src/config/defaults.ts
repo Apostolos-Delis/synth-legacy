@@ -16,6 +16,7 @@ export const DEFAULT_CONFIG: SynthConfig = {
     max_iterations: 20,
     iteration_delay: 2000,
     auto_commit: true,
+    prevent_sleep: true,
   },
   guardrails: {
     max_consecutive_failures: 3,

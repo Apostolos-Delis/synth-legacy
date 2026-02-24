@@ -3,6 +3,7 @@
 import { join } from "node:path";
 import { loadConfig } from "./config/loader.js";
 import type { SynthConfig } from "./config/types.js";
+import { getPlatform, type SleepInhibitor } from "./platform/index.js";
 import {
   createSession,
   getSession,
@@ -475,6 +476,11 @@ async function cmdRun(sessionId?: string, startIteration = 0, tuiContext?: TuiCo
     process.exit(1);
   }
 
+  let sleepInhibitor: SleepInhibitor | undefined;
+  if (config.execution.prevent_sleep !== false) {
+    sleepInhibitor = getPlatform().inhibitSleep("synth session running");
+  }
+
   log(
     `${fmt.bold("synth")} ${ansi.muted}│${ansi.reset} ${fmt.label("session:", plan.metadata.id)} ${ansi.muted}│${ansi.reset} ${fmt.label("agent:", config.agent.name)} ${ansi.muted}│${ansi.reset} ${fmt.label("max:", `${config.execution.max_iterations} iterations`)}`,
   );
@@ -870,6 +876,7 @@ async function cmdRun(sessionId?: string, startIteration = 0, tuiContext?: TuiCo
   const cleanup = async () => {
     if (cleaningUp) return;
     cleaningUp = true;
+    sleepInhibitor?.release();
     engine.stop();
     if (ownsRenderer) {
       if (root) root.unmount();
@@ -1182,6 +1189,7 @@ async function cmdRun(sessionId?: string, startIteration = 0, tuiContext?: TuiCo
       });
     }
   } finally {
+    sleepInhibitor?.release();
     process.off("SIGINT", onSigInt);
     process.off("SIGTERM", onSigTerm);
     if (ownsRenderer) {
