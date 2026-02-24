@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import { statusIndicators, STATUS_COLORS_HEX, colors } from "../tui/theme.js";
+import { statusIndicators, STATUS_COLORS_HEX, PRIORITY_COLORS_HEX, colors } from "../tui/theme.js";
 import { makeTask } from "./helpers.js";
 import type { Task } from "../tasks/types.js";
 
@@ -55,6 +55,21 @@ describe("TaskDetailHeader status mapping", () => {
     expect(icon).toBe("?");
     const color = STATUS_COLORS_HEX["nonexistent"] ?? colors.fg.muted;
     expect(color).toBe(colors.fg.muted);
+  });
+
+  test("each priority 1-5 has a defined hex color", () => {
+    for (let p = 1; p <= 5; p++) {
+      expect(PRIORITY_COLORS_HEX[p]).toBeDefined();
+      expect(PRIORITY_COLORS_HEX[p]).toMatch(/^#[0-9a-fA-F]{6}$/);
+    }
+  });
+
+  test("priority 1 (Critical) uses error color", () => {
+    expect(PRIORITY_COLORS_HEX[1]).toBe(colors.status.error);
+  });
+
+  test("priority 2 (High) uses warning color", () => {
+    expect(PRIORITY_COLORS_HEX[2]).toBe(colors.status.warning);
   });
 });
 
@@ -268,24 +283,25 @@ describe("TaskDetailHeader word-wrap line counting", () => {
 
 describe("TaskDetailHeader criteria row limit", () => {
   test("maxCriteriaRows calculation respects height", () => {
-    // Component: maxCriteriaRows = Math.max(0, height - 2 - 3)
-    expect(Math.max(0, 10 - 2 - 3)).toBe(5);
-    expect(Math.max(0, 6 - 2 - 3)).toBe(1);
-    expect(Math.max(0, 5 - 2 - 3)).toBe(0);
-    expect(Math.max(0, 4 - 2 - 3)).toBe(0);
+    // Component: maxCriteriaRows = Math.max(0, height - 2 - 4)
+    // (2 border + 1 title + 1 desc + 1 blank + 1 section header = 6 overhead for 1-line desc with criteria)
+    expect(Math.max(0, 10 - 2 - 4)).toBe(4);
+    expect(Math.max(0, 6 - 2 - 4)).toBe(0);
+    expect(Math.max(0, 5 - 2 - 4)).toBe(0);
+    expect(Math.max(0, 4 - 2 - 4)).toBe(0);
   });
 
   test("visible criteria count capped by height", () => {
-    const height = 8;
-    const maxCriteriaRows = Math.max(0, height - 2 - 3); // 3
+    const height = 9;
+    const maxCriteriaRows = Math.max(0, height - 2 - 4); // 3
     const criteria = ["a", "b", "c", "d", "e"];
     const visibleCount = Math.min(criteria.length, maxCriteriaRows);
     expect(visibleCount).toBe(3);
   });
 
   test("overflow indicator shows remaining count", () => {
-    const height = 8;
-    const maxCriteriaRows = Math.max(0, height - 2 - 3); // 3
+    const height = 9;
+    const maxCriteriaRows = Math.max(0, height - 2 - 4); // 3
     const criteria = ["a", "b", "c", "d", "e"];
     const visibleCount = Math.min(criteria.length, maxCriteriaRows);
     const remaining = criteria.length - visibleCount;
