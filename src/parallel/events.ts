@@ -73,6 +73,13 @@ export interface MergeFailedEvent {
   reason?: string;
 }
 
+export interface MergeSkippedEvent {
+  type: "merge:skipped";
+  timestamp: string;
+  taskId: string;
+  reason: string;
+}
+
 // Conflict events
 
 export interface ConflictDetectedEvent {
@@ -163,6 +170,7 @@ export type ParallelEvent =
   | MergeStartedEvent
   | MergeCompletedEvent
   | MergeFailedEvent
+  | MergeSkippedEvent
   | ConflictDetectedEvent
   | ConflictAiResolvingEvent
   | ConflictResolvedEvent

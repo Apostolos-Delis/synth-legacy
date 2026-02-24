@@ -133,6 +133,19 @@ export function applyParallelEvent(
       return true;
     }
 
+    case "merge:skipped":
+      state.mergeItems.push({
+        id: `skip-${event.taskId}`,
+        taskId: event.taskId,
+        status: "skipped",
+        strategy: "squash",
+        filesChanged: 0,
+        queuePosition: state.mergeItems.length,
+        endTime: Date.now(),
+        error: event.reason,
+      });
+      return true;
+
     case "conflict:detected":
       state.conflict = {
         taskId: event.taskId,

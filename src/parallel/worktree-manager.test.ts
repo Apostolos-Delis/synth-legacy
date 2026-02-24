@@ -263,6 +263,113 @@ describe("WorktreeManager", () => {
     });
   });
 
+  describe("acquire resilience", () => {
+    test("prunes and attempts orphan cleanup at capacity before error", async () => {
+      const mgr = makeManager({ maxWorktrees: 2 });
+      await mgr.acquire("w1", "T-001", "main");
+      await mgr.acquire("w2", "T-002", "main");
+
+      // Set up worktree list to return no orphans (so cleanup won't free slots)
+      spawnResults.set("worktree list", {
+        exitCode: 0,
+        stdout: "",
+        stderr: "",
+      });
+
+      spawnCalls = [];
+      await expect(mgr.acquire("w3", "T-003", "main")).rejects.toThrow(
+        "Maximum worktrees reached",
+      );
+
+      // Should have called git worktree prune
+      const pruneCall = spawnCalls.find(
+        (c) => c.cmd.includes("worktree") && c.cmd.includes("prune"),
+      );
+      expect(pruneCall).toBeDefined();
+
+      // Should have called worktree list (orphan cleanup attempt)
+      const listCall = spawnCalls.find(
+        (c) => c.cmd.includes("worktree") && c.cmd.includes("list"),
+      );
+      expect(listCall).toBeDefined();
+    });
+
+    test("throws on non-'already exists' worktree add failure", async () => {
+      spawnResults.set("worktree add", {
+        exitCode: 128,
+        stdout: "",
+        stderr: "fatal: some other error",
+      });
+
+      const mgr = makeManager();
+      await expect(mgr.acquire("w1", "T-001", "main")).rejects.toThrow(
+        "Failed to create worktree: fatal: some other error",
+      );
+    });
+  });
+
+  describe("releaseDirectory", () => {
+    test("removes worktree but preserves branch", async () => {
+      const mgr = makeManager();
+      await mgr.acquire("w1", "COOR-005", "main");
+      spawnCalls = [];
+
+      await mgr.releaseDirectory("w1");
+
+      // Should have called git worktree remove
+      const removeCall = spawnCalls.find(
+        (c) => c.cmd.includes("worktree") && c.cmd.includes("remove"),
+      );
+      expect(removeCall).toBeDefined();
+
+      // Should NOT have called git branch -D (branch preserved for merge)
+      const branchDelete = spawnCalls.find(
+        (c) => c.cmd.includes("branch") && c.cmd.includes("-D"),
+      );
+      expect(branchDelete).toBeUndefined();
+
+      // Should have removed from active map
+      expect(mgr.getActive().size).toBe(0);
+    });
+
+    test("no-op for unknown workerId", async () => {
+      const mgr = makeManager();
+      spawnCalls = [];
+      await mgr.releaseDirectory("unknown");
+      expect(spawnCalls).toEqual([]);
+    });
+
+    test("frees capacity for next acquire", async () => {
+      const mgr = makeManager({ maxWorktrees: 1 });
+      await mgr.acquire("w1", "T-001", "main");
+
+      // At capacity — would throw
+      await mgr.releaseDirectory("w1");
+
+      // Should succeed now that slot is freed
+      const info = await mgr.acquire("w2", "T-002", "main");
+      expect(info.workerId).toBe("w2");
+    });
+
+    test("cleanupAll deletes released branches", async () => {
+      const mgr = makeManager();
+      await mgr.acquire("w1", "COOR-005", "main");
+      await mgr.releaseDirectory("w1");
+      spawnCalls = [];
+
+      const basePath = "/.synth-worktrees/my-project";
+      dirExistsResults.set(basePath, true);
+
+      await mgr.cleanupAll();
+
+      // Should have called git branch -D for the released branch
+      const branchDelete = spawnCalls.find(
+        (c) => c.cmd.includes("branch") && c.cmd.includes("-D") && c.cmd.includes("synth-parallel/COOR-005"),
+      );
+      expect(branchDelete).toBeDefined();
+    });
+  });
+
   describe("cleanupOrphanedWorktrees", () => {
     test("removes worktrees under managed path that are not active", async () => {
       const mgr = makeManager();

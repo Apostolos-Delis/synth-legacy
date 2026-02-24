@@ -691,6 +691,9 @@ async function cmdRun(sessionId?: string, startIteration = 0, tuiContext?: TuiCo
             case "merge:failed":
               logError(`Merge failed for task ${event.taskId}${event.reason ? `: ${event.reason}` : ""}`);
               break;
+            case "merge:skipped":
+              log(fmt.warn(`Merge skipped for task ${event.taskId}: ${event.reason}`));
+              break;
             case "conflict:detected":
               log(fmt.warn("Merge conflict detected"));
               break;
@@ -719,8 +722,16 @@ async function cmdRun(sessionId?: string, startIteration = 0, tuiContext?: TuiCo
       } finally {
         await runMod.releaseLock(plan.paths);
         if (parallelOwnsRenderer) {
-          if (parallelRoot) parallelRoot.unmount();
-          if (parallelRenderer) parallelRenderer.destroy();
+          try {
+            if (parallelRoot) parallelRoot.unmount();
+            if (parallelRenderer) parallelRenderer.destroy();
+          } catch {
+            // Last-resort terminal cleanup
+          } finally {
+            process.stdout.write("\x1b[?1000l\x1b[?1003l\x1b[?1006l"); // disable mouse tracking modes
+            process.stdout.write("\x1b[?25h");  // show cursor
+            process.stdout.write("\x1b[?1049l"); // exit alternate screen
+          }
         }
       }
 

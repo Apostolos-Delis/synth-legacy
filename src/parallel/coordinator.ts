@@ -26,6 +26,7 @@ import {
 } from "../utils/git.js";
 import { resolveConflicts } from "./conflict-resolver.js";
 import { ResourceMonitor } from "./resource-monitor.js";
+import { spawn } from "../utils/process.js";
 
 export interface ParallelCoordinatorConfig {
   maxWorkers?: number;
@@ -188,6 +189,18 @@ export class ParallelCoordinator {
 
         for (const result of results) {
           if (this.aborted) break;
+
+          const hasCommits = await this.branchHasNewCommits(result.branch);
+          if (!hasCommits) {
+            this.emit({
+              type: "merge:skipped",
+              timestamp: this.timestamp(),
+              taskId: result.taskId,
+              reason: "Worker produced no commits",
+            });
+            failedTaskIds.push(result.taskId);
+            continue;
+          }
 
           const op = this.mergeEngine!.enqueue(result);
           this.emit({
@@ -390,6 +403,15 @@ export class ParallelCoordinator {
       }
     }
 
+    // Reset terminal state in case TUI cleanup races with SIGINT
+    try {
+      process.stdout.write("\x1b[?1000l\x1b[?1003l\x1b[?1006l");
+      process.stdout.write("\x1b[?25h");
+      process.stdout.write("\x1b[?1049l");
+    } catch {
+      // stdout may already be closed
+    }
+
     this.emit({
       type: "parallel:failed",
       timestamp: this.timestamp(),
@@ -427,6 +449,15 @@ export class ParallelCoordinator {
         reason: operation.error,
       });
     }
+  }
+
+  private async branchHasNewCommits(branch: string): Promise<boolean> {
+    const handle = spawn({
+      cmd: ["git", "log", `${this.sessionBranch}..${branch}`, "--oneline"],
+      cwd: this.repoRoot,
+    });
+    const result = await handle.promise;
+    return result.exitCode === 0 && result.stdout.trim() !== "";
   }
 
   private async executeWave(
@@ -540,6 +571,13 @@ export class ParallelCoordinator {
       for (const r of batchResults) {
         if (r) results.push(r);
       }
+
+      // Release worktree directories (but not branches) to free capacity for next batch
+      for (const w of batchWorkers) {
+        await this.worktreeManager!.releaseDirectory(w.id);
+      }
+      // Single prune after all releases to sync git's worktree registry
+      await spawn({ cmd: ["git", "worktree", "prune"], cwd: this.repoRoot }).promise;
     }
 
     return results;

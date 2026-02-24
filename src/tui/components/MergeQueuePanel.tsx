@@ -7,7 +7,8 @@ export type MergeStatus =
   | "completed"
   | "failed"
   | "conflicted"
-  | "rolled-back";
+  | "rolled-back"
+  | "skipped";
 
 export type MergeStrategy = "ff" | "merge-commit" | "squash";
 
@@ -36,6 +37,7 @@ const STATUS_LABEL: Record<MergeStatus, string> = {
   "failed": "failed",
   "conflicted": "conflict",
   "rolled-back": "rollback",
+  "skipped": "skipped",
 };
 
 const STATUS_COLOR: Record<MergeStatus, string> = {
@@ -45,6 +47,7 @@ const STATUS_COLOR: Record<MergeStatus, string> = {
   "failed": colors.status.error,
   "conflicted": colors.status.error,
   "rolled-back": colors.status.error,
+  "skipped": colors.fg.muted,
 };
 
 const STATUS_ICON: Record<MergeStatus, string> = {
@@ -54,6 +57,7 @@ const STATUS_ICON: Record<MergeStatus, string> = {
   "failed": "\u2717",     // ✗
   "conflicted": "\u26A0", // ⚠
   "rolled-back": "\u21B6", // ↶
+  "skipped": "\u25CB",    // ○
 };
 
 function formatDuration(startTime?: number, endTime?: number, now?: number): string {
@@ -161,6 +165,7 @@ export const MergeQueuePanel = memo(function MergeQueuePanel({
       borderColor={hasInProgress ? colors.border.active : colors.border.normal}
       title={headerTitle}
       flexDirection="column"
+      overflow="hidden"
     >
       {needsScroll ? (
         <scrollbox

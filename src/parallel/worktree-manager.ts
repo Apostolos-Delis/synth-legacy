@@ -1,6 +1,6 @@
 import { join, dirname } from "node:path";
 import { rm, rmdir } from "node:fs/promises";
-import { spawn } from "../utils/process.js";
+import { spawn, type SpawnResult } from "../utils/process.js";
 import { dirExists } from "../utils/fs.js";
 import { getPlatform } from "../platform/index.js";
 
@@ -39,6 +39,7 @@ export class WorktreeManager {
   private readonly project: string;
   private readonly maxWorktrees: number;
   private readonly active = new Map<string, WorktreeInfo>();
+  private releasedBranches: string[] = [];
 
   constructor(options: WorktreeManagerOptions) {
     this.repoRoot = options.repoRoot;
@@ -59,7 +60,12 @@ export class WorktreeManager {
     sessionBranch: string,
   ): Promise<WorktreeInfo> {
     if (this.active.size >= this.maxWorktrees) {
-      throw new Error("Maximum worktrees reached");
+      // Prune stale git worktree entries and clean up orphans before giving up
+      await spawn({ cmd: ["git", "worktree", "prune"], cwd: this.repoRoot }).promise;
+      await this.cleanupOrphanedWorktrees();
+      if (this.active.size >= this.maxWorktrees) {
+        throw new Error("Maximum worktrees reached");
+      }
     }
 
     await this.checkDiskSpace();
@@ -73,18 +79,45 @@ export class WorktreeManager {
       await this.removeWorktree(wtPath, branch);
     }
 
-    const addHandle = spawn({
-      cmd: ["git", "worktree", "add", "-b", branch, wtPath, sessionBranch],
-      cwd: this.repoRoot,
-    });
-    const addResult = await addHandle.promise;
+    const addResult = await this.tryWorktreeAdd(branch, wtPath, sessionBranch);
     if (addResult.exitCode !== 0) {
-      throw new Error(`Failed to create worktree: ${addResult.stderr}`);
+      // Retry once on "already exists" — stale branch or worktree entry
+      if (addResult.stderr.includes("already exists")) {
+        await this.removeWorktree(wtPath, branch);
+        const retryResult = await this.tryWorktreeAdd(branch, wtPath, sessionBranch);
+        if (retryResult.exitCode !== 0) {
+          throw new Error(`Failed to create worktree: ${retryResult.stderr}`);
+        }
+      } else {
+        throw new Error(`Failed to create worktree: ${addResult.stderr}`);
+      }
     }
 
     const info: WorktreeInfo = { workerId, taskId, path: wtPath, branch };
     this.active.set(workerId, info);
     return info;
+  }
+
+  private async tryWorktreeAdd(
+    branch: string,
+    wtPath: string,
+    sessionBranch: string,
+  ): Promise<SpawnResult> {
+    return spawn({
+      cmd: ["git", "worktree", "add", "-b", branch, wtPath, sessionBranch],
+      cwd: this.repoRoot,
+    }).promise;
+  }
+
+  async releaseDirectory(workerId: string): Promise<void> {
+    const info = this.active.get(workerId);
+    if (!info) return;
+
+    await this.removeWorktreeDir(info.path);
+
+    // Branch must survive for merging — track for later cleanup
+    this.releasedBranches.push(info.branch);
+    this.active.delete(workerId);
   }
 
   async release(workerId: string): Promise<void> {
@@ -101,6 +134,12 @@ export class WorktreeManager {
       await this.removeWorktree(info.path, info.branch);
     }
     this.active.clear();
+
+    // Clean up branches from worktrees released via releaseDirectory()
+    for (const branch of this.releasedBranches) {
+      await spawn({ cmd: ["git", "branch", "-D", branch], cwd: this.repoRoot }).promise;
+    }
+    this.releasedBranches = [];
 
     // Remove base directory if empty
     const base = worktreeBasePath(this.repoRoot, this.project);
@@ -148,31 +187,32 @@ export class WorktreeManager {
     return this.active;
   }
 
-  private async removeWorktree(wtPath: string, branch: string): Promise<void> {
-    // Force-remove the worktree via git
-    const removeHandle = spawn({
+  dispose(): void {
+    if (this.releasedBranches.length > 0) {
+      const leaked = this.releasedBranches.join(", ");
+      console.warn(`[WorktreeManager] dispose called with uncleaned released branches: ${leaked}`);
+    }
+    if (this.active.size > 0) {
+      const leaked = [...this.active.keys()].join(", ");
+      console.warn(`[WorktreeManager] dispose called with active worktrees: ${leaked}`);
+    }
+  }
+
+  private async removeWorktreeDir(wtPath: string): Promise<void> {
+    await spawn({
       cmd: ["git", "worktree", "remove", "--force", wtPath],
       cwd: this.repoRoot,
-    });
-    await removeHandle.promise;
+    }).promise;
 
-    // If git worktree remove failed (e.g. not registered), clean up directory manually
     if (await dirExists(wtPath)) {
       await rm(wtPath, { recursive: true, force: true });
     }
+  }
 
-    // Prune stale worktree entries
-    const pruneHandle = spawn({
-      cmd: ["git", "worktree", "prune"],
-      cwd: this.repoRoot,
-    });
-    await pruneHandle.promise;
+  private async removeWorktree(wtPath: string, branch: string): Promise<void> {
+    await this.removeWorktreeDir(wtPath);
 
-    // Delete the branch
-    const branchHandle = spawn({
-      cmd: ["git", "branch", "-D", branch],
-      cwd: this.repoRoot,
-    });
-    await branchHandle.promise;
+    await spawn({ cmd: ["git", "worktree", "prune"], cwd: this.repoRoot }).promise;
+    await spawn({ cmd: ["git", "branch", "-D", branch], cwd: this.repoRoot }).promise;
   }
 }

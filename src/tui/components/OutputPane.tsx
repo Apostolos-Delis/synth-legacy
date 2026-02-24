@@ -60,7 +60,7 @@ export const OutputPane = memo(function OutputPane({ output, width, height, isTh
   const waiting = isThinking && !output;
 
   return (
-    <box width={width} height={height} flexDirection="column">
+    <box width={width} height={height} flexDirection="column" overflow="hidden">
       {task && <TaskDetailHeader task={task} width={width} height={headerHeight} />}
       <box
         width={width}

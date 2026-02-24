@@ -9,6 +9,7 @@ import { StatusBar } from "./components/StatusBar.js";
 import type { ParallelStatusInfo } from "./components/StatusBar.js";
 import { WorkerPanel } from "./components/WorkerPanel.js";
 import type { WorkerInfo } from "./components/WorkerPanel.js";
+import { TaskSidebar } from "./components/TaskSidebar.js";
 import { MergeQueuePanel } from "./components/MergeQueuePanel.js";
 import type { MergeQueueItem } from "./components/MergeQueuePanel.js";
 import { ConflictResolutionPanel } from "./components/ConflictResolutionPanel.js";
@@ -60,6 +61,11 @@ export function ParallelExecutionView({
   const bottomHeight = Math.max(6, Math.min(12, Math.floor(bodyHeight * 0.3)));
   const topHeight = bodyHeight - bottomHeight;
 
+  // Split left column: TaskSidebar on top, WorkerPanel below (hide sidebar when no tasks)
+  const showTaskSidebar = state.tasks.length > 0;
+  const taskSidebarHeight = showTaskSidebar ? Math.min(state.tasks.length + 2, Math.floor(topHeight / 2)) : 0;
+  const workerPanelHeight = topHeight - taskSidebarHeight;
+
   // Bottom row widths: merge queue gets more space when no conflict
   const mergeWidth = hasConflict ? Math.floor(width * 0.55) : width;
   const conflictWidth = hasConflict ? width - mergeWidth : 0;
@@ -102,11 +108,22 @@ export function ParallelExecutionView({
       />
       <box flexDirection="column" height={bodyHeight}>
         <box flexDirection="row" height={topHeight}>
-          <WorkerPanel
-            workers={workers}
-            width={workerPanelWidth}
-            height={topHeight}
-          />
+          <box flexDirection="column" width={workerPanelWidth} height={topHeight}>
+            {showTaskSidebar && (
+              <TaskSidebar
+                tasks={state.tasks}
+                currentTaskId={state.currentTaskId}
+                selectedTaskIndex={clampedIndex}
+                width={workerPanelWidth}
+                height={taskSidebarHeight}
+              />
+            )}
+            <WorkerPanel
+              workers={workers}
+              width={workerPanelWidth}
+              height={workerPanelHeight}
+            />
+          </box>
           <OutputPane
             output={displayOutput}
             width={outputWidth}
