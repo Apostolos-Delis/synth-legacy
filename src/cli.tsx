@@ -562,6 +562,20 @@ async function cmdRun(sessionId?: string, startIteration = 0, tuiContext?: TuiCo
     }
   };
 
+  // Throttled variant for high-frequency events (agent:stdout, review chunks).
+  // Caps at ~60fps (16ms) to avoid 100+ renders/sec during streaming.
+  let renderScheduled = false;
+  const renderTuiThrottled = () => {
+    if (renderScheduled) return;
+    renderScheduled = true;
+    setTimeout(() => {
+      renderScheduled = false;
+      renderTui();
+    }, 16);
+  };
+
+  const MAX_OUTPUT_LENGTH = 100_000;
+
   const taskStartTimes = new Map<string, number>();
   const tokenAccumulator = new TokenAccumulator();
 
@@ -640,11 +654,17 @@ async function cmdRun(sessionId?: string, startIteration = 0, tuiContext?: TuiCo
           const stripped = event.message ? stripAnsi(event.message) : "";
           if (stripped) {
             tuiData.output += stripped;
+            if (tuiData.output.length > MAX_OUTPUT_LENGTH) {
+              tuiData.output = tuiData.output.slice(-MAX_OUTPUT_LENGTH);
+            }
             if (tuiData.currentTaskId && tuiData.currentTaskId in tuiData.taskOutputMap) {
               tuiData.taskOutputMap[tuiData.currentTaskId] += stripped;
+              if (tuiData.taskOutputMap[tuiData.currentTaskId].length > MAX_OUTPUT_LENGTH) {
+                tuiData.taskOutputMap[tuiData.currentTaskId] = tuiData.taskOutputMap[tuiData.currentTaskId].slice(-MAX_OUTPUT_LENGTH);
+              }
             }
           }
-          renderTui();
+          renderTuiThrottled();
           // Record first-token-to-render latency for --profile reporting
           if (event.isFirstChunk && !firstTokenRendered) {
             firstTokenRendered = true;
@@ -654,7 +674,12 @@ async function cmdRun(sessionId?: string, startIteration = 0, tuiContext?: TuiCo
           return; // already rendered above
         }
         case "agent:stderr":
-          if (event.message) tuiData.output += stripAnsi(event.message);
+          if (event.message) {
+            tuiData.output += stripAnsi(event.message);
+            if (tuiData.output.length > MAX_OUTPUT_LENGTH) {
+              tuiData.output = tuiData.output.slice(-MAX_OUTPUT_LENGTH);
+            }
+          }
           break;
         case "iteration:end": {
           const iterData = event.data as IterationResult | undefined;
@@ -877,7 +902,10 @@ async function cmdRun(sessionId?: string, startIteration = 0, tuiContext?: TuiCo
         const reviewResult = await reviewOrchestrator.run((chunk) => {
           if (tuiData) {
             tuiData.output += chunk;
-            renderTui();
+            if (tuiData.output.length > MAX_OUTPUT_LENGTH) {
+              tuiData.output = tuiData.output.slice(-MAX_OUTPUT_LENGTH);
+            }
+            renderTuiThrottled();
           }
         });
 
@@ -1297,8 +1325,8 @@ async function cmdResume(sessionId?: string): Promise<void> {
     return;
   }
 
-  log(fmt.info(`Resuming session ${id} from iteration ${run.currentIteration}`));
-  await cmdRun(id, run.currentIteration);
+  log(fmt.info(`Resuming session ${id} (iteration counter reset)`));
+  await cmdRun(id, 0);
 }
 
 async function resumeInterview(

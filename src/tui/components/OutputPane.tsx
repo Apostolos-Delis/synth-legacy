@@ -1,4 +1,4 @@
-import { useMemo, type ReactNode } from "react";
+import { memo, useMemo, type ReactNode } from "react";
 import { useTerminalDimensions } from "@opentui/react";
 import type { Task } from "../../tasks/types.js";
 import { colors, markdownSyntaxStyle } from "../theme.js";
@@ -48,7 +48,7 @@ interface OutputPaneProps {
   autoScroll?: boolean;
 }
 
-export function OutputPane({ output, width, height, isThinking = false, currentPhase, phaseStartTime, task, outputScrollFocused = false, autoScroll = true }: OutputPaneProps): ReactNode {
+export const OutputPane = memo(function OutputPane({ output, width, height, isThinking = false, currentPhase, phaseStartTime, task, outputScrollFocused = false, autoScroll = true }: OutputPaneProps): ReactNode {
   // Output is pre-stripped of ANSI codes in the event handler for minimal render-path latency.
 
   const { height: terminalHeight } = useTerminalDimensions();
@@ -61,7 +61,10 @@ export function OutputPane({ output, width, height, isThinking = false, currentP
   // Shrink the output box to fit content so we don't show a huge empty area
   // with a scrollbar when only a few lines are present.
   // +2 accounts for top/bottom border lines.
-  const contentLines = output ? output.split("\n").length + 2 : MIN_OUTPUT_HEIGHT;
+  const contentLines = useMemo(
+    () => (output ? output.split("\n").length + 2 : MIN_OUTPUT_HEIGHT),
+    [output],
+  );
   const outputHeight = Math.max(MIN_OUTPUT_HEIGHT, Math.min(maxOutputHeight, contentLines));
 
   const waiting = isThinking && !output;
@@ -100,4 +103,4 @@ export function OutputPane({ output, width, height, isThinking = false, currentP
       </box>
     </box>
   );
-}
+});

@@ -13,7 +13,7 @@ export const DEFAULT_CONFIG: SynthConfig = {
     skip_permissions: true,
   },
   execution: {
-    max_iterations: 20,
+    max_iterations: 30,
     iteration_delay: 2000,
     auto_commit: true,
   },

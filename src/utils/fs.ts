@@ -1,4 +1,4 @@
-import { mkdir, stat, unlink } from "node:fs/promises";
+import { appendFile, mkdir, stat, unlink } from "node:fs/promises";
 import { dirname } from "node:path";
 
 export async function ensureDir(path: string): Promise<void> {
@@ -29,9 +29,8 @@ export async function appendText(
   path: string,
   content: string,
 ): Promise<void> {
-  const file = Bun.file(path);
-  const existing = (await file.exists()) ? await file.text() : "";
-  await Bun.write(path, existing + content);
+  await ensureDir(dirname(path));
+  await appendFile(path, content);
 }
 
 export async function fileExists(path: string): Promise<boolean> {

@@ -123,8 +123,11 @@ export function parseTokenUsageFromOutput(output: string): TokenUsage | null {
   let best: TokenUsage | null = null;
   let bestScore = 0;
 
-  for (const line of output.split("\n")) {
-    const usage = parseTokenUsageLine(line);
+  // Token usage appears near the end of output — scan last 50 lines only
+  const lines = output.split("\n");
+  const startIdx = Math.max(0, lines.length - 50);
+  for (let i = startIdx; i < lines.length; i++) {
+    const usage = parseTokenUsageLine(lines[i]);
     if (!usage) continue;
     const score =
       (usage.inputTokens > 0 ? 3 : 0) +

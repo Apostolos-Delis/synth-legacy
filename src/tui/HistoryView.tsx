@@ -1,4 +1,4 @@
-import { useState, useCallback, type ReactNode } from "react";
+import { useState, useCallback, useMemo, type ReactNode } from "react";
 import { useTerminalDimensions, useKeyboard } from "@opentui/react";
 import type { TuiState } from "./types.js";
 import { boldAttr, colors, statusIndicators, STATUS_COLORS_HEX } from "./theme.js";
@@ -38,7 +38,10 @@ function buildHistoryEntries(state: TuiState): HistoryEntry[] {
 
 export function HistoryView({ state, onBack }: HistoryViewProps): ReactNode {
   const { width, height } = useTerminalDimensions();
-  const entries = buildHistoryEntries(state);
+  const entries = useMemo(
+    () => buildHistoryEntries(state),
+    [state.iterationEntries],
+  );
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [detailMode, setDetailMode] = useState(false);
 

@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo, useRef, useEffect, type ReactNode } from "react";
+import { useState, useCallback, useRef, useEffect, type ReactNode } from "react";
 import { useKeyboard, useRenderer } from "@opentui/react";
 import type { TuiState, TuiEngineData, ViewMode, NavMode } from "./types.js";
 import { ExecutionView } from "./ExecutionView.js";
@@ -89,23 +89,13 @@ export function App({
     }
   }, [engineData.completionSummary, engineData.engineState]);
 
-  // Separate state objects per view so inactive view doesn't get new props
-  const executionState: TuiState = useMemo(
-    () => ({ ...engineData, view: "execution" as ViewMode }),
-    [engineData],
-  );
-  const dashboardState: TuiState = useMemo(
-    () => ({ ...engineData, view: "dashboard" as ViewMode }),
-    [engineData],
-  );
-  const historyState: TuiState = useMemo(
-    () => ({ ...engineData, view: "history" as ViewMode }),
-    [engineData],
-  );
-  const configState: TuiState = useMemo(
-    () => ({ ...engineData, view: "config" as ViewMode }),
-    [engineData],
-  );
+  // engineData is a new object every render (rest-spread from props), so
+  // useMemo with [engineData] never caches.  Build state objects inline instead
+  // — the real protection comes from React.memo on child components.
+  const executionState: TuiState = { ...engineData, view: "execution" as ViewMode };
+  const dashboardState: TuiState = { ...engineData, view: "dashboard" as ViewMode };
+  const historyState: TuiState = { ...engineData, view: "history" as ViewMode };
+  const configState: TuiState = { ...engineData, view: "config" as ViewMode };
 
   const handleKeyboard = useCallback(
     (key: { name: string; ctrl?: boolean; meta?: boolean }) => {
