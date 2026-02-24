@@ -54,6 +54,10 @@ export {
 } from "./ai-resolver.js";
 export type { ConflictInfo, AiAgent } from "./ai-resolver.js";
 
+// Conflict resolver (orchestrates three-way merge resolution pipeline)
+export { resolveConflicts, wrapAgentAsAiAgent } from "./conflict-resolver.js";
+export type { ConflictResolutionResult } from "./conflict-resolver.js";
+
 // Worker (wraps Engine for parallel execution)
 export { Worker } from "./worker.js";
 export type {

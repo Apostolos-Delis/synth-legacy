@@ -21,6 +21,7 @@ import {
   deleteTag,
   mergeFF,
 } from "../utils/git.js";
+import { resolveConflicts } from "./conflict-resolver.js";
 
 export interface ParallelCoordinatorConfig {
   maxWorkers?: number;
@@ -199,15 +200,20 @@ export class ParallelCoordinator {
                 timestamp: this.timestamp(),
                 taskId: processed.taskId,
               });
-              // AI resolution not implemented in coordinator — treat as failed
-              const resolved = false;
-              if (resolved) {
+
+              const resolution = await resolveConflicts(
+                processed,
+                this.repoRoot,
+                this.agent,
+              );
+
+              if (resolution.resolved) {
                 this.emit({
                   type: "conflict:resolved",
                   timestamp: this.timestamp(),
                   taskId: processed.taskId,
-                  resolvedCount: processed.conflictedFiles?.length ?? 0,
-                  failedCount: 0,
+                  resolvedCount: resolution.resolvedCount,
+                  failedCount: resolution.failedCount,
                 });
                 mergedTaskIds.push(processed.taskId);
               } else {

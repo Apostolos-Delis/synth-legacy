@@ -1,0 +1,181 @@
+import { writeFileSync, unlinkSync } from "node:fs";
+import { join } from "node:path";
+import { spawn } from "../utils/process.js";
+import type { AgentAdapter } from "../agents/types.js";
+import type { MergeOperation } from "./merge-engine.js";
+import type { AiAgent, ConflictInfo } from "./ai-resolver.js";
+import { resolveWithAi } from "./ai-resolver.js";
+
+export interface ConflictResolutionResult {
+  resolved: boolean;
+  resolvedCount: number;
+  failedCount: number;
+}
+
+const MAX_CONFLICTED_FILES = 10;
+
+export function wrapAgentAsAiAgent(agent: AgentAdapter): AiAgent {
+  return {
+    async resolve(prompt: string, cwd: string): Promise<string> {
+      const handle = agent.execute(prompt, { cwd, skipPermissions: true });
+      const result = await handle.promise;
+      if (result.exitCode !== 0) {
+        throw new Error(`Agent failed with exit code ${result.exitCode}: ${result.stderr}`);
+      }
+      return result.stdout;
+    },
+  };
+}
+
+async function getStageContent(
+  file: string,
+  stage: number,
+  cwd: string,
+): Promise<string> {
+  const handle = spawn({
+    cmd: ["git", "show", `:${stage}:${file}`],
+    cwd,
+  });
+  const result = await handle.promise;
+  if (result.exitCode !== 0) {
+    return "";
+  }
+  return result.stdout;
+}
+
+async function getConflictInfo(
+  file: string,
+  taskId: string,
+  taskTitle: string,
+  cwd: string,
+): Promise<ConflictInfo> {
+  const [base, ours, theirs] = await Promise.all([
+    getStageContent(file, 1, cwd),
+    getStageContent(file, 2, cwd),
+    getStageContent(file, 3, cwd),
+  ]);
+  return { file, base, ours, theirs, taskId, taskTitle };
+}
+
+async function stageResolvedFile(file: string, content: string, cwd: string): Promise<void> {
+  // Write content to a temp file, then hash it into git's object store
+  const tmpPath = join(cwd, `.git/synth-resolve-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  writeFileSync(tmpPath, content);
+
+  const hashHandle = spawn({
+    cmd: ["git", "hash-object", "-w", tmpPath],
+    cwd,
+  });
+  const hashResult = await hashHandle.promise;
+  unlinkSync(tmpPath);
+
+  if (hashResult.exitCode !== 0) {
+    throw new Error(`Failed to hash resolved content for ${file}: ${hashResult.stderr}`);
+  }
+  const blobHash = hashResult.stdout.trim();
+
+  // Get the file mode from the index (use stage 2 = ours)
+  const lsHandle = spawn({
+    cmd: ["git", "ls-files", "--stage", file],
+    cwd,
+  });
+  const lsResult = await lsHandle.promise;
+  const mode = lsResult.exitCode === 0 && lsResult.stdout.trim()
+    ? (lsResult.stdout.trim().split("\t")[0]?.split(" ")[0] || "100644")
+    : "100644";
+
+  // Update the index to resolve the conflict
+  const updateHandle = spawn({
+    cmd: ["git", "update-index", "--cacheinfo", `${mode},${blobHash},${file}`],
+    cwd,
+  });
+  const updateResult = await updateHandle.promise;
+  if (updateResult.exitCode !== 0) {
+    throw new Error(`Failed to stage resolved file ${file}: ${updateResult.stderr}`);
+  }
+
+  // Write the resolved content to the working tree
+  writeFileSync(join(cwd, file), content);
+}
+
+export async function resolveConflicts(
+  operation: MergeOperation,
+  repoRoot: string,
+  agent: AgentAdapter,
+): Promise<ConflictResolutionResult> {
+  const files = operation.conflictedFiles ?? [];
+
+  if (files.length === 0) {
+    return { resolved: false, resolvedCount: 0, failedCount: 0 };
+  }
+
+  // Confidence gating: skip if too many conflicted files
+  if (files.length > MAX_CONFLICTED_FILES) {
+    return { resolved: false, resolvedCount: 0, failedCount: files.length };
+  }
+
+  // Re-start the merge in --no-commit mode so we can resolve in-place
+  const mergeHandle = spawn({
+    cmd: ["git", "merge", "--no-commit", "--no-ff", operation.sourceBranch],
+    cwd: repoRoot,
+  });
+  const mergeResult = await mergeHandle.promise;
+
+  // merge exits non-zero when there are conflicts (exit code 1), which is expected.
+  // If it fails for other reasons, bail out.
+  if (mergeResult.exitCode !== 0 && mergeResult.exitCode !== 1) {
+    await spawn({ cmd: ["git", "merge", "--abort"], cwd: repoRoot }).promise;
+    return { resolved: false, resolvedCount: 0, failedCount: files.length };
+  }
+
+  const aiAgent = wrapAgentAsAiAgent(agent);
+  let resolvedCount = 0;
+  let failedCount = 0;
+
+  for (const file of files) {
+    try {
+      const conflictInfo = await getConflictInfo(
+        file,
+        operation.taskId,
+        operation.taskTitle,
+        repoRoot,
+      );
+
+      const resolvedContent = await resolveWithAi(conflictInfo, aiAgent, repoRoot);
+
+      if (resolvedContent !== null) {
+        await stageResolvedFile(file, resolvedContent, repoRoot);
+        resolvedCount++;
+      } else {
+        failedCount++;
+      }
+    } catch {
+      failedCount++;
+    }
+  }
+
+  if (failedCount > 0) {
+    await spawn({ cmd: ["git", "merge", "--abort"], cwd: repoRoot }).promise;
+    return { resolved: false, resolvedCount, failedCount };
+  }
+
+  // All files resolved — commit the merge
+  const commitHandle = spawn({
+    cmd: [
+      "git",
+      "commit",
+      "--no-edit",
+      "-m",
+      `feat(${operation.taskId}): ${operation.taskTitle} (AI-resolved conflicts)`,
+    ],
+    cwd: repoRoot,
+  });
+  const commitResult = await commitHandle.promise;
+
+  if (commitResult.exitCode !== 0) {
+    await spawn({ cmd: ["git", "merge", "--abort"], cwd: repoRoot }).promise;
+    return { resolved: false, resolvedCount, failedCount: files.length };
+  }
+
+  return { resolved: true, resolvedCount, failedCount: 0 };
+}
