@@ -316,7 +316,7 @@ describe("classifyPrErrorDetail — structured error info", () => {
     const result = classifyPrErrorDetail("zsh: command not found: gh");
     expect(result.errorType).toBe("gh-not-installed");
     expect(result.rawOutput).toBe("zsh: command not found: gh");
-    expect(result.suggestedFix).toContain("brew install gh");
+    expect(result.suggestedFix).toContain("install gh");
   });
 
   test("returns auth-failed for authentication errors", () => {
@@ -400,7 +400,7 @@ describe("FinalizeOrchestrator — inline error display", () => {
     expect(content).toContain("**Finalize failed**");
     expect(content).toContain("gh-not-installed");
     expect(content).toContain("**Suggested fix:**");
-    expect(content).toContain("brew install gh");
+    expect(content).toContain("install gh");
   });
 
   test("error message includes retry and exit options", () => {
