@@ -38,7 +38,7 @@ generateTasks(prd) -> tasks.json
 
 ### ConversationEngine
 
-The interviewer delegates conversation management to a shared `ConversationEngine` (`src/conversation/engine.ts`). The engine handles message history, agent communication, sliding window truncation, and auto-persistence — the interviewer retains only PRD-specific logic (extraction, system prompt, confirmation flow).
+The interviewer delegates conversation management to a shared `ConversationEngine` (`src/conversation/engine.ts`). The engine handles message history, agent communication, and auto-persistence — the interviewer retains only PRD-specific logic (extraction, system prompt, confirmation flow). Full conversation history is always included in every prompt.
 
 ### Starting the Interview
 

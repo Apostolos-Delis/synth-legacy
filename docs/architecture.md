@@ -129,7 +129,7 @@ User input --> Interviewer --> Agent (multi-turn) --> GeneratedPrd
                                                     tasks.json
 ```
 
-The interviewer maintains a sliding window of the last 16 messages (8 turns) to keep context manageable. When the agent emits a JSON-fenced PRD, it's extracted, validated, converted to markdown, and fed to the task planner.
+The interviewer always includes the full conversation history in every request so no context is lost across turns. When the agent emits a JSON-fenced PRD, it's extracted, validated, converted to markdown, and fed to the task planner.
 
 ### 2. Execution Phase
 
