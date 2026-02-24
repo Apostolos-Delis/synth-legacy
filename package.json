@@ -16,7 +16,8 @@
     "typecheck": "tsc --noEmit",
     "lint": "eslint src/",
     "lint:fix": "eslint src/ --fix",
-    "test": "bun test src/__tests__/",
+    "test": "bun test",
+    "test:parallel": "for f in src/parallel/*.test.ts; do bun test ./\"$f\" || exit 1; done",
     "bench": "bun scripts/bench.ts",
     "prepare": "husky"
   },
