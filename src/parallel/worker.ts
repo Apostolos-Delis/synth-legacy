@@ -262,6 +262,15 @@ export class Worker {
     switch (event.type) {
       case "iteration:start":
         this.currentIteration = event.iteration ?? this.currentIteration + 1;
+        this.emitParallel({
+          type: "worker:progress",
+          timestamp: new Date().toISOString(),
+          workerId: this.id,
+          iteration: this.currentIteration,
+          maxIterations: this.maxIterations,
+          elapsedMs: this.startTime > 0 ? Date.now() - this.startTime : 0,
+          status: this.status,
+        });
         break;
       case "agent:stdout":
         if (typeof event.message === "string" && event.message.trim()) {

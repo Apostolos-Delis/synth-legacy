@@ -24,6 +24,16 @@ export interface WorkerFailedEvent {
   workerId: string;
 }
 
+export interface WorkerProgressEvent {
+  type: "worker:progress";
+  timestamp: string;
+  workerId: string;
+  iteration: number;
+  maxIterations: number;
+  elapsedMs: number;
+  status: string;
+}
+
 export interface WorkerOutputEvent {
   type: "worker:output";
   timestamp: string;
@@ -128,6 +138,7 @@ export type ParallelEvent =
   | WorkerStartedEvent
   | WorkerCompletedEvent
   | WorkerFailedEvent
+  | WorkerProgressEvent
   | WorkerOutputEvent
   | MergeQueuedEvent
   | MergeStartedEvent

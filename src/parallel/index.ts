@@ -13,6 +13,7 @@ export type {
   WorkerStartedEvent,
   WorkerCompletedEvent,
   WorkerFailedEvent,
+  WorkerProgressEvent,
   WorkerOutputEvent,
   MergeQueuedEvent,
   MergeStartedEvent,
