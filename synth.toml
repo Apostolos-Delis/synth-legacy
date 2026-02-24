@@ -20,6 +20,9 @@ backpressure_commands = []
 theme = "onedark"
 spinner = "arc"
 
+[parallel]
+enabled = true
+
 [finalize]
 auto_format = true
 split_commits = true

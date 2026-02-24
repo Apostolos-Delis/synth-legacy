@@ -191,6 +191,9 @@ auto_commit = true
 max_consecutive_failures = 3
 backpressure_commands = []
 
+[parallel]
+enabled = true
+
 [finalize]
 auto_format = true
 split_commits = true
