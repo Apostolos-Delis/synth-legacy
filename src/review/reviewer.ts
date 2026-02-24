@@ -3,7 +3,10 @@ import type { ConversationMessage } from "../conversation/types.js";
 import type { TaskFile, Task } from "../tasks/types.js";
 import type { ReviewMessage, ReviewFinding } from "./types.js";
 import { ConversationEngine } from "../conversation/engine.js";
-import { REVIEW_AGENT_SYSTEM_PROMPT, REVIEW_PROMPT_SUFFIX } from "./prompts.js";
+import { loadTemplate } from "../templates/index.js";
+import { REVIEW_TEMPLATE } from "../templates/builtin.js";
+
+const REVIEW_PROMPT_SUFFIX = `Now review all changes made during this session. Use git diff and git log to inspect the actual code changes, cross-reference them against the plan and acceptance criteria above, and output your findings document in the specified markdown format.`;
 
 const SEVERITY_PRIORITY: Record<ReviewFinding["severity"], Task["priority"]> = {
   critical: 1,
@@ -13,6 +16,7 @@ const SEVERITY_PRIORITY: Record<ReviewFinding["severity"], Task["priority"]> = {
 
 export class Reviewer {
   private engine: ConversationEngine;
+  private templateReady: Promise<void>;
 
   constructor(
     agent: AgentAdapter,
@@ -25,20 +29,33 @@ export class Reviewer {
       cwd,
       model,
       readOnly: false,
-      systemPrompt: REVIEW_AGENT_SYSTEM_PROMPT,
+      systemPrompt: REVIEW_TEMPLATE,
       promptSuffix: REVIEW_PROMPT_SUFFIX,
       persist,
     });
+    this.templateReady = this.loadPhaseTemplate(agent.name, cwd);
+  }
+
+  private async loadPhaseTemplate(agentName: string, cwd: string): Promise<void> {
+    const result = await loadTemplate(agentName, cwd, { phase: "review" });
+    this.engine.setSystemPrompt(result.template);
   }
 
   async generateFindings(
     prdContent: string,
     planSummary: string,
     onChunk?: (chunk: string) => void,
+    sessionSlug?: string,
   ): Promise<string> {
-    const prompt =
-      `## Original PRD\n\n${prdContent}\n\n## Plan Summary\n\n${planSummary}`;
-    return this.engine.send(prompt, onChunk);
+    await this.templateReady;
+    const parts = [`## Original PRD\n\n${prdContent}\n\n## Plan Summary\n\n${planSummary}`];
+    if (sessionSlug) {
+      parts.push(
+        `\n\n## Session Context\n\nThis session's commits are tagged with \`[${sessionSlug}]\` in their commit messages.\n` +
+        `Use \`git log --grep="\\\\[${sessionSlug}\\\\]"\` to find session-specific commits, then review those changes.`,
+      );
+    }
+    return this.engine.send(parts.join(""), onChunk);
   }
 
   extractFindings(response: string): ReviewFinding[] {

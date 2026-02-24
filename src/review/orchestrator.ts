@@ -9,6 +9,7 @@ import { Reviewer } from "./reviewer.js";
 import { Engine } from "../engine/engine.js";
 import { saveTasks } from "../tasks/store.js";
 import { ensureDir, readText, writeText, writeJson, fileExists, removeFile } from "../utils/fs.js";
+import { getSessionSlug } from "../sessions/slug.js";
 
 export interface ReviewResult {
   findings: ReviewFinding[];
@@ -81,12 +82,15 @@ export class ReviewOrchestrator {
       ? await readText(this.sessionPaths.progress)
       : "";
 
+    const sessionSlug = await getSessionSlug(this.sessionPaths);
+
     let response: string;
     try {
       response = await reviewer.generateFindings(
         prdContent,
         progressContent,
         onChunk,
+        sessionSlug,
       );
     } catch (err) {
       if (this.stopped) {

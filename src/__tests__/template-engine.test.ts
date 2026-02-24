@@ -1,7 +1,15 @@
 import { describe, test, expect } from "bun:test";
 import { join } from "node:path";
 import { loadTemplate, renderTemplate } from "../templates/engine.js";
-import { getBuiltinTemplate, getBuiltinTemplateOrDefault } from "../templates/builtin.js";
+import {
+  getBuiltinTemplate,
+  getBuiltinTemplateOrDefault,
+  INTERVIEW_TEMPLATE,
+  PLAN_TEMPLATE,
+  REVIEW_TEMPLATE,
+  AUDIT_TEMPLATE,
+  SELF_REVIEW_TEMPLATE,
+} from "../templates/builtin.js";
 import type { TemplateVariables, TemplateLoadResult } from "../templates/types.js";
 import { writeText, ensureDir } from "../utils/fs.js";
 import { withTmpDir } from "./helpers.js";
@@ -199,5 +207,148 @@ describe("renderTemplate", () => {
     expect(result.rendered).toBe("Hello {{#if broken");
     expect(result.source).toBe("project");
     expect(result.path).toBe("/bad/template.hbs");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Phase-aware builtin lookups
+// ---------------------------------------------------------------------------
+
+describe("getBuiltinTemplate — phased keys", () => {
+  test("returns execute/claude for phased key", () => {
+    const t = getBuiltinTemplate("execute/claude");
+    expect(t).not.toBeNull();
+    expect(t).toContain("Agent-Specific Guidance (Claude)");
+  });
+
+  test("returns interview/default", () => {
+    const t = getBuiltinTemplate("interview/default");
+    expect(t).not.toBeNull();
+    expect(t).toBe(INTERVIEW_TEMPLATE);
+  });
+
+  test("returns plan/default", () => {
+    const t = getBuiltinTemplate("plan/default");
+    expect(t).not.toBeNull();
+    expect(t).toBe(PLAN_TEMPLATE);
+  });
+
+  test("returns review/default", () => {
+    const t = getBuiltinTemplate("review/default");
+    expect(t).not.toBeNull();
+    expect(t).toBe(REVIEW_TEMPLATE);
+  });
+
+  test("returns audit/default", () => {
+    const t = getBuiltinTemplate("audit/default");
+    expect(t).not.toBeNull();
+    expect(t).toBe(AUDIT_TEMPLATE);
+  });
+
+  test("returns audit/self-review", () => {
+    const t = getBuiltinTemplate("audit/self-review");
+    expect(t).not.toBeNull();
+    expect(t).toBe(SELF_REVIEW_TEMPLATE);
+  });
+
+  test("backward-compat: un-phased 'claude' still works", () => {
+    const phased = getBuiltinTemplate("execute/claude");
+    const unphased = getBuiltinTemplate("claude");
+    expect(phased).toBe(unphased);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Phase-aware loadTemplate
+// ---------------------------------------------------------------------------
+
+describe("loadTemplate — phase-aware", () => {
+  test("returns phased builtin for execute/claude", async () => {
+    await withTmpDir(async (dir) => {
+      const result = await loadTemplate("claude", dir, { phase: "execute" });
+      expect(result.source).toBe("builtin");
+      expect(result.template).toContain("Agent-Specific Guidance (Claude)");
+    });
+  });
+
+  test("returns interview builtin for interview phase", async () => {
+    await withTmpDir(async (dir) => {
+      const result = await loadTemplate("default", dir, { phase: "interview" });
+      expect(result.source).toBe("builtin");
+      expect(result.template).toBe(INTERVIEW_TEMPLATE);
+    });
+  });
+
+  test("returns plan builtin for plan phase", async () => {
+    await withTmpDir(async (dir) => {
+      const result = await loadTemplate("default", dir, { phase: "plan" });
+      expect(result.source).toBe("builtin");
+      expect(result.template).toBe(PLAN_TEMPLATE);
+    });
+  });
+
+  test("returns audit builtin for audit phase", async () => {
+    await withTmpDir(async (dir) => {
+      const result = await loadTemplate("default", dir, { phase: "audit" });
+      expect(result.source).toBe("builtin");
+      expect(result.template).toBe(AUDIT_TEMPLATE);
+    });
+  });
+
+  test("falls back to phase/default when agent-specific phased template doesn't exist", async () => {
+    await withTmpDir(async (dir) => {
+      const result = await loadTemplate("some-custom-agent", dir, { phase: "interview" });
+      expect(result.source).toBe("builtin-default");
+      expect(result.template).toBe(INTERVIEW_TEMPLATE);
+    });
+  });
+
+  test("phased project template overrides builtin", async () => {
+    await withTmpDir(async (dir) => {
+      const phaseDir = join(dir, "synth-templates", "plan");
+      await ensureDir(phaseDir);
+      await writeText(join(phaseDir, "claude.hbs"), "Custom plan: {{slug}}");
+
+      const result = await loadTemplate("claude", dir, { phase: "plan" });
+      expect(result.source).toBe("project");
+      expect(result.template).toBe("Custom plan: {{slug}}");
+      expect(result.path).toBe(join(phaseDir, "claude.hbs"));
+    });
+  });
+
+  test("phased global template overrides builtin", async () => {
+    await withTmpDir(async (dir) => {
+      const fakeHome = join(dir, "fakehome");
+      const globalPhaseDir = join(fakeHome, ".synth", "templates", "interview");
+      await ensureDir(globalPhaseDir);
+      await writeText(join(globalPhaseDir, "claude.hbs"), "Global interview: {{agentName}}");
+
+      const cwd = join(dir, "project");
+      await ensureDir(cwd);
+
+      const result = await loadTemplate("claude", cwd, { phase: "interview", homeDir: fakeHome });
+      expect(result.source).toBe("global");
+      expect(result.template).toBe("Global interview: {{agentName}}");
+    });
+  });
+
+  test("un-phased project template still works as fallback for execute phase", async () => {
+    await withTmpDir(async (dir) => {
+      const templateDir = join(dir, "synth-templates");
+      await ensureDir(templateDir);
+      await writeText(join(templateDir, "claude.hbs"), "Legacy project template");
+
+      const result = await loadTemplate("claude", dir, { phase: "execute" });
+      expect(result.source).toBe("project");
+      expect(result.template).toBe("Legacy project template");
+    });
+  });
+
+  test("no phase behaves like legacy (backward compat)", async () => {
+    await withTmpDir(async (dir) => {
+      const result = await loadTemplate("claude", dir);
+      expect(result.source).toBe("builtin");
+      expect(result.template).toContain("Agent-Specific Guidance (Claude)");
+    });
   });
 });

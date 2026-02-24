@@ -5,7 +5,7 @@ import type { SessionPaths } from "../sessions/types.js";
 import { fileExists, readText } from "../utils/fs.js";
 import { globalTrace } from "../utils/perf.js";
 import { loadTemplate, renderTemplate } from "../templates/index.js";
-import type { TemplateVariables } from "../templates/index.js";
+import type { TemplatePhase, TemplateVariables } from "../templates/index.js";
 
 interface CacheEntry {
   content: string;
@@ -57,6 +57,7 @@ export async function buildPrompt(
   agentName?: string,
   sessionSlug?: string,
   templatePath?: string,
+  phase?: TemplatePhase,
 ): Promise<string> {
   const trace = globalTrace();
   const sections: string[] = [];
@@ -86,7 +87,7 @@ export async function buildPrompt(
 
   // 3. Load and render the template
   trace.startPhase("build:template");
-  const loadResult = await loadTemplate(agent, cwd, templatePath);
+  const loadResult = await loadTemplate(agent, cwd, templatePath ? templatePath : { phase: phase ?? "execute" });
   const variables: TemplateVariables = {
     agentName: agent,
     cwd,

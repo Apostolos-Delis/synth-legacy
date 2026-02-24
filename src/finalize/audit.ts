@@ -1,4 +1,6 @@
 import type { AgentAdapter } from "../agents/types.js";
+import { loadTemplate } from "../templates/index.js";
+import { truncateDiff } from "../utils/git.js";
 
 export type AuditVerdict = "pass" | "warn" | "fail";
 
@@ -38,43 +40,6 @@ export function validateFinding(obj: unknown): AuditFinding | null {
   };
 }
 
-const AUDIT_PROMPT = `You are auditing code changes against a Product Requirements Document (PRD).
-
-Compare the git diff against the PRD goals and user stories below. For each user story in the PRD, determine whether the code changes satisfy it. Also identify any bugs, regressions, or missing tests in the changed code.
-
-Output ONLY a JSON object (no markdown fences, no explanation):
-
-{
-  "overall": "pass|warn|fail",
-  "stories": [
-    {
-      "story": "user story title or ID",
-      "verdict": "pass|warn|fail",
-      "notes": "brief explanation"
-    }
-  ],
-  "findings": [
-    {
-      "severity": "critical|high|medium|low",
-      "file": "path/to/file.ts",
-      "line": 42,
-      "description": "what the issue is and why it matters",
-      "suggestedFix": "how to fix it"
-    }
-  ],
-  "summary": "one paragraph summary of the audit"
-}
-
-Rules:
-- "pass" = story is fully addressed by the changes
-- "warn" = story is partially addressed or has minor gaps
-- "fail" = story is not addressed or has significant gaps
-- "overall" is "pass" if all stories pass, "warn" if any warn, "fail" if any fail
-- Order findings by severity: critical first, then high, medium, low
-- Prioritize bugs, regressions, and missing tests over style issues
-- Each finding MUST include file path, line number, description, and suggested fix
-- If no issues are found, return an empty findings array and state in the summary that the changes are clean`;
-
 export async function prdAudit(
   agent: AgentAdapter,
   prd: string,
@@ -82,7 +47,8 @@ export async function prdAudit(
   cwd: string,
   model?: string,
 ): Promise<AuditResult> {
-  const prompt = `${AUDIT_PROMPT}\n\nPRD:\n\`\`\`\n${prd.slice(0, 30000)}\n\`\`\`\n\nGit diff:\n\`\`\`\n${diff.slice(0, 50000)}\n\`\`\``;
+  const templateResult = await loadTemplate(agent.name, cwd, { phase: "audit" });
+  const prompt = `${templateResult.template}\n\nPRD:\n\`\`\`\n${prd.slice(0, 30000)}\n\`\`\`\n\nGit diff:\n\`\`\`\n${truncateDiff(diff)}\n\`\`\``;
 
   let output = "";
   const handle = agent.execute(prompt, {

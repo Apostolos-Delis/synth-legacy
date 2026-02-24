@@ -1,45 +1,8 @@
 import type { TaskFile } from "./types.js";
 import type { AgentAdapter } from "../agents/types.js";
 import { readText, fileExists } from "../utils/fs.js";
-
-function buildPlannerPrompt(taskPrefix: string): string {
-  return `You are a task planner. Given a PRD (Product Requirements Document), generate a structured task list.
-
-Output ONLY a JSON object with this exact structure (no markdown fences, no explanation):
-
-{
-  "project": "<project name>",
-  "branchName": "<branch name>",
-  "description": "<brief description>",
-  "tasks": [
-    {
-      "id": "${taskPrefix}-001",
-      "title": "<task title>",
-      "description": "<what to implement>",
-      "acceptanceCriteria": ["<criterion 1>", "<criterion 2>"],
-      "verification": [{"type": "command", "value": "bun run typecheck"}],
-      "priority": 1,
-      "status": "open",
-      "affects": ["src/foo.ts", "src/bar/"],
-      "dependsOn": [],
-      "notes": "",
-      "iterationCount": 0
-    }
-  ]
-}
-
-Rules:
-- IDs follow the pattern ${taskPrefix}-001, ${taskPrefix}-002, etc.
-- Priority 1 = highest (do first), 5 = lowest
-- Set dependsOn to IDs of tasks that must complete first
-- Each task should be completable in one agent iteration (~10 min)
-- Include verification commands when possible (typecheck, lint, test)
-- Keep tasks focused: one logical change per task
-- Order by dependency chain, then priority
-- Set "affects" to the list of files and directories each task will create or modify (e.g. ["src/foo.ts", "src/bar/"]). This is used to detect conflicts between tasks.
-- Design tasks to be atomic and independent: each task should touch a minimal, well-scoped set of files and avoid overlapping with other tasks' affected files.
-- The more tasks that are independent (no shared dependsOn, no overlapping affects), the more tasks can be executed in parallel — so prefer splitting work into small, non-overlapping units.`;
-}
+import { loadTemplate, renderTemplate } from "../templates/index.js";
+import type { TemplateVariables } from "../templates/index.js";
 
 export interface GenerateTasksOptions {
   model?: string;
@@ -60,7 +23,23 @@ export async function generateTasks(
     throw new Error(`PRD file not found: ${prdPath}. Run 'synth start' to generate one.`);
   }
   const prd = await readText(prdPath);
-  const prompt = `${buildPlannerPrompt(taskPrefix ?? "US")}
+
+  const templateResult = await loadTemplate(agent.name, cwd, { phase: "plan" });
+  const rendered = renderTemplate(templateResult, {
+    agentName: agent.name,
+    cwd,
+    currentDate: new Date().toISOString().slice(0, 10),
+    slug: "",
+    taskId: "",
+    taskTitle: "",
+    taskDescription: "",
+    acceptanceCriteria: [],
+    priority: 0,
+    iteration: 0,
+    taskPrefix: taskPrefix ?? "US",
+  } as TemplateVariables & { taskPrefix: string });
+
+  const prompt = `${rendered.rendered}
 
 Project: ${projectName}
 Branch: ${branchName}

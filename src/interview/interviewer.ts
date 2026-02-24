@@ -2,7 +2,8 @@ import type { AgentAdapter } from "../agents/types.js";
 import type { InterviewMessage } from "./types.js";
 import type { ConversationMessage } from "../conversation/types.js";
 import { ConversationEngine } from "../conversation/engine.js";
-import { INTERVIEWER_SYSTEM_PROMPT } from "./prompts.js";
+import { loadTemplate } from "../templates/index.js";
+import { INTERVIEW_TEMPLATE } from "../templates/builtin.js";
 
 export const WELCOME_MESSAGE =
   "I'll help you create a PRD. What do you want to build? " +
@@ -10,6 +11,7 @@ export const WELCOME_MESSAGE =
 
 export class Interviewer {
   private engine: ConversationEngine;
+  private templateReady: Promise<void>;
 
   constructor(
     agent: AgentAdapter,
@@ -22,13 +24,20 @@ export class Interviewer {
       cwd,
       model,
       readOnly: true,
-      systemPrompt: INTERVIEWER_SYSTEM_PROMPT,
+      systemPrompt: INTERVIEW_TEMPLATE,
       promptSuffix: "Continue the interview. Prefer inferring implementation details from context over asking the user. If you can confidently address all checklist areas, write the complete PRD starting with a level-1 heading.",
       persist,
     });
+    this.templateReady = this.loadPhaseTemplate(agent.name ?? "default", cwd);
+  }
+
+  private async loadPhaseTemplate(agentName: string, cwd: string): Promise<void> {
+    const result = await loadTemplate(agentName, cwd, { phase: "interview" });
+    this.engine.setSystemPrompt(result.template);
   }
 
   async respond(userMessage: string, onChunk?: (chunk: string) => void): Promise<string> {
+    await this.templateReady;
     return this.engine.send(userMessage, onChunk);
   }
 

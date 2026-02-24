@@ -4,6 +4,7 @@ import Handlebars from "handlebars";
 import { fileExists, readText } from "../utils/fs.js";
 import { getBuiltinTemplate, getBuiltinTemplateOrDefault } from "./builtin.js";
 import type {
+  TemplatePhase,
   TemplateVariables,
   TemplateLoadResult,
   TemplateRenderResult,
@@ -22,6 +23,7 @@ function compile(template: string): HandlebarsTemplateDelegate {
 export interface LoadTemplateOptions {
   explicitPath?: string;
   homeDir?: string;
+  phase?: TemplatePhase;
 }
 
 export async function loadTemplate(
@@ -34,6 +36,8 @@ export async function loadTemplate(
       ? { explicitPath: explicitPathOrOptions }
       : explicitPathOrOptions ?? {};
 
+  const { phase } = opts;
+
   // 1. Explicit path override (from config)
   if (opts.explicitPath) {
     if (await fileExists(opts.explicitPath)) {
@@ -45,7 +49,33 @@ export async function loadTemplate(
     }
   }
 
-  // 2. Project-level: ./synth-templates/{agent}.hbs
+  const home = opts.homeDir ?? homedir();
+
+  // 2. Phase-aware filesystem lookup (when phase is specified)
+  if (phase) {
+    // 2a. Project-level: ./synth-templates/{phase}/{agent}.hbs
+    const phasedProjectPath = join(cwd, "synth-templates", phase, `${agentName}.hbs`);
+    if (await fileExists(phasedProjectPath)) {
+      return {
+        source: "project",
+        path: phasedProjectPath,
+        template: await readText(phasedProjectPath),
+      };
+    }
+
+    // 2b. Global: ~/.synth/templates/{phase}/{agent}.hbs
+    const phasedGlobalPath = join(home, ".synth", "templates", phase, `${agentName}.hbs`);
+    if (await fileExists(phasedGlobalPath)) {
+      return {
+        source: "global",
+        path: phasedGlobalPath,
+        template: await readText(phasedGlobalPath),
+      };
+    }
+  }
+
+  // 3. Legacy (un-phased) filesystem lookup
+  // ./synth-templates/{agent}.hbs
   const projectPath = join(cwd, "synth-templates", `${agentName}.hbs`);
   if (await fileExists(projectPath)) {
     return {
@@ -55,8 +85,7 @@ export async function loadTemplate(
     };
   }
 
-  // 3. Global: ~/.synth/templates/{agent}.hbs
-  const home = opts.homeDir ?? homedir();
+  // ~/.synth/templates/{agent}.hbs
   const globalPath = join(home, ".synth", "templates", `${agentName}.hbs`);
   if (await fileExists(globalPath)) {
     return {
@@ -66,13 +95,27 @@ export async function loadTemplate(
     };
   }
 
-  // 4. Built-in for this agent
+  // 4. Built-in lookup: {phase}/{agent} → {phase}/default → legacy {agent} → legacy default
+  if (phase) {
+    const phasedKey = `${phase}/${agentName}`;
+    const phasedBuiltin = getBuiltinTemplate(phasedKey);
+    if (phasedBuiltin) {
+      return { source: "builtin", template: phasedBuiltin };
+    }
+
+    const phasedDefault = getBuiltinTemplate(`${phase}/default`);
+    if (phasedDefault) {
+      return { source: "builtin-default", template: phasedDefault };
+    }
+  }
+
+  // 5. Legacy built-in for this agent
   const builtin = getBuiltinTemplate(agentName);
   if (builtin) {
     return { source: "builtin", template: builtin };
   }
 
-  // 5. Default built-in fallback
+  // 6. Default built-in fallback
   return {
     source: "builtin-default",
     template: getBuiltinTemplateOrDefault(agentName),

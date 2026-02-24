@@ -255,6 +255,83 @@ export async function gitLog(
   return result.stdout.trim();
 }
 
+export const MAX_DIFF_SIZE = 500_000;
+
+export interface SessionDiffResult {
+  diff: string;
+  sessionScoped: boolean;
+}
+
+export async function getSessionCommits(
+  cwd: string,
+  baseBranch: string,
+  slug: string,
+): Promise<string[]> {
+  const result = await spawn({
+    cmd: ["git", "log", `${baseBranch}..HEAD`, `--grep=\\[${slug}\\]`, "--format=%H"],
+    cwd,
+  }).promise;
+  if (result.exitCode !== 0) return [];
+  return result.stdout
+    .trim()
+    .split("\n")
+    .filter((line) => line.length > 0);
+}
+
+export async function getSessionDiff(
+  cwd: string,
+  baseBranch: string,
+  slug?: string,
+): Promise<SessionDiffResult> {
+  if (slug && slug !== "synth") {
+    // Find files touched by session commits
+    const filesResult = await spawn({
+      cmd: [
+        "git", "log", `${baseBranch}..HEAD`,
+        `--grep=\\[${slug}\\]`,
+        "--name-only", "--format=",
+      ],
+      cwd,
+    }).promise;
+
+    if (filesResult.exitCode === 0 && filesResult.stdout.trim()) {
+      const files = [...new Set(
+        filesResult.stdout.trim().split("\n").filter((f) => f.length > 0),
+      )];
+
+      if (files.length > 0) {
+        const diffResult = await spawn({
+          cmd: ["git", "diff", `${baseBranch}...HEAD`, "--", ...files],
+          cwd,
+        }).promise;
+
+        if (diffResult.exitCode === 0) {
+          return { diff: diffResult.stdout, sessionScoped: true };
+        }
+      }
+    }
+  }
+
+  // Fallback: full branch diff
+  const diffResult = await spawn({
+    cmd: ["git", "diff", `${baseBranch}...HEAD`],
+    cwd,
+  }).promise;
+
+  return {
+    diff: diffResult.exitCode === 0 ? diffResult.stdout : "",
+    sessionScoped: false,
+  };
+}
+
+export function truncateDiff(diff: string, maxSize: number = MAX_DIFF_SIZE): string {
+  if (diff.length <= maxSize) return diff;
+  return (
+    diff.slice(0, maxSize) +
+    `\n\n[... diff truncated at ${maxSize} characters — ${diff.length - maxSize} characters omitted]`
+  );
+}
+
 export async function listWorktrees(cwd: string): Promise<WorktreeInfo[]> {
   const result = await spawn({
     cmd: ["git", "worktree", "list", "--porcelain"],

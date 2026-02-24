@@ -300,6 +300,7 @@ export class Engine {
         this.config.agent.name,
         this.sessionSlug,
         this.config.template?.path,
+        "execute",
       );
       trace.endPhase("engine:prompt-build");
 

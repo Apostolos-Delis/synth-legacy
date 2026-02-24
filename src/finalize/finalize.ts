@@ -9,7 +9,8 @@ import { createPr, generatePrBody, getDiffStats } from "./pr.js";
 import { prdAudit, formatAuditReport, type AuditResult } from "./audit.js";
 import { spawn } from "../utils/process.js";
 import { fileExists, readText } from "../utils/fs.js";
-import { getCurrentBranch } from "../utils/git.js";
+import { getCurrentBranch, getSessionDiff } from "../utils/git.js";
+import { getSessionSlug } from "../sessions/slug.js";
 
 export interface FinalizeResult {
   findings: ReviewFinding[];
@@ -32,16 +33,13 @@ export async function finalize(
   let formatted = false;
   let commitCount = 0;
 
+  const slug = await getSessionSlug(sessionPaths);
+  const { diff: sessionDiff } = await getSessionDiff(cwd, config.project.base_branch, slug);
+
   // 1. Self-review
   if (config.finalize.self_review) {
-    const diffHandle = spawn({
-      cmd: ["git", "diff", `${config.project.base_branch}...HEAD`],
-      cwd,
-    });
-    const diffResult = await diffHandle.promise;
-
-    if (diffResult.stdout.trim()) {
-      findings = await selfReview(agent, diffResult.stdout, cwd, config.agent.model);
+    if (sessionDiff.trim()) {
+      findings = await selfReview(agent, sessionDiff, cwd, config.agent.model);
 
       // Check for critical findings
       const criticals = findings.filter((f) => f.severity === "critical");
@@ -64,14 +62,9 @@ export async function finalize(
   const prdExists = await fileExists(sessionPaths.prd);
   if (prdExists) {
     const prdContent = await readText(sessionPaths.prd);
-    const diffHandle = spawn({
-      cmd: ["git", "diff", `${config.project.base_branch}...HEAD`],
-      cwd,
-    });
-    const diffResult = await diffHandle.promise;
 
-    if (diffResult.stdout.trim()) {
-      audit = await prdAudit(agent, prdContent, diffResult.stdout, cwd, config.agent.model);
+    if (sessionDiff.trim()) {
+      audit = await prdAudit(agent, prdContent, sessionDiff, cwd, config.agent.model);
 
       // Display audit results
       console.log("\n" + formatAuditReport(audit));

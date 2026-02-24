@@ -388,10 +388,12 @@ export class FinalizeOrchestrator {
     });
 
     // Build the audit context from git diff + task file
+    const slug = await getSessionSlug(sessionPaths);
     const auditContext = await buildAuditContext(
       sessionPaths,
       cwd,
       config.project.base_branch,
+      slug,
     );
 
     const userPrompt = buildInitialAuditPrompt(auditContext);

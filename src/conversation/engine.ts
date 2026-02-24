@@ -17,7 +17,7 @@ export class ConversationEngine {
   private readonly cwd: string;
   private readonly model?: string;
   private readonly readOnly: boolean;
-  private readonly systemPrompt: string;
+  private systemPrompt: string;
   private readonly promptSuffix: string;
   private readonly persist?: (messages: ConversationMessage[]) => void | Promise<void>;
 
@@ -29,6 +29,10 @@ export class ConversationEngine {
     this.systemPrompt = config.systemPrompt;
     this.promptSuffix = config.promptSuffix ?? "";
     this.persist = config.persist;
+  }
+
+  setSystemPrompt(prompt: string): void {
+    this.systemPrompt = prompt;
   }
 
   async send(userMessage: string, onChunk?: (chunk: string) => void): Promise<string> {

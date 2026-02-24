@@ -1,4 +1,6 @@
 import type { AgentAdapter } from "../agents/types.js";
+import { loadTemplate } from "../templates/index.js";
+import { truncateDiff } from "../utils/git.js";
 
 export interface ReviewFinding {
   perspective: "developer" | "security" | "testing";
@@ -6,32 +8,14 @@ export interface ReviewFinding {
   message: string;
 }
 
-const REVIEW_PROMPT = `You are reviewing code changes from multiple perspectives. Analyze the git diff below and provide findings.
-
-Output ONLY a JSON array of findings (no markdown fences, no explanation):
-
-[
-  {
-    "perspective": "developer|security|testing",
-    "severity": "critical|warning|info",
-    "message": "description of the finding"
-  }
-]
-
-Review from three perspectives:
-1. **Developer**: structure, performance, conventions, code quality
-2. **Security**: secrets, validation, OWASP top 10, injection risks
-3. **Testing**: coverage, edge cases, missing tests
-
-If everything looks good, return an empty array: []`;
-
 export async function selfReview(
   agent: AgentAdapter,
   diff: string,
   cwd: string,
   model?: string,
 ): Promise<ReviewFinding[]> {
-  const prompt = `${REVIEW_PROMPT}\n\nGit diff:\n\`\`\`\n${diff.slice(0, 50000)}\n\`\`\``;
+  const templateResult = await loadTemplate("self-review", cwd, { phase: "audit" });
+  const prompt = `${templateResult.template}\n\nGit diff:\n\`\`\`\n${truncateDiff(diff)}\n\`\`\``;
 
   let output = "";
   const handle = agent.execute(prompt, {

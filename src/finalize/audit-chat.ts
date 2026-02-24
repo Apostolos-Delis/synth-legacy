@@ -1,10 +1,8 @@
 import type { SessionPaths } from "../sessions/types.js";
 import type { TaskFile } from "../tasks/types.js";
-import { spawn } from "../utils/process.js";
 import { loadTasks } from "../tasks/store.js";
 import { fileExists } from "../utils/fs.js";
-
-const MAX_DIFF_SIZE = 50_000;
+import { getSessionDiff, MAX_DIFF_SIZE } from "../utils/git.js";
 
 export interface AuditContext {
   diff: string;
@@ -17,14 +15,10 @@ export async function buildAuditContext(
   sessionPaths: SessionPaths,
   cwd: string,
   baseBranch: string,
+  slug?: string,
 ): Promise<AuditContext> {
-  // Gather git diff
-  const diffHandle = spawn({
-    cmd: ["git", "diff", `${baseBranch}...HEAD`],
-    cwd,
-  });
-  const diffResult = await diffHandle.promise;
-  const diff = diffResult.exitCode === 0 ? diffResult.stdout : "";
+  // Gather session-scoped git diff
+  const { diff } = await getSessionDiff(cwd, baseBranch, slug);
 
   // Load task file
   let taskFile: TaskFile | null = null;

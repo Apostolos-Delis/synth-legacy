@@ -1,3 +1,5 @@
+export type TemplatePhase = "interview" | "plan" | "execute" | "review" | "audit";
+
 export interface TemplateVariables {
   agentName: string;
   model?: string;
