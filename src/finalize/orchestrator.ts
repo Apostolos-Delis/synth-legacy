@@ -32,7 +32,6 @@ export interface GitOps {
   getCurrentBranch(cwd: string): Promise<string>;
 }
 
-
 const OPTION_CLOSED_RE = /\[OPTION(\*?)\]([^[]*)\[\/OPTION\]/g;
 const OPTION_UNCLOSED_RE = /\[OPTION(\*?)\]([^\n]*)/g;
 const OPTION_ORPHAN_CLOSE_RE = /\[\/OPTION\]/g;
