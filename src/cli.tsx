@@ -95,7 +95,7 @@ async function loadTui() {
   return { createCliRenderer, createRoot, App, InterviewApp, GeneratingView, ReviewView, FinalizeApp, PrdReviewView };
 }
 
-const VERSION = "0.7.3";
+const VERSION = "0.7.4";
 const REPO = "Apostolos-Delis/synth";
 
 const cwd = process.cwd();
