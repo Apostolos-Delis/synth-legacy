@@ -593,9 +593,11 @@ async function cmdRun(sessionId?: string, startIteration = 0, tuiContext?: TuiCo
       let parallelRenderer: Awaited<ReturnType<typeof import("@opentui/core")["createCliRenderer"]>> | null = null;
       let parallelRoot: ReturnType<typeof import("@opentui/react")["createRoot"]> | null = null;
       let parallelOwnsRenderer = !tuiContext;
+      let parallelDestroyed = false;
 
       if (tuiEnabled) {
         const { createInitialTuiState, applyParallelEvent } = await import("./finalize/parallel-bridge.js");
+        const { ParallelBridge } = await import("./tui/ParallelBridge.js");
         const tui = await loadTui();
         if (tuiContext) {
           parallelRenderer = tuiContext.renderer;
@@ -633,26 +635,22 @@ async function cmdRun(sessionId?: string, startIteration = 0, tuiContext?: TuiCo
 
         const parallelState = createInitialTuiState(actionableTasks.length);
 
-        const renderParallelTui = () => {
-          parallelRoot!.render(
-            <tui.App
-              {...parallelTuiData}
-              parallel={parallelState.header}
-              workers={parallelState.workers}
-              mergeItems={parallelState.mergeItems}
-              conflict={parallelState.conflict}
-              onQuit={() => coordinator.abort()}
-            />,
-          );
-        };
+        // Render ONCE — the bridge manages its own re-renders via _notify
+        parallelRoot!.render(
+          <ParallelBridge
+            tuiData={parallelTuiData}
+            parallelState={parallelState}
+            onQuit={() => coordinator.abort()}
+          />,
+        );
 
         let parallelRenderScheduled = false;
-        const renderParallelTuiThrottled = () => {
-          if (parallelRenderScheduled) return;
+        const notifyParallelTuiThrottled = () => {
+          if (parallelDestroyed || parallelRenderScheduled) return;
           parallelRenderScheduled = true;
           setTimeout(() => {
             parallelRenderScheduled = false;
-            renderParallelTui();
+            if (!parallelDestroyed) parallelTuiData._notify?.();
           }, 16);
         };
 
@@ -666,10 +664,8 @@ async function cmdRun(sessionId?: string, startIteration = 0, tuiContext?: TuiCo
             const taskId = (event as { taskId: string }).taskId;
             parallelTuiData.taskOutputMap[taskId] = (parallelTuiData.taskOutputMap[taskId] ?? "") + (event as { message: string }).message;
           }
-          renderParallelTuiThrottled();
+          notifyParallelTuiThrottled();
         });
-
-        renderParallelTui();
       } else {
         attachParallelLogger(coordinator.on.bind(coordinator), plan.paths.logs);
 
@@ -725,6 +721,7 @@ async function cmdRun(sessionId?: string, startIteration = 0, tuiContext?: TuiCo
           );
         }
       } finally {
+        parallelDestroyed = true;
         await runMod.releaseLock(plan.paths);
         if (parallelOwnsRenderer) {
           try {
@@ -2442,29 +2439,27 @@ async function cmdFinalize(
               fallbackAgent: null,
             });
 
+            const { ParallelBridge } = await import("./tui/ParallelBridge.js");
             const tuiData = buildFixTuiData(tasks, config, plan!.metadata.id, "Parallel fix execution");
             const parallelState = createInitialTuiState(tasks.length);
+            let parallelDestroyed = false;
 
-            const renderParallelTui = () => {
-              root!.render(
-                <tui.App
-                  {...tuiData}
-                  parallel={parallelState.header}
-                  workers={parallelState.workers}
-                  mergeItems={parallelState.mergeItems}
-                  conflict={parallelState.conflict}
-                  onQuit={() => coordinator.abort()}
-                />,
-              );
-            };
+            // Render ONCE — the bridge manages its own re-renders via _notify
+            root!.render(
+              <ParallelBridge
+                tuiData={tuiData}
+                parallelState={parallelState}
+                onQuit={() => coordinator.abort()}
+              />,
+            );
 
             let parallelRenderScheduled = false;
-            const renderParallelTuiThrottled = () => {
-              if (parallelRenderScheduled) return;
+            const notifyParallelTuiThrottled = () => {
+              if (parallelDestroyed || parallelRenderScheduled) return;
               parallelRenderScheduled = true;
               setTimeout(() => {
                 parallelRenderScheduled = false;
-                renderParallelTui();
+                if (!parallelDestroyed) tuiData._notify?.();
               }, 16);
             };
 
@@ -2478,16 +2473,15 @@ async function cmdFinalize(
                 const taskId = event.taskId;
                 tuiData.taskOutputMap[taskId] = (tuiData.taskOutputMap[taskId] ?? "") + event.message;
               }
-              renderParallelTuiThrottled();
+              notifyParallelTuiThrottled();
             });
-
-            renderParallelTui();
 
             process.off("SIGINT", sigintHandler);
             let result;
             try {
               result = await coordinator.run();
             } finally {
+              parallelDestroyed = true;
               process.on("SIGINT", sigintHandler);
             }
 
@@ -2505,30 +2499,30 @@ async function cmdFinalize(
             }
           } else {
             // ── Serial execution TUI ──
+            const { SerialBridge } = await import("./tui/ParallelBridge.js");
             const tuiData = buildFixTuiData(tasks, config, plan!.metadata.id, "Serial fix execution");
+            let serialDestroyed = false;
+
+            // Render ONCE — the bridge manages its own re-renders via _notify
+            root!.render(
+              <SerialBridge
+                tuiData={tuiData}
+                onQuit={() => {
+                  cleanup();
+                  process.exit(0);
+                }}
+              />,
+            );
 
             let serialRenderScheduled = false;
-            const renderSerialTui = () => {
-              root!.render(
-                <tui.App
-                  {...tuiData}
-                  onQuit={() => {
-                    cleanup();
-                    process.exit(0);
-                  }}
-                />,
-              );
-            };
-            const renderSerialTuiThrottled = () => {
-              if (serialRenderScheduled) return;
+            const notifySerialTuiThrottled = () => {
+              if (serialDestroyed || serialRenderScheduled) return;
               serialRenderScheduled = true;
               setTimeout(() => {
                 serialRenderScheduled = false;
-                renderSerialTui();
+                if (!serialDestroyed) tuiData._notify?.();
               }, 16);
             };
-
-            renderSerialTui();
 
             // Run fixes serially, updating TUI state as each fix progresses
             await orchestrator.executeFixes(agent, config, plan!.paths, (msg) => {
@@ -2569,8 +2563,10 @@ async function cmdFinalize(
                 }
               }
 
-              renderSerialTuiThrottled();
+              notifySerialTuiThrottled();
             });
+
+            serialDestroyed = true;
           }
 
           // Loop back → remounts FinalizeApp at recheck/PR phase

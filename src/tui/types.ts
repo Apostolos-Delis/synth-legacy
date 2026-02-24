@@ -50,6 +50,7 @@ export interface TuiEngineData {
   iterationEntries: { iteration: number; taskId: string; status: string; timestamp: number }[];
   configDisplay: string;
   tokenUsage: TokenUsageData;
+  _notify?: () => void;
 }
 
 export interface TuiState extends TuiEngineData {
