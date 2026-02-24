@@ -44,4 +44,7 @@ export interface SynthConfig {
   notifications?: {
     enabled?: boolean;
   };
+  template?: {
+    path?: string;
+  };
 }

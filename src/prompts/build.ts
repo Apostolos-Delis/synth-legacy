@@ -2,9 +2,10 @@ import { join } from "node:path";
 import { stat } from "node:fs/promises";
 import type { Task } from "../tasks/types.js";
 import type { SessionPaths } from "../sessions/types.js";
-import { buildIterationInstructions } from "./instructions.js";
 import { fileExists, readText } from "../utils/fs.js";
 import { globalTrace } from "../utils/perf.js";
+import { loadTemplate, renderTemplate } from "../templates/index.js";
+import type { TemplateVariables } from "../templates/index.js";
 
 interface CacheEntry {
   content: string;
@@ -35,29 +36,17 @@ async function safeReadText(path: string): Promise<string | null> {
   return null;
 }
 
-function getAgentSpecificInstructions(agentName: string): string | null {
-  switch (agentName) {
-    case "claude":
-      return `## Agent-Specific Guidance (Claude)
+function extractCodebasePatterns(progress: string): string | undefined {
+  const patternsMatch = progress.match(
+    /## Codebase Patterns\n([\s\S]*?)(?=\n## (?!Codebase)|\n---|\Z)/,
+  );
+  return patternsMatch ? patternsMatch[1].trim() : undefined;
+}
 
-- Use the Task tool with subagent_type to delegate independent sub-tasks in parallel
-- Prefer Glob/Grep/Read over Bash for file operations — dedicated tools give better output
-- When exploring unfamiliar code, use the Explore agent rather than manual grep chains
-- For multi-file changes, use parallel tool calls when edits are independent
-- Mark ac-done markers immediately after completing each acceptance criterion`;
-
-    case "codex":
-      return `## Agent-Specific Guidance (Codex)
-
-- Use the apply patch tool for multi-line edits — it handles conflict resolution automatically
-- Prefer structured tool output over shell pipelines for file reads and searches
-- When running verification commands, chain them with && to fail fast on first error
-- Keep shell commands simple and atomic — avoid complex piped expressions
-- Write file contents directly rather than using echo/cat with heredocs`;
-
-    default:
-      return null;
-  }
+function extractRecentProgress(progress: string): string | undefined {
+  const entries = progress.split("\n---\n").filter((e) => e.trim());
+  const recent = entries.slice(-5).join("\n---\n");
+  return recent.trim() || undefined;
 }
 
 export async function buildPrompt(
@@ -67,22 +56,13 @@ export async function buildPrompt(
   iteration: number,
   agentName?: string,
   sessionSlug?: string,
+  templatePath?: string,
 ): Promise<string> {
   const trace = globalTrace();
   const sections: string[] = [];
+  const agent = agentName ?? "default";
 
-  // 1. Instructions
-  sections.push(buildIterationInstructions(sessionSlug));
-
-  // 1b. Agent-specific instructions (injected after generic instructions)
-  if (agentName) {
-    const agentInstructions = getAgentSpecificInstructions(agentName);
-    if (agentInstructions) {
-      sections.push(agentInstructions);
-    }
-  }
-
-  // 2 & 3. Read AGENTS.md and progress.md concurrently
+  // 1. Read AGENTS.md and progress.md concurrently (needed for template variables)
   trace.startPhase("build:read-files");
   const agentsPath = join(cwd, "AGENTS.md");
   const [agents, progress] = await Promise.all([
@@ -91,33 +71,59 @@ export async function buildPrompt(
   ]);
   trace.endPhase("build:read-files");
 
+  // 2. Extract patterns and progress
+  let codebasePatterns: string | undefined;
+  let recentProgress: string | undefined;
+  if (progress) {
+    trace.startPhase("build:extract-codebase-patterns");
+    codebasePatterns = extractCodebasePatterns(progress);
+    trace.endPhase("build:extract-codebase-patterns");
+
+    trace.startPhase("build:extract-recent-progress");
+    recentProgress = extractRecentProgress(progress);
+    trace.endPhase("build:extract-recent-progress");
+  }
+
+  // 3. Load and render the template
+  trace.startPhase("build:template");
+  const loadResult = await loadTemplate(agent, cwd, templatePath);
+  const variables: TemplateVariables = {
+    agentName: agent,
+    cwd,
+    currentDate: new Date().toISOString().slice(0, 10),
+    slug: sessionSlug || "session-slug",
+    taskId: task.id,
+    taskTitle: task.title,
+    taskDescription: task.description,
+    acceptanceCriteria: task.acceptanceCriteria,
+    priority: task.priority,
+    iteration,
+    projectContext: agents ?? undefined,
+    codebasePatterns,
+    recentProgress,
+    verification: task.verification,
+    notes: task.notes,
+  };
+  const { rendered } = renderTemplate(loadResult, variables);
+  sections.push(rendered);
+  trace.endPhase("build:template");
+
+  // 4. Append contextual sections (AGENTS.md, patterns, progress)
   if (agents) {
     sections.push(`## Project Context (AGENTS.md)\n\n${agents}`);
   }
 
-  if (progress) {
-    trace.startPhase("build:extract-codebase-patterns");
-    const patternsMatch = progress.match(
-      /## Codebase Patterns\n([\s\S]*?)(?=\n## (?!Codebase)|\n---|\Z)/,
+  if (codebasePatterns) {
+    sections.push(
+      `## Codebase Patterns (from previous iterations)\n\n${codebasePatterns}`,
     );
-    if (patternsMatch) {
-      sections.push(
-        `## Codebase Patterns (from previous iterations)\n\n${patternsMatch[1].trim()}`,
-      );
-    }
-    trace.endPhase("build:extract-codebase-patterns");
-
-    // Recent progress (last 5 entries)
-    trace.startPhase("build:extract-recent-progress");
-    const entries = progress.split("\n---\n").filter((e) => e.trim());
-    const recent = entries.slice(-5).join("\n---\n");
-    if (recent.trim()) {
-      sections.push(`## Recent Progress\n\n${recent}`);
-    }
-    trace.endPhase("build:extract-recent-progress");
   }
 
-  // 4. Current task
+  if (recentProgress) {
+    sections.push(`## Recent Progress\n\n${recentProgress}`);
+  }
+
+  // 5. Current task
   trace.startPhase("build:assemble-prompt");
   sections.push(`## Current Task (Iteration ${iteration})
 
