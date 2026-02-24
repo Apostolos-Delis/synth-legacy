@@ -247,6 +247,7 @@ describe("parallel pipeline integration", () => {
         maxWorkers: 3,
         aiConflictResolution: false,
         maxRequeueCount: 0,
+        staggerDelayMs: 0,
       },
       synthConfig: mockSynthConfig,
       agent: mockAgent,

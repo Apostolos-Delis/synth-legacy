@@ -5,7 +5,18 @@ import {
   fileExists,
   removeFile,
 } from "../utils/fs.js";
-import { listWorktrees, removeWorktree, deleteBranch } from "../utils/git.js";
+import {
+  listWorktrees,
+  removeWorktree,
+  deleteBranch,
+  getCurrentBranch,
+  listBranches,
+  listTags,
+  deleteTag,
+  gitLog,
+} from "../utils/git.js";
+import { loadTasks, saveTasks, updateTaskStatus } from "../tasks/store.js";
+import type { Task } from "../tasks/types.js";
 import type { TaskGraphNode, ParallelGroup } from "./task-graph.js";
 import type { SessionPaths } from "../sessions/types.js";
 
@@ -100,4 +111,89 @@ export async function cleanupOrphanedWorktrees(
       }
     }
   }
+}
+
+export async function cleanupStaleParallelState(
+  repoRoot: string,
+  sessionPaths: SessionPaths,
+): Promise<void> {
+  // 1. Clean orphaned worktrees
+  await cleanupOrphanedWorktrees(repoRoot);
+
+  // 2. Delete stale synth-session/* branches (except the one we're currently on)
+  const currentBranch = await getCurrentBranch(repoRoot);
+  const sessionBranches = await listBranches("synth-session/*", repoRoot);
+  for (const branch of sessionBranches) {
+    if (branch === currentBranch) continue;
+    try {
+      await deleteBranch(branch, repoRoot, true);
+    } catch {
+      // Branch may be checked out elsewhere or already deleted
+    }
+  }
+
+  // 3. Delete stale synth/session-start/* and synth/pre-merge/*/* tags
+  const sessionStartTags = await listTags("synth/session-start/*", repoRoot);
+  for (const tag of sessionStartTags) {
+    try {
+      await deleteTag(tag, repoRoot);
+    } catch {
+      // Tag may already be deleted
+    }
+  }
+
+  const preMergeTags = await listTags("synth/pre-merge/*/*", repoRoot);
+  for (const tag of preMergeTags) {
+    try {
+      await deleteTag(tag, repoRoot);
+    } catch {
+      // Tag may already be deleted
+    }
+  }
+
+  // 4. Delete stale parallel session file
+  try {
+    await deleteParallelSession(sessionPaths);
+  } catch {
+    // Session file may not exist
+  }
+}
+
+export async function reconcileTasksFromGitLog(
+  repoRoot: string,
+  sessionPaths: SessionPaths,
+  tasks: Task[],
+): Promise<string[]> {
+  const taskIdPattern = /^[a-f0-9]+\s+feat\(([A-Z]+-\d+)\):/;
+  let logOutput: string;
+  try {
+    logOutput = await gitLog(["--oneline"], repoRoot);
+  } catch {
+    return [];
+  }
+
+  if (!logOutput) return [];
+
+  const openTaskIds = new Set(
+    tasks.filter((t) => t.status !== "done" && t.status !== "skipped").map((t) => t.id),
+  );
+
+  const reconciledIds: string[] = [];
+  for (const line of logOutput.split("\n")) {
+    const match = line.match(taskIdPattern);
+    if (match && openTaskIds.has(match[1])) {
+      reconciledIds.push(match[1]);
+    }
+  }
+
+  if (reconciledIds.length === 0) return [];
+
+  // Update tasks.json for each reconciled task
+  let taskFile = await loadTasks(sessionPaths.tasks);
+  for (const taskId of reconciledIds) {
+    taskFile = updateTaskStatus(taskFile, taskId, "done", "Reconciled from git history after crash recovery");
+  }
+  await saveTasks(sessionPaths.tasks, taskFile);
+
+  return reconciledIds;
 }

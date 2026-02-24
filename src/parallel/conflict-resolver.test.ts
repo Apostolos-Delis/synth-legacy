@@ -144,7 +144,7 @@ describe("resolveConflicts", () => {
     }
 
     // Set up spawn results for merge and git operations
-    spawnResults.set("git merge --no-commit --no-ff", { exitCode: 1, stdout: "", stderr: "CONFLICT" });
+    spawnResults.set("git merge --squash", { exitCode: 1, stdout: "", stderr: "CONFLICT" });
     spawnResults.set("git show", { exitCode: 0, stdout: "content", stderr: "" });
     spawnResults.set("git hash-object", { exitCode: 0, stdout: "abc123\n", stderr: "" });
     spawnResults.set("git ls-files", { exitCode: 0, stdout: "100644 abc123 0\tfile.ts", stderr: "" });
@@ -161,10 +161,10 @@ describe("resolveConflicts", () => {
     expect(result.resolvedCount).toBe(10);
   });
 
-  test("re-starts merge in --no-commit mode", async () => {
+  test("re-starts merge in squash mode", async () => {
     resolveWithAiResults.set("src/index.ts", "resolved content");
 
-    spawnResults.set("git merge --no-commit --no-ff", { exitCode: 1, stdout: "", stderr: "CONFLICT" });
+    spawnResults.set("git merge --squash", { exitCode: 1, stdout: "", stderr: "CONFLICT" });
     spawnResults.set("git show", { exitCode: 0, stdout: "content", stderr: "" });
     spawnResults.set("git hash-object", { exitCode: 0, stdout: "abc123\n", stderr: "" });
     spawnResults.set("git ls-files", { exitCode: 0, stdout: "100644 abc123 0\tsrc/index.ts", stderr: "" });
@@ -174,31 +174,30 @@ describe("resolveConflicts", () => {
     await resolveConflicts(makeOperation(), "/repo", makeAgent());
 
     const mergeCall = spawnCalls.find(
-      (c) => c.cmd.includes("merge") && c.cmd.includes("--no-commit"),
+      (c) => c.cmd.includes("merge") && c.cmd.includes("--squash"),
     );
     expect(mergeCall).toBeDefined();
-    expect(mergeCall!.cmd).toContain("--no-ff");
     expect(mergeCall!.cmd).toContain("synth-parallel/T-1");
   });
 
-  test("aborts if merge fails with unexpected exit code", async () => {
-    spawnResults.set("git merge --no-commit --no-ff", { exitCode: 128, stdout: "", stderr: "fatal: not a git repo" });
-    spawnResults.set("git merge --abort", { exitCode: 0, stdout: "", stderr: "" });
+  test("resets if merge fails with unexpected exit code", async () => {
+    spawnResults.set("git merge --squash", { exitCode: 128, stdout: "", stderr: "fatal: not a git repo" });
+    spawnResults.set("git reset --hard HEAD", { exitCode: 0, stdout: "", stderr: "" });
 
     const result = await resolveConflicts(makeOperation(), "/repo", makeAgent());
 
     expect(result.resolved).toBe(false);
     expect(result.failedCount).toBe(1);
-    const abortCall = spawnCalls.find(
-      (c) => c.cmd.includes("merge") && c.cmd.includes("--abort"),
+    const resetCall = spawnCalls.find(
+      (c) => c.cmd.includes("reset") && c.cmd.includes("--hard"),
     );
-    expect(abortCall).toBeDefined();
+    expect(resetCall).toBeDefined();
   });
 
   test("extracts three-way merge data from git index stages", async () => {
     resolveWithAiResults.set("src/index.ts", "resolved");
 
-    spawnResults.set("git merge --no-commit --no-ff", { exitCode: 1, stdout: "", stderr: "" });
+    spawnResults.set("git merge --squash", { exitCode: 1, stdout: "", stderr: "" });
     spawnResults.set("git show :1:src/index.ts", { exitCode: 0, stdout: "base content", stderr: "" });
     spawnResults.set("git show :2:src/index.ts", { exitCode: 0, stdout: "ours content", stderr: "" });
     spawnResults.set("git show :3:src/index.ts", { exitCode: 0, stdout: "theirs content", stderr: "" });
@@ -221,7 +220,7 @@ describe("resolveConflicts", () => {
     resolveWithAiResults.set("src/a.ts", "resolved a");
     resolveWithAiResults.set("src/b.ts", "resolved b");
 
-    spawnResults.set("git merge --no-commit --no-ff", { exitCode: 1, stdout: "", stderr: "" });
+    spawnResults.set("git merge --squash", { exitCode: 1, stdout: "", stderr: "" });
     spawnResults.set("git show", { exitCode: 0, stdout: "content", stderr: "" });
     spawnResults.set("git hash-object", { exitCode: 0, stdout: "abc123\n", stderr: "" });
     spawnResults.set("git ls-files", { exitCode: 0, stdout: "100644 abc123 0\tfile", stderr: "" });
@@ -242,7 +241,7 @@ describe("resolveConflicts", () => {
   test("commits on success with task info in message", async () => {
     resolveWithAiResults.set("src/index.ts", "resolved content");
 
-    spawnResults.set("git merge --no-commit --no-ff", { exitCode: 1, stdout: "", stderr: "" });
+    spawnResults.set("git merge --squash", { exitCode: 1, stdout: "", stderr: "" });
     spawnResults.set("git show", { exitCode: 0, stdout: "content", stderr: "" });
     spawnResults.set("git hash-object", { exitCode: 0, stdout: "abc123\n", stderr: "" });
     spawnResults.set("git ls-files", { exitCode: 0, stdout: "100644 abc123 0\tsrc/index.ts", stderr: "" });
@@ -261,16 +260,16 @@ describe("resolveConflicts", () => {
     expect(commitCall!.cmd.some((arg) => arg.includes("AI-resolved"))).toBe(true);
   });
 
-  test("aborts merge and returns failure when any file cannot be resolved", async () => {
+  test("resets and returns failure when any file cannot be resolved", async () => {
     resolveWithAiResults.set("src/a.ts", "resolved a");
     // src/b.ts returns null (not resolvable)
 
-    spawnResults.set("git merge --no-commit --no-ff", { exitCode: 1, stdout: "", stderr: "" });
+    spawnResults.set("git merge --squash", { exitCode: 1, stdout: "", stderr: "" });
     spawnResults.set("git show", { exitCode: 0, stdout: "content", stderr: "" });
     spawnResults.set("git hash-object", { exitCode: 0, stdout: "abc123\n", stderr: "" });
     spawnResults.set("git ls-files", { exitCode: 0, stdout: "100644 abc123 0\tfile", stderr: "" });
     spawnResults.set("git update-index", { exitCode: 0, stdout: "", stderr: "" });
-    spawnResults.set("git merge --abort", { exitCode: 0, stdout: "", stderr: "" });
+    spawnResults.set("git reset --hard HEAD", { exitCode: 0, stdout: "", stderr: "" });
 
     const result = await resolveConflicts(
       makeOperation({ conflictedFiles: ["src/a.ts", "src/b.ts"] }),
@@ -282,22 +281,22 @@ describe("resolveConflicts", () => {
     expect(result.resolvedCount).toBe(1);
     expect(result.failedCount).toBe(1);
 
-    const abortCall = spawnCalls.find(
-      (c) => c.cmd.includes("merge") && c.cmd.includes("--abort"),
+    const resetCall = spawnCalls.find(
+      (c) => c.cmd.includes("reset") && c.cmd.includes("--hard"),
     );
-    expect(abortCall).toBeDefined();
+    expect(resetCall).toBeDefined();
   });
 
-  test("aborts merge when commit fails", async () => {
+  test("resets when commit fails", async () => {
     resolveWithAiResults.set("src/index.ts", "resolved");
 
-    spawnResults.set("git merge --no-commit --no-ff", { exitCode: 1, stdout: "", stderr: "" });
+    spawnResults.set("git merge --squash", { exitCode: 1, stdout: "", stderr: "" });
     spawnResults.set("git show", { exitCode: 0, stdout: "content", stderr: "" });
     spawnResults.set("git hash-object", { exitCode: 0, stdout: "abc123\n", stderr: "" });
     spawnResults.set("git ls-files", { exitCode: 0, stdout: "100644 abc123 0\tsrc/index.ts", stderr: "" });
     spawnResults.set("git update-index", { exitCode: 0, stdout: "", stderr: "" });
     spawnResults.set("git commit", { exitCode: 1, stdout: "", stderr: "commit failed" });
-    spawnResults.set("git merge --abort", { exitCode: 0, stdout: "", stderr: "" });
+    spawnResults.set("git reset --hard HEAD", { exitCode: 0, stdout: "", stderr: "" });
 
     const result = await resolveConflicts(makeOperation(), "/repo", makeAgent());
 

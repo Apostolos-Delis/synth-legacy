@@ -96,7 +96,7 @@ export function applyParallelEvent(
         id: event.operationId,
         taskId: event.taskId,
         status: "queued" as MergeStatus,
-        strategy: "ff",
+        strategy: "squash",
         filesChanged: 0,
         queuePosition: state.mergeItems.length,
       });
@@ -128,6 +128,7 @@ export function applyParallelEvent(
       if (item) {
         item.status = "failed";
         item.endTime = Date.now();
+        item.error = event.reason;
       }
       return true;
     }
@@ -167,6 +168,9 @@ export function applyParallelEvent(
       state.conflict = null;
       return true;
 
+    case "throttle:active":
+      return true;
+
     case "parallel:completed":
     case "parallel:failed":
       state.header.activeWorkers = 0;
@@ -177,10 +181,11 @@ export function applyParallelEvent(
   }
 }
 
-export function buildFixParallelTuiData(
+export function buildFixTuiData(
   tasks: Task[],
   config: { agent: { name: string }; project: { name: string } },
   sessionId: string,
+  phase?: string,
 ): TuiEngineData {
   return {
     engineState: "executing",
@@ -195,7 +200,7 @@ export function buildFixParallelTuiData(
     startTime: Date.now(),
     interviewMessages: [],
     isThinking: false,
-    currentPhase: "Parallel fix execution",
+    currentPhase: phase ?? "Fix execution",
     phaseStartTime: Date.now(),
     completionSummary: null,
     taskOutputMap: {},

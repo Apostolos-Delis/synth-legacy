@@ -120,17 +120,18 @@ export async function resolveConflicts(
     return { resolved: false, resolvedCount: 0, failedCount: files.length };
   }
 
-  // Re-start the merge in --no-commit mode so we can resolve in-place
+  // Re-start the merge in squash mode so we can resolve in-place
   const mergeHandle = spawn({
-    cmd: ["git", "merge", "--no-commit", "--no-ff", operation.sourceBranch],
+    cmd: ["git", "merge", "--squash", operation.sourceBranch],
     cwd: repoRoot,
   });
   const mergeResult = await mergeHandle.promise;
 
   // merge exits non-zero when there are conflicts (exit code 1), which is expected.
   // If it fails for other reasons, bail out.
+  // Squash merge doesn't set MERGE_HEAD, so use reset --hard instead of merge --abort.
   if (mergeResult.exitCode !== 0 && mergeResult.exitCode !== 1) {
-    await spawn({ cmd: ["git", "merge", "--abort"], cwd: repoRoot }).promise;
+    await spawn({ cmd: ["git", "reset", "--hard", "HEAD"], cwd: repoRoot }).promise;
     return { resolved: false, resolvedCount: 0, failedCount: files.length };
   }
 
@@ -161,7 +162,7 @@ export async function resolveConflicts(
   }
 
   if (failedCount > 0) {
-    await spawn({ cmd: ["git", "merge", "--abort"], cwd: repoRoot }).promise;
+    await spawn({ cmd: ["git", "reset", "--hard", "HEAD"], cwd: repoRoot }).promise;
     return { resolved: false, resolvedCount, failedCount };
   }
 
@@ -198,12 +199,11 @@ export async function resolveConflicts(
     }
   }
 
-  // All files resolved — commit the merge
+  // All files resolved — commit the squash merge
   const commitHandle = spawn({
     cmd: [
       "git",
       "commit",
-      "--no-edit",
       "-m",
       `feat(${operation.taskId}): ${operation.taskTitle} (AI-resolved conflicts)`,
     ],
@@ -212,7 +212,7 @@ export async function resolveConflicts(
   const commitResult = await commitHandle.promise;
 
   if (commitResult.exitCode !== 0) {
-    await spawn({ cmd: ["git", "merge", "--abort"], cwd: repoRoot }).promise;
+    await spawn({ cmd: ["git", "reset", "--hard", "HEAD"], cwd: repoRoot }).promise;
     return { resolved: false, resolvedCount, failedCount: files.length };
   }
 

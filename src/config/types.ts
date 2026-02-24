@@ -39,6 +39,7 @@ export interface SynthConfig {
     max_workers?: number;
     ai_conflict_resolution?: boolean;
     max_requeue_count?: number;
+    stagger_delay_ms?: number;
   };
   notifications?: {
     enabled?: boolean;

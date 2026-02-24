@@ -9,7 +9,7 @@ export type MergeStatus =
   | "conflicted"
   | "rolled-back";
 
-export type MergeStrategy = "ff" | "merge-commit";
+export type MergeStrategy = "ff" | "merge-commit" | "squash";
 
 export interface MergeQueueItem {
   id: string;
@@ -20,6 +20,7 @@ export interface MergeQueueItem {
   startTime?: number;
   endTime?: number;
   queuePosition: number;
+  error?: string;
 }
 
 interface MergeQueuePanelProps {
@@ -78,7 +79,7 @@ function MergeRow({
 }): ReactNode {
   const paddedTaskId = item.taskId.padEnd(maxTaskIdLen);
   const label = STATUS_LABEL[item.status].padEnd(8);
-  const strategy = item.strategy === "ff" ? "ff   " : "merge";
+  const strategy = item.strategy === "ff" ? "ff    " : item.strategy === "squash" ? "squash" : "merge ";
   const files = `${item.filesChanged}f`.padStart(4);
   const duration = formatDuration(item.startTime, item.endTime, now).padStart(6);
 
@@ -86,6 +87,10 @@ function MergeRow({
     item.status === "in-progress"
       ? SPINNER_FRAMES[spinnerFrame % SPINNER_FRAMES.length]
       : STATUS_ICON[item.status];
+
+  const errorSuffix = item.status === "failed" && item.error
+    ? ` ${item.error.length > 40 ? item.error.slice(0, 40) + "…" : item.error}`
+    : "";
 
   return (
     <text>
@@ -100,6 +105,7 @@ function MergeRow({
       <span fg={colors.fg.muted}>{files}</span>
       {" "}
       <span fg={colors.fg.muted}>{duration}</span>
+      {errorSuffix ? <span fg={colors.status.error}>{errorSuffix}</span> : null}
     </text>
   );
 }
@@ -182,7 +188,8 @@ export const MergeQueuePanel = memo(function MergeQueuePanel({
       item.id === ni.id &&
       item.status === ni.status &&
       item.filesChanged === ni.filesChanged &&
-      item.queuePosition === ni.queuePosition
+      item.queuePosition === ni.queuePosition &&
+      item.error === ni.error
     );
   });
 });

@@ -187,31 +187,13 @@ describe("MergeEngine", () => {
       expect(result).toBeNull();
     });
 
-    test("tries fast-forward first and succeeds", async () => {
+    test("squash-merges and commits with feat() message", async () => {
       setLogHasCommits();
-
-      const engine = makeEngine();
-      engine.enqueue({
-        workerId: "w1",
-        taskId: "COOR-001",
-        taskTitle: "Add affects field",
-        branch: "synth-parallel/COOR-001",
-      });
-
-      const op = await engine.processNext();
-      expect(op!.status).toBe("completed");
-
-      const ffCall = spawnCalls.find((c) => c.cmd.includes("--ff-only"));
-      expect(ffCall).toBeDefined();
-      expect(ffCall!.cmd).toContain("synth-parallel/COOR-001");
-    });
-
-    test("falls back to merge commit when fast-forward fails", async () => {
-      setLogHasCommits();
-      spawnResults.set("--ff-only", {
+      // squash merge succeeds, staged changes exist
+      spawnResults.set("--cached --quiet", {
         exitCode: 1,
         stdout: "",
-        stderr: "Not possible to fast-forward",
+        stderr: "",
       });
 
       const engine = makeEngine();
@@ -225,20 +207,51 @@ describe("MergeEngine", () => {
       const op = await engine.processNext();
       expect(op!.status).toBe("completed");
 
-      // Verify merge commit message format
-      const mergeCall = spawnCalls.find(
+      const squashCall = spawnCalls.find((c) => c.cmd.includes("--squash"));
+      expect(squashCall).toBeDefined();
+      expect(squashCall!.cmd).toContain("synth-parallel/COOR-001");
+
+      // Verify commit message format
+      const commitCall = spawnCalls.find(
         (c) =>
-          c.cmd.includes("merge") &&
+          c.cmd.includes("commit") &&
           c.cmd.some((arg) => arg.startsWith("feat(")),
       );
-      expect(mergeCall).toBeDefined();
-      expect(mergeCall!.cmd).toContain(
+      expect(commitCall).toBeDefined();
+      expect(commitCall!.cmd).toContain(
         "feat(COOR-001): Add affects field",
       );
     });
 
-    test("creates backup tag before merge attempt", async () => {
+    test("fails when squash merge produces no changes", async () => {
       setLogHasCommits();
+      // squash merge succeeds but no staged changes
+      spawnResults.set("--cached --quiet", {
+        exitCode: 0,
+        stdout: "",
+        stderr: "",
+      });
+
+      const engine = makeEngine();
+      engine.enqueue({
+        workerId: "w1",
+        taskId: "COOR-001",
+        taskTitle: "Add affects field",
+        branch: "synth-parallel/COOR-001",
+      });
+
+      const op = await engine.processNext();
+      expect(op!.status).toBe("failed");
+      expect(op!.error).toBe("Squash merge produced no changes");
+    });
+
+    test("creates backup tag before squash merge attempt", async () => {
+      setLogHasCommits();
+      spawnResults.set("--cached --quiet", {
+        exitCode: 1,
+        stdout: "",
+        stderr: "",
+      });
 
       const engine = makeEngine();
       engine.enqueue({
@@ -265,25 +278,19 @@ describe("MergeEngine", () => {
         /^synth\/pre-merge\/COOR-001\/\d+$/,
       );
 
-      // Tag must come before merge
+      // Tag must come before squash merge
       const tagIdx = spawnCalls.findIndex(
         (c) => c.cmd[0] === "git" && c.cmd[1] === "tag",
       );
-      const mergeIdx = spawnCalls.findIndex((c) =>
-        c.cmd.includes("--ff-only"),
+      const squashIdx = spawnCalls.findIndex((c) =>
+        c.cmd.includes("--squash"),
       );
-      expect(tagIdx).toBeLessThan(mergeIdx);
+      expect(tagIdx).toBeLessThan(squashIdx);
     });
 
-    test("on conflict: sets status to conflicted, aborts merge, resets to backup", async () => {
+    test("on conflict: sets status to conflicted and resets to backup tag", async () => {
       setLogHasCommits();
-      spawnResults.set("--ff-only", {
-        exitCode: 1,
-        stdout: "",
-        stderr: "Not possible to fast-forward",
-      });
-      // Use " -m " pattern to match merge commit but not tag (synth/pre-merge)
-      spawnResults.set(" -m ", {
+      spawnResults.set("--squash", {
         exitCode: 1,
         stdout: "",
         stderr: "CONFLICT (content): Merge conflict in file.ts",
@@ -300,12 +307,11 @@ describe("MergeEngine", () => {
       const op = await engine.processNext();
       expect(op!.status).toBe("conflicted");
 
-      // Verify merge was aborted
+      // Squash merge doesn't set MERGE_HEAD, so no merge --abort — only reset --hard
       const abortCall = spawnCalls.find((c) =>
         c.cmd.includes("--abort"),
       );
-      expect(abortCall).toBeDefined();
-      expect(abortCall!.cmd).toEqual(["git", "merge", "--abort"]);
+      expect(abortCall).toBeUndefined();
 
       // Verify HEAD was reset to backup tag
       const resetCall = spawnCalls.find(
@@ -346,6 +352,11 @@ describe("MergeEngine", () => {
 
     test("processes operations in FIFO order", async () => {
       setLogHasCommits();
+      spawnResults.set("--cached --quiet", {
+        exitCode: 1,
+        stdout: "",
+        stderr: "",
+      });
 
       const engine = makeEngine();
       engine.enqueue({
@@ -531,13 +542,8 @@ describe("MergeEngine", () => {
   describe("processNext fallback to getConflictedFilesFromDiff", () => {
     test("falls back to git diff when parseConflictedFiles returns empty", async () => {
       setLogHasCommits();
-      spawnResults.set("--ff-only", {
-        exitCode: 1,
-        stdout: "",
-        stderr: "Not possible to fast-forward",
-      });
-      // Merge fails but stderr has no CONFLICT lines
-      spawnResults.set(" -m ", {
+      // Squash merge fails but stderr has no CONFLICT lines
+      spawnResults.set("--squash", {
         exitCode: 1,
         stdout: "",
         stderr: "Automatic merge failed; fix conflicts and then commit the result.",
@@ -570,12 +576,7 @@ describe("MergeEngine", () => {
 
     test("does not call git diff fallback when parseConflictedFiles finds files", async () => {
       setLogHasCommits();
-      spawnResults.set("--ff-only", {
-        exitCode: 1,
-        stdout: "",
-        stderr: "Not possible to fast-forward",
-      });
-      spawnResults.set(" -m ", {
+      spawnResults.set("--squash", {
         exitCode: 1,
         stdout: "",
         stderr: "CONFLICT (content): Merge conflict in src/file.ts",
@@ -604,6 +605,11 @@ describe("MergeEngine", () => {
   describe("rollbackMerge", () => {
     test("resets HEAD to backup tag of completed operation", async () => {
       setLogHasCommits();
+      spawnResults.set("--cached --quiet", {
+        exitCode: 1,
+        stdout: "",
+        stderr: "",
+      });
 
       const engine = makeEngine();
       engine.enqueue({

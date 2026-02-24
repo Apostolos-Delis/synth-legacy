@@ -12,8 +12,11 @@ import { Worker, type WorkerDisplayState } from "./worker.js";
 import {
   saveParallelSession,
   deleteParallelSession,
+  cleanupStaleParallelState,
+  reconcileTasksFromGitLog,
   type ParallelSessionState,
 } from "./session.js";
+import { loadTasks, saveTasks, updateTaskStatus } from "../tasks/store.js";
 import {
   getCurrentBranch,
   checkoutBranch,
@@ -22,11 +25,13 @@ import {
   mergeFF,
 } from "../utils/git.js";
 import { resolveConflicts } from "./conflict-resolver.js";
+import { ResourceMonitor } from "./resource-monitor.js";
 
 export interface ParallelCoordinatorConfig {
   maxWorkers?: number;
   aiConflictResolution?: boolean;
   maxRequeueCount?: number;
+  staggerDelayMs?: number;
 }
 
 export interface ParallelCoordinatorOptions {
@@ -51,6 +56,7 @@ export class ParallelCoordinator {
   private readonly maxWorkers: number;
   private readonly aiConflictResolution: boolean;
   private readonly maxRequeueCount: number;
+  private readonly staggerDelayMs: number;
   private readonly tasks: Task[];
   private readonly repoRoot: string;
   private readonly project: string;
@@ -59,6 +65,7 @@ export class ParallelCoordinator {
   private readonly agent: AgentAdapter;
   private readonly fallbackAgent: AgentAdapter | null;
   private readonly listeners: ParallelEventListener[] = [];
+  private readonly resourceMonitor: ResourceMonitor;
 
   private worktreeManager: WorktreeManager | null = null;
   private mergeEngine: MergeEngine | null = null;
@@ -76,12 +83,15 @@ export class ParallelCoordinator {
   private interruptPromise: Promise<void> | null = null;
   private interruptResolve: (() => void) | null = null;
   private static readonly GRACEFUL_SHUTDOWN_TIMEOUT_MS = 5000;
+  private static readonly RESOURCE_POLL_INTERVAL_MS = 2000;
+  private static readonly RESOURCE_MAX_WAIT_MS = 30000;
 
   constructor(options: ParallelCoordinatorOptions) {
     const config = options.config ?? {};
     this.maxWorkers = config.maxWorkers ?? 8;
     this.aiConflictResolution = config.aiConflictResolution ?? true;
     this.maxRequeueCount = config.maxRequeueCount ?? 1;
+    this.staggerDelayMs = config.staggerDelayMs ?? 2000;
     this.tasks = options.tasks;
     this.repoRoot = options.repoRoot;
     this.project = options.project;
@@ -89,6 +99,7 @@ export class ParallelCoordinator {
     this.synthConfig = options.synthConfig;
     this.agent = options.agent;
     this.fallbackAgent = options.fallbackAgent;
+    this.resourceMonitor = new ResourceMonitor();
   }
 
   on(listener: ParallelEventListener): void {
@@ -123,6 +134,17 @@ export class ParallelCoordinator {
     });
     this.registerSigintHandler();
 
+    // Clean stale parallel state from previous runs/crashes
+    await cleanupStaleParallelState(this.repoRoot, this.sessionPaths);
+
+    // Reconcile tasks that were already merged in a previous run
+    const reconciledIds = await reconcileTasksFromGitLog(
+      this.repoRoot,
+      this.sessionPaths,
+      this.tasks,
+    );
+    const reconciledSet = new Set(reconciledIds);
+
     this.originalBranch = await getCurrentBranch(this.repoRoot);
     this.mergeEngine = new MergeEngine({ repoRoot: this.repoRoot });
     const sessionId = randomUUID();
@@ -137,7 +159,7 @@ export class ParallelCoordinator {
       maxWorktrees: this.maxWorkers,
     });
 
-    const mergedTaskIds: string[] = [];
+    const mergedTaskIds: string[] = [...reconciledIds];
     const failedTaskIds: string[] = [];
 
     await this.persistState(mergedTaskIds, failedTaskIds, -1);
@@ -153,8 +175,12 @@ export class ParallelCoordinator {
         const group = groups[gi];
         this.emit({ type: "parallel:group-started", timestamp: this.timestamp() });
 
-        const effectiveWorkers = Math.min(group.taskIds.length, this.maxWorkers);
-        const groupTasks = group.taskIds
+        // Filter out tasks already completed in a previous run
+        const remainingTaskIds = group.taskIds.filter((id) => !reconciledSet.has(id));
+        if (remainingTaskIds.length === 0) continue;
+
+        const effectiveWorkers = Math.min(remainingTaskIds.length, this.maxWorkers);
+        const groupTasks = remainingTaskIds
           .map((id) => taskMap.get(id))
           .filter((t): t is Task => t !== undefined);
 
@@ -183,6 +209,7 @@ export class ParallelCoordinator {
 
           if (processed.status === "completed") {
             mergedTaskIds.push(processed.taskId);
+            await this.persistTaskDone(processed.taskId);
             this.emit({
               type: "merge:completed",
               timestamp: this.timestamp(),
@@ -220,6 +247,7 @@ export class ParallelCoordinator {
                   failedCount: resolution.failedCount,
                 });
                 mergedTaskIds.push(processed.taskId);
+                await this.persistTaskDone(processed.taskId);
               } else {
                 this.handleFailedMerge(processed, failedTaskIds);
               }
@@ -232,6 +260,7 @@ export class ParallelCoordinator {
               timestamp: this.timestamp(),
               operationId: processed.id,
               taskId: processed.taskId,
+              reason: processed.error,
             });
             failedTaskIds.push(processed.taskId);
           }
@@ -399,6 +428,7 @@ export class ParallelCoordinator {
         timestamp: this.timestamp(),
         operationId: operation.id,
         taskId: operation.taskId,
+        reason: operation.error,
       });
     }
   }
@@ -418,9 +448,25 @@ export class ParallelCoordinator {
       if (this.aborted) break;
 
       const batchWorkers: Worker[] = [];
+      const promises: Promise<WorkerResult | null>[] = [];
 
-      const promises = batch.map(async (task, idx) => {
+      // Set activeWorkers/promises before the stagger loop so SIGINT can see
+      // workers as they're added during the stagger delay window.
+      this.activeWorkers = batchWorkers;
+      this.activeWorkerPromises = promises;
+
+      for (let idx = 0; idx < batch.length; idx++) {
+        if (this.aborted) break;
+
+        const task = batch[idx];
         const workerId = `w-${task.id}-${idx}`;
+
+        // Stagger: wait for resource capacity and delay between launches (skip for first worker)
+        if (idx > 0) {
+          await this.waitForResourceCapacity(batchWorkers.length, effectiveWorkers);
+          await this.interruptibleDelay(this.staggerDelayMs);
+          if (this.aborted || this.interrupted) break;
+        }
 
         this.emit({
           type: "worker:created",
@@ -428,53 +474,55 @@ export class ParallelCoordinator {
           workerId,
         });
 
-        const worktree = await this.worktreeManager!.acquire(
-          workerId,
-          task.id,
-          this.sessionBranch!,
-        );
+        const workerPromise = (async () => {
+          const worktree = await this.worktreeManager!.acquire(
+            workerId,
+            task.id,
+            this.sessionBranch!,
+          );
 
-        const worker = new Worker(
-          {
-            id: workerId,
-            task,
-            worktreePath: worktree.path,
-            branchName: worktree.branch,
-          },
-          this.synthConfig,
-          this.agent,
-          this.fallbackAgent,
-          this.sessionPaths,
-        );
+          const worker = new Worker(
+            {
+              id: workerId,
+              task,
+              worktreePath: worktree.path,
+              branchName: worktree.branch,
+            },
+            this.synthConfig,
+            this.agent,
+            this.fallbackAgent,
+            this.sessionPaths,
+          );
 
-        worker.on((event) => {
-          if (event.type === "worker:started" || event.type === "worker:progress" || event.type === "worker:output") {
-            this.emit(event);
+          worker.on((event) => {
+            if (event.type === "worker:started" || event.type === "worker:progress" || event.type === "worker:output") {
+              this.emit(event);
+            }
+          });
+
+          batchWorkers.push(worker);
+
+          try {
+            const result = await worker.start();
+            this.emit({
+              type: "worker:completed",
+              timestamp: this.timestamp(),
+              workerId,
+            });
+            return result;
+          } catch {
+            this.emit({
+              type: "worker:failed",
+              timestamp: this.timestamp(),
+              workerId,
+            });
+            return null;
           }
-        });
+        })();
 
-        batchWorkers.push(worker);
+        promises.push(workerPromise);
+      }
 
-        try {
-          const result = await worker.start();
-          this.emit({
-            type: "worker:completed",
-            timestamp: this.timestamp(),
-            workerId,
-          });
-          return result;
-        } catch {
-          this.emit({
-            type: "worker:failed",
-            timestamp: this.timestamp(),
-            workerId,
-          });
-          return null;
-        }
-      });
-
-      this.activeWorkers = batchWorkers;
-      this.activeWorkerPromises = promises;
       const batchSettled = Promise.all(promises);
 
       if (this.interruptPromise) {
@@ -499,6 +547,44 @@ export class ParallelCoordinator {
     }
 
     return results;
+  }
+
+  private async waitForResourceCapacity(
+    activeCount: number,
+    maxConcurrency: number,
+  ): Promise<void> {
+    const startTime = Date.now();
+
+    while (Date.now() - startTime < ParallelCoordinator.RESOURCE_MAX_WAIT_MS) {
+      if (this.aborted || this.interrupted) return;
+
+      const { concurrency, reason } = this.resourceMonitor.recommendedConcurrency(maxConcurrency);
+      if (activeCount < concurrency) return;
+
+      if (reason) {
+        this.emit({
+          type: "throttle:active",
+          timestamp: this.timestamp(),
+          recommendedConcurrency: concurrency,
+          maxConcurrency,
+          reason,
+        });
+      }
+
+      await this.interruptibleDelay(ParallelCoordinator.RESOURCE_POLL_INTERVAL_MS);
+    }
+  }
+
+  private interruptibleDelay(ms: number): Promise<void> {
+    return new Promise<void>((resolve) => {
+      const timer = setTimeout(resolve, ms);
+      if (this.interruptPromise) {
+        void this.interruptPromise.then(() => {
+          clearTimeout(timer);
+          resolve();
+        });
+      }
+    });
   }
 
   private async handleAbort(): Promise<void> {
@@ -533,6 +619,16 @@ export class ParallelCoordinator {
       await deleteParallelSession(this.sessionPaths);
     } catch {
       // Session file may not exist
+    }
+  }
+
+  private async persistTaskDone(taskId: string): Promise<void> {
+    try {
+      const taskFile = await loadTasks(this.sessionPaths.tasks);
+      const updated = updateTaskStatus(taskFile, taskId, "done");
+      await saveTasks(this.sessionPaths.tasks, updated);
+    } catch {
+      // Best effort — don't fail the merge over a status write
     }
   }
 

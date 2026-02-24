@@ -14,7 +14,7 @@ import { writeText, writeJson, ensureDir } from "../utils/fs.js";
 function makeConfig(overrides?: Partial<SynthConfig["execution"]>): SynthConfig {
   return {
     project: { name: "test", branch: "test", base_branch: "main" },
-    agent: { name: "mock", timeout: 5000, skip_permissions: true },
+    agent: { name: "claude", timeout: 5000, skip_permissions: true },
     execution: { max_iterations: 10, iteration_delay: 0, auto_commit: false, ...overrides },
     guardrails: { max_consecutive_failures: 3, backpressure_commands: [] },
     finalize: { auto_format: false, split_commits: false, self_review: false, create_pr: false },
