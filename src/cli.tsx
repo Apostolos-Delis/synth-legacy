@@ -1439,8 +1439,8 @@ async function cmdResume(sessionId?: string): Promise<void> {
     return;
   }
 
-  log(fmt.info(`Resuming session ${id} (iteration counter reset)`));
-  await cmdRun(id, 0);
+  log(fmt.info(`Resuming session ${id} (iteration ${run.currentIteration})`));
+  await cmdRun(id, run.currentIteration);
 }
 
 async function resumeInterview(
