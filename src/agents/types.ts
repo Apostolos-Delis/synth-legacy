@@ -17,6 +17,7 @@ export interface AgentExecuteOptions {
   timeout?: number;
   model?: string;
   skipPermissions?: boolean;
+  readOnly?: boolean;
   onStdout?: (chunk: string) => void;
   onStderr?: (chunk: string) => void;
 }

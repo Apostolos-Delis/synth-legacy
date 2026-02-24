@@ -5,6 +5,7 @@ export interface ConversationEngineConfig {
   agent: AgentAdapter;
   cwd: string;
   model?: string;
+  readOnly?: boolean;
   systemPrompt: string;
   promptSuffix?: string;
   maxHistoryWindow?: number;
@@ -16,6 +17,7 @@ export class ConversationEngine {
   private readonly agent: AgentAdapter;
   private readonly cwd: string;
   private readonly model?: string;
+  private readonly readOnly: boolean;
   private readonly systemPrompt: string;
   private readonly promptSuffix: string;
   private readonly maxHistoryWindow: number;
@@ -25,6 +27,7 @@ export class ConversationEngine {
     this.agent = config.agent;
     this.cwd = config.cwd;
     this.model = config.model;
+    this.readOnly = config.readOnly ?? false;
     this.systemPrompt = config.systemPrompt;
     this.promptSuffix = config.promptSuffix ?? "";
     this.maxHistoryWindow = config.maxHistoryWindow ?? 16;
@@ -73,6 +76,7 @@ export class ConversationEngine {
     const handle = this.agent.execute(prompt, {
       cwd: this.cwd,
       model: this.model,
+      readOnly: this.readOnly,
       skipPermissions: false,
       onStdout: (chunk) => {
         output += chunk;

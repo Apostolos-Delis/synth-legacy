@@ -8,6 +8,19 @@ import type {
 import { spawn } from "../utils/process.js";
 import { globalTrace } from "../utils/perf.js";
 
+const READ_ONLY_TOOLS = ["Read", "Glob", "Grep"];
+
+export function buildClaudeCmd(prompt: string, options: Pick<AgentExecuteOptions, "model" | "skipPermissions" | "readOnly">): string[] {
+  return [
+    "claude",
+    "-p",
+    prompt,
+    ...(options.model ? ["--model", options.model] : []),
+    ...(options.skipPermissions !== false ? ["--dangerously-skip-permissions"] : []),
+    ...(options.readOnly ? ["--tools", READ_ONLY_TOOLS.join(",")] : []),
+  ];
+}
+
 export class ClaudeAdapter implements AgentAdapter {
   readonly name = "claude";
   private activeHandle: ReturnType<typeof spawn> | null = null;
@@ -31,13 +44,7 @@ export class ClaudeAdapter implements AgentAdapter {
     // Use plain text print mode (like ralph-tui's default).
     // stream-json requires --verbose and complex JSONL parsing; plain text
     // streams raw output directly which is simpler and more reliable.
-    const cmd = [
-      "claude",
-      "-p",
-      prompt,
-      ...(options.model ? ["--model", options.model] : []),
-      ...(options.skipPermissions !== false ? ["--dangerously-skip-permissions"] : []),
-    ];
+    const cmd = buildClaudeCmd(prompt, options);
 
     trace.startPhase("agent:spawn");
     const handle = spawn({

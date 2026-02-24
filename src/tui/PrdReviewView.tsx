@@ -73,6 +73,7 @@ export function PrdReviewView({
         const handle = agent.execute(prompt, {
           cwd,
           model,
+          readOnly: true,
           skipPermissions: false,
           onStdout: (chunk) => {
             output += chunk;

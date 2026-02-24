@@ -7,6 +7,17 @@ import type {
 } from "./types.js";
 import { spawn } from "../utils/process.js";
 
+export function buildCodexCmd(prompt: string, options: Pick<AgentExecuteOptions, "readOnly">): string[] {
+  return [
+    "codex",
+    "--quiet",
+    "--approval-mode",
+    "full-auto",
+    ...(options.readOnly ? ["--sandbox", "read-only"] : []),
+    prompt,
+  ];
+}
+
 export class CodexAdapter implements AgentAdapter {
   readonly name = "codex";
   private activeHandle: ReturnType<typeof spawn> | null = null;
@@ -25,13 +36,7 @@ export class CodexAdapter implements AgentAdapter {
   }
 
   execute(prompt: string, options: AgentExecuteOptions): AgentExecutionHandle {
-    const cmd = [
-      "codex",
-      "--quiet",
-      "--approval-mode",
-      "full-auto",
-      prompt,
-    ];
+    const cmd = buildCodexCmd(prompt, options);
 
     const handle = spawn({
       cmd,

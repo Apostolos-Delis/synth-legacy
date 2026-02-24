@@ -21,6 +21,7 @@ export class Interviewer {
       agent,
       cwd,
       model,
+      readOnly: true,
       systemPrompt: INTERVIEWER_SYSTEM_PROMPT,
       promptSuffix: "Continue the interview. If you have enough information, write the complete PRD starting with a level-1 heading.",
       maxHistoryWindow: 16,
