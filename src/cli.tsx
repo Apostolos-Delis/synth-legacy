@@ -2428,17 +2428,20 @@ async function cmdUpdate(): Promise<void> {
 
     spinner.stop(fmt.info(`New version available: ${VERSION} → ${latest}`));
 
-    const updateSpinner = createSpinner("Installing update");
+    const updateSpinner = createSpinner("Downloading update");
     const handle = spawn({
       cmd: ["bash", "-c", `curl -fsSL https://raw.githubusercontent.com/${REPO}/main/install.sh | bash`],
       cwd,
+      onStdout: (chunk) => {
+        const line = chunk.trim();
+        if (line) updateSpinner.update(line);
+      },
     });
     const result = await handle.promise;
     if (result.exitCode !== 0) {
       updateSpinner.stop(fmt.error(`Update failed: ${result.stderr}`));
       process.exit(1);
     }
-    if (result.stdout) log(result.stdout);
     updateSpinner.stop(fmt.success(`Updated to v${latest}`));
   } else {
     log("Checking for updates...");
@@ -2461,13 +2464,14 @@ async function cmdUpdate(): Promise<void> {
     const handle = spawn({
       cmd: ["bash", "-c", `curl -fsSL https://raw.githubusercontent.com/${REPO}/main/install.sh | bash`],
       cwd,
+      onStdout: (chunk) => process.stdout.write(chunk),
+      onStderr: (chunk) => process.stderr.write(chunk),
     });
     const result = await handle.promise;
     if (result.exitCode !== 0) {
       logError(`Update failed: ${result.stderr}`);
       process.exit(1);
     }
-    if (result.stdout) log(result.stdout);
     logSuccess(`Updated to v${latest}`);
   }
 }
