@@ -1,12 +1,14 @@
 import { randomUUID } from "node:crypto";
 import type { Task } from "../tasks/types.js";
+import type { SynthConfig } from "../config/types.js";
+import type { AgentAdapter } from "../agents/types.js";
 import type { SessionPaths } from "../sessions/types.js";
 import type { ParallelEvent, ParallelEventListener } from "./events.js";
-import type { WorktreeInfo } from "./worktree-manager.js";
 import type { WorkerResult, MergeOperation } from "./merge-engine.js";
 import { analyzeTaskGraph, type TaskGraphAnalysis } from "./task-graph.js";
 import { WorktreeManager } from "./worktree-manager.js";
 import { MergeEngine } from "./merge-engine.js";
+import { Worker, type WorkerDisplayState } from "./worker.js";
 import {
   saveParallelSession,
   deleteParallelSession,
@@ -26,18 +28,15 @@ export interface ParallelCoordinatorConfig {
   maxRequeueCount?: number;
 }
 
-export interface WorkerExecutor {
-  execute(task: Task, worktree: WorktreeInfo): Promise<WorkerResult>;
-  stop?(): void;
-}
-
 export interface ParallelCoordinatorOptions {
   tasks: Task[];
   repoRoot: string;
   project: string;
   sessionPaths: SessionPaths;
   config?: ParallelCoordinatorConfig;
-  executor: WorkerExecutor;
+  synthConfig: SynthConfig;
+  agent: AgentAdapter;
+  fallbackAgent: AgentAdapter | null;
 }
 
 export interface ParallelResult {
@@ -54,7 +53,9 @@ export class ParallelCoordinator {
   private readonly repoRoot: string;
   private readonly project: string;
   private readonly sessionPaths: SessionPaths;
-  private readonly executor: WorkerExecutor;
+  private readonly synthConfig: SynthConfig;
+  private readonly agent: AgentAdapter;
+  private readonly fallbackAgent: AgentAdapter | null;
   private readonly listeners: ParallelEventListener[] = [];
 
   private worktreeManager: WorktreeManager | null = null;
@@ -66,6 +67,7 @@ export class ParallelCoordinator {
   private aborted = false;
   private interrupted = false;
   private requeueCounts = new Map<string, number>();
+  private activeWorkers: Worker[] = [];
   private activeWorkerPromises: Promise<unknown>[] = [];
   private sigintHandler: (() => void) | null = null;
   private interruptPromise: Promise<void> | null = null;
@@ -81,11 +83,17 @@ export class ParallelCoordinator {
     this.repoRoot = options.repoRoot;
     this.project = options.project;
     this.sessionPaths = options.sessionPaths;
-    this.executor = options.executor;
+    this.synthConfig = options.synthConfig;
+    this.agent = options.agent;
+    this.fallbackAgent = options.fallbackAgent;
   }
 
   on(listener: ParallelEventListener): void {
     this.listeners.push(listener);
+  }
+
+  getWorkerDisplayStates(): WorkerDisplayState[] {
+    return this.activeWorkers.map((w) => w.getDisplayState());
   }
 
   private emit(event: ParallelEvent): void {
@@ -279,9 +287,9 @@ export class ParallelCoordinator {
     this.deregisterSigintHandler();
 
     // Stop all active workers
-    if (this.executor.stop) {
+    for (const worker of this.activeWorkers) {
       try {
-        this.executor.stop();
+        worker.stop();
       } catch {
         // Best effort
       }
@@ -361,6 +369,8 @@ export class ParallelCoordinator {
     for (const batch of batches) {
       if (this.aborted) break;
 
+      const batchWorkers: Worker[] = [];
+
       const promises = batch.map(async (task, idx) => {
         const workerId = `w-${task.id}-${idx}`;
 
@@ -376,14 +386,22 @@ export class ParallelCoordinator {
           this.sessionBranch!,
         );
 
-        this.emit({
-          type: "worker:started",
-          timestamp: this.timestamp(),
-          workerId,
-        });
+        const worker = new Worker(
+          {
+            id: workerId,
+            task,
+            worktreePath: worktree.path,
+            branchName: worktree.branch,
+          },
+          this.synthConfig,
+          this.agent,
+          this.fallbackAgent,
+          this.sessionPaths,
+        );
+        batchWorkers.push(worker);
 
         try {
-          const result = await this.executor.execute(task, worktree);
+          const result = await worker.start();
           this.emit({
             type: "worker:completed",
             timestamp: this.timestamp(),
@@ -400,6 +418,7 @@ export class ParallelCoordinator {
         }
       });
 
+      this.activeWorkers = batchWorkers;
       this.activeWorkerPromises = promises;
       const batchSettled = Promise.all(promises);
 
@@ -411,11 +430,13 @@ export class ParallelCoordinator {
 
       // If interrupted, break out immediately — cleanup handled by handleInterrupt
       if (this.interrupted) {
+        this.activeWorkers = [];
         this.activeWorkerPromises = [];
         break;
       }
 
       const batchResults = await batchSettled;
+      this.activeWorkers = [];
       this.activeWorkerPromises = [];
       for (const r of batchResults) {
         if (r) results.push(r);
@@ -426,6 +447,13 @@ export class ParallelCoordinator {
   }
 
   private async handleAbort(): Promise<void> {
+    for (const worker of this.activeWorkers) {
+      try {
+        worker.stop();
+      } catch {
+        // Best effort
+      }
+    }
     if (this.worktreeManager) {
       await this.worktreeManager.cleanupAll();
     }

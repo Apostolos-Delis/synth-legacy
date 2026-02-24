@@ -503,27 +503,19 @@ async function cmdRun(sessionId?: string, startIteration = 0, tuiContext?: TuiCo
         ),
       );
 
+      const parallelFallbackAgent = config.agent.fallback
+        ? getAgent(config.agent.fallback.name)
+        : null;
+
       const coordinator = new ParallelCoordinator({
         tasks: actionableTasks,
         repoRoot: cwd,
         project: config.project.name,
         sessionPaths: plan.paths,
         config: { maxWorkers: parallelWorkers },
-        executor: {
-          async execute(task, worktree) {
-            const handle = spawn({
-              cmd: ["synth", "resume", plan!.metadata.id],
-              cwd: worktree.path,
-            });
-            await handle.promise;
-            return {
-              workerId: `w-${task.id}`,
-              taskId: task.id,
-              taskTitle: task.title,
-              branch: worktree.branch,
-            };
-          },
-        },
+        synthConfig: config,
+        agent,
+        fallbackAgent: parallelFallbackAgent,
       });
 
       coordinator.on((event) => {
@@ -576,6 +568,7 @@ async function cmdRun(sessionId?: string, startIteration = 0, tuiContext?: TuiCo
         await runMod.releaseLock(plan.paths);
       }
 
+      parallelFallbackAgent?.dispose();
       agent.dispose();
       return;
     }

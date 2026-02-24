@@ -5,6 +5,12 @@ export interface WorkerResult {
   taskId: string;
   taskTitle: string;
   branch: string;
+  success?: boolean;
+  iterationsRun?: number;
+  durationMs?: number;
+  commitCount?: number;
+  worktreePath?: string;
+  error?: string;
 }
 
 export interface MergeOperation {

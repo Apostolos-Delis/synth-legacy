@@ -1,17 +1,93 @@
-import { describe, test, expect, beforeEach, afterEach } from "bun:test";
+import { describe, test, expect, beforeEach, afterEach, mock } from "bun:test";
 import { mkdtemp, rm, writeFile, readFile, mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { spawn } from "../utils/process.js";
 import type { Task } from "../tasks/types.js";
 import type { SessionPaths } from "../sessions/types.js";
+import type { SynthConfig } from "../config/types.js";
+import type { AgentAdapter } from "../agents/types.js";
 import type { ParallelEvent } from "../parallel/events.js";
-import type { WorktreeInfo } from "../parallel/worktree-manager.js";
 import type { WorkerResult } from "../parallel/merge-engine.js";
-import {
-  ParallelCoordinator,
-  type WorkerExecutor,
-} from "../parallel/coordinator.js";
+
+// Mock the Worker class so it writes files (simulating real work) instead of
+// spinning up an Engine + agent.
+mock.module("../parallel/worker.js", () => ({
+  Worker: class {
+    readonly id: string;
+    readonly config: { id: string; task: Task; worktreePath: string; branchName: string };
+
+    constructor(
+      config: { id: string; task: Task; worktreePath: string; branchName: string },
+      _synthConfig: SynthConfig,
+      _agent: AgentAdapter,
+      _fallbackAgent: AgentAdapter | null,
+      _sessionPaths: SessionPaths,
+    ) {
+      this.id = config.id;
+      this.config = config;
+    }
+
+    on() {
+      return () => {};
+    }
+
+    onEngineEvent() {
+      return () => {};
+    }
+
+    async start(): Promise<WorkerResult> {
+      const task = this.config.task;
+      const worktreePath = this.config.worktreePath;
+
+      // Write a distinct file per task and commit it
+      const filename = `${task.id}.txt`;
+      const filepath = join(worktreePath, filename);
+      await writeFile(filepath, `content from ${task.id}\n`);
+
+      await git(worktreePath, "add", filename);
+      await git(worktreePath, "commit", "-m", `feat: ${task.title}`);
+
+      return {
+        workerId: this.id,
+        taskId: task.id,
+        taskTitle: task.title,
+        branch: this.config.branchName,
+        success: true,
+        iterationsRun: 1,
+        durationMs: 100,
+        commitCount: 1,
+        worktreePath,
+      };
+    }
+
+    stop() {}
+
+    getDisplayState() {
+      return {
+        id: this.id,
+        status: "idle" as const,
+        task: this.config.task,
+        currentIteration: 0,
+        maxIterations: 10,
+        lastOutput: "",
+        elapsedMs: 0,
+        worktreePath: this.config.worktreePath,
+        branchName: this.config.branchName,
+      };
+    }
+
+    getStatus() {
+      return "idle";
+    }
+
+    getTask() {
+      return this.config.task;
+    }
+  },
+}));
+
+import { ParallelCoordinator } from "../parallel/coordinator.js";
 
 async function git(cwd: string, ...args: string[]): Promise<string> {
   const handle = spawn({ cmd: ["git", ...args], cwd });
@@ -122,33 +198,24 @@ function makeTasks(): Task[] {
   ];
 }
 
-/**
- * Mock executor that writes a distinct file in the worktree,
- * commits it, and returns the result.
- */
-function makeExecutor(): WorkerExecutor & { callLog: string[] } {
-  const callLog: string[] = [];
-  return {
-    callLog,
-    async execute(task: Task, worktree: WorktreeInfo): Promise<WorkerResult> {
-      callLog.push(task.id);
+const mockSynthConfig: SynthConfig = {
+  project: { name: "test-project", branch: "main", base_branch: "main" },
+  agent: { name: "claude", timeout: 30000, skip_permissions: true },
+  execution: { max_iterations: 10, iteration_delay: 0, auto_commit: true },
+  guardrails: { max_consecutive_failures: 3, backpressure_commands: [] },
+  finalize: { auto_format: false, split_commits: false, self_review: false, create_pr: false },
+};
 
-      const filename = `${task.id}.txt`;
-      const filepath = join(worktree.path, filename);
-      await writeFile(filepath, `content from ${task.id}\n`);
-
-      await git(worktree.path, "add", filename);
-      await git(worktree.path, "commit", "-m", `feat: ${task.title}`);
-
-      return {
-        workerId: worktree.workerId,
-        taskId: task.id,
-        taskTitle: task.title,
-        branch: worktree.branch,
-      };
-    },
-  };
-}
+const mockAgent: AgentAdapter = {
+  name: "mock",
+  detect: async () => ({ available: true }),
+  execute: () => ({
+    pid: 0,
+    promise: Promise.resolve({ exitCode: 0, stdout: "", stderr: "", timedOut: false }),
+    interrupt: () => {},
+  }),
+  dispose: () => {},
+};
 
 describe("parallel pipeline integration", () => {
   let repoRoot: string;
@@ -169,7 +236,6 @@ describe("parallel pipeline integration", () => {
   test("full pipeline: 6 tasks with dependencies through parallel coordinator", async () => {
     const tasks = makeTasks();
     const sessionPaths = makeSessionPaths(repoRoot);
-    const executor = makeExecutor();
     const events: ParallelEvent[] = [];
 
     const coordinator = new ParallelCoordinator({
@@ -182,7 +248,9 @@ describe("parallel pipeline integration", () => {
         aiConflictResolution: false,
         maxRequeueCount: 0,
       },
-      executor,
+      synthConfig: mockSynthConfig,
+      agent: mockAgent,
+      fallbackAgent: null,
     });
 
     coordinator.on((event) => events.push(event));
@@ -199,19 +267,9 @@ describe("parallel pipeline integration", () => {
     expect(result.failedTaskIds.length).toBe(0);
 
     // --- AC #2: Mock workers create distinct files per task ---
-    // All 6 tasks should have been executed
-    expect(executor.callLog.length).toBe(6);
-    expect(executor.callLog).toContain("task-a");
-    expect(executor.callLog).toContain("task-b");
-    expect(executor.callLog).toContain("task-c");
-    expect(executor.callLog).toContain("task-d");
-    expect(executor.callLog).toContain("task-e");
-    expect(executor.callLog).toContain("task-f");
+    // Verified by checking the coordinator completed successfully with all 6 tasks
 
     // --- AC #3: Depth-0 tasks execute in parallel (verified via event order) ---
-    // Depth-0 tasks (a,b,c) should all have worker:created events before any
-    // depth-1 task (d,e,f) gets a worker:created event.
-    // We verify by checking that group-started/group-completed events bracket the groups.
     const groupStartEvents = events.filter((e) => e.type === "parallel:group-started");
     const groupCompleteEvents = events.filter((e) => e.type === "parallel:group-completed");
     expect(groupStartEvents.length).toBe(2);
@@ -225,7 +283,6 @@ describe("parallel pipeline integration", () => {
     const firstGroupWorkerIds = workerCreatedEvents.slice(0, 3).map(
       (e) => (e as { workerId: string }).workerId,
     );
-    // Worker IDs contain the task ID
     const depth0TaskIds = ["task-a", "task-b", "task-c"];
     for (const wid of firstGroupWorkerIds) {
       expect(depth0TaskIds.some((tid) => wid.includes(tid))).toBe(true);
@@ -269,8 +326,6 @@ describe("parallel pipeline integration", () => {
     // No synth-parallel worktree branches should remain
     const branches = await git(repoRoot, "branch", "--list");
     expect(branches).not.toContain("synth-parallel/");
-    // Session branch may linger (coordinator doesn't delete it after FF merge)
-    // but no synth-parallel worker branches should exist
     const branchLines = branches
       .split("\n")
       .map((b) => b.trim().replace("* ", ""))
@@ -291,7 +346,6 @@ describe("parallel pipeline integration", () => {
     expect(eventTypes[eventTypes.length - 1]).toBe("parallel:completed");
 
     // Should have the right structure:
-    // parallel:started -> group-started -> workers -> merges -> group-completed -> ... -> parallel:completed
     const expectedSequence = [
       "parallel:started",
       "parallel:group-started",
@@ -305,14 +359,13 @@ describe("parallel pipeline integration", () => {
     );
     expect(sessionEvents).toEqual(expectedSequence);
 
-    // Each group should have worker:created/started/completed and merge events
+    // Each group should have worker:created/completed and merge events
     const workerCompleted = events.filter((e) => e.type === "worker:completed");
     expect(workerCompleted.length).toBe(6);
 
     const mergeCompleted = events.filter((e) => e.type === "merge:completed");
     expect(mergeCompleted.length).toBe(6);
 
-    // Merge events should follow worker events within each group
     const mergeQueued = events.filter((e) => e.type === "merge:queued");
     expect(mergeQueued.length).toBe(6);
   }, 30_000);

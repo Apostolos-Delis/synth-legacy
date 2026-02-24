@@ -54,11 +54,18 @@ export {
 } from "./ai-resolver.js";
 export type { ConflictInfo, AiAgent } from "./ai-resolver.js";
 
+// Worker (wraps Engine for parallel execution)
+export { Worker } from "./worker.js";
+export type {
+  WorkerConfig,
+  WorkerStatus,
+  WorkerDisplayState,
+} from "./worker.js";
+
 // Coordinator (main orchestrator)
 export { ParallelCoordinator } from "./coordinator.js";
 export type {
   ParallelCoordinatorConfig,
-  WorkerExecutor,
   ParallelCoordinatorOptions,
   ParallelResult,
 } from "./coordinator.js";

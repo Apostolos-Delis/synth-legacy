@@ -1,6 +1,8 @@
 import { describe, test, expect, beforeEach, afterEach, mock } from "bun:test";
 import type { Task } from "../tasks/types.js";
 import type { SessionPaths } from "../sessions/types.js";
+import type { SynthConfig } from "../config/types.js";
+import type { AgentAdapter } from "../agents/types.js";
 import type { ParallelEvent } from "./events.js";
 import type { WorkerResult, MergeOperation } from "./merge-engine.js";
 import type { WorktreeInfo } from "./worktree-manager.js";
@@ -18,6 +20,13 @@ let mergeInitCalls: string[] = [];
 let mergeEnqueueCalls: WorkerResult[] = [];
 let mergeProcessResults: (MergeOperation | null)[] = [];
 let mergeProcessIndex = 0;
+
+// Worker mock state
+let workerStartedTasks: string[] = [];
+let workerStopCalled: string[] = [];
+type WorkerStartBehavior = "immediate" | "hang" | "hang-forever" | "throw";
+let workerStartBehavior: WorkerStartBehavior = "immediate";
+let workerHangResolvers: Map<string, (result: WorkerResult) => void> = new Map();
 
 // --- Mock modules ---
 
@@ -96,9 +105,107 @@ mock.module("./merge-engine.js", () => ({
   },
 }));
 
+// Mock Worker class — replaces the real Engine-wrapping Worker with a controllable test double
+mock.module("./worker.js", () => ({
+  Worker: class {
+    readonly id: string;
+    readonly config: { id: string; task: Task; worktreePath: string; branchName: string };
+
+    constructor(
+      config: { id: string; task: Task; worktreePath: string; branchName: string },
+      _synthConfig: SynthConfig,
+      _agent: AgentAdapter,
+      _fallbackAgent: AgentAdapter | null,
+      _sessionPaths: SessionPaths,
+    ) {
+      this.id = config.id;
+      this.config = config;
+    }
+
+    on() {
+      return () => {};
+    }
+
+    onEngineEvent() {
+      return () => {};
+    }
+
+    async start(): Promise<WorkerResult> {
+      workerStartedTasks.push(this.config.task.id);
+
+      if (workerStartBehavior === "throw") {
+        throw new Error("worker error");
+      }
+
+      if (workerStartBehavior === "hang-forever") {
+        return new Promise<WorkerResult>(() => {});
+      }
+
+      if (workerStartBehavior === "hang") {
+        return new Promise<WorkerResult>((resolve) => {
+          workerHangResolvers.set(this.id, resolve);
+        });
+      }
+
+      return {
+        workerId: this.id,
+        taskId: this.config.task.id,
+        taskTitle: this.config.task.title,
+        branch: this.config.branchName,
+        success: true,
+        iterationsRun: 1,
+        durationMs: 100,
+        commitCount: 1,
+        worktreePath: this.config.worktreePath,
+      };
+    }
+
+    stop() {
+      workerStopCalled.push(this.id);
+      const resolver = workerHangResolvers.get(this.id);
+      if (resolver) {
+        resolver({
+          workerId: this.id,
+          taskId: this.config.task.id,
+          taskTitle: this.config.task.title,
+          branch: this.config.branchName,
+          success: false,
+          iterationsRun: 0,
+          durationMs: 0,
+          commitCount: 0,
+          worktreePath: this.config.worktreePath,
+          error: "Worker was cancelled",
+        });
+        workerHangResolvers.delete(this.id);
+      }
+    }
+
+    getDisplayState() {
+      return {
+        id: this.id,
+        status: "idle" as const,
+        task: this.config.task,
+        currentIteration: 0,
+        maxIterations: 10,
+        lastOutput: "",
+        elapsedMs: 0,
+        worktreePath: this.config.worktreePath,
+        branchName: this.config.branchName,
+      };
+    }
+
+    getStatus() {
+      return "idle";
+    }
+
+    getTask() {
+      return this.config.task;
+    }
+  },
+}));
+
 import {
   ParallelCoordinator,
-  type WorkerExecutor,
   type ParallelCoordinatorOptions,
 } from "./coordinator.js";
 
@@ -119,6 +226,25 @@ const mockSessionPaths: SessionPaths = {
   reviewTasks: "/sessions/repo/test/review/tasks.json",
   reviewProgress: "/sessions/repo/test/review/progress.md",
   reviewConversation: "/sessions/repo/test/review/conversation.json",
+};
+
+const mockSynthConfig: SynthConfig = {
+  project: { name: "test-project", branch: "main", base_branch: "main" },
+  agent: { name: "claude", timeout: 30000, skip_permissions: true },
+  execution: { max_iterations: 10, iteration_delay: 0, auto_commit: true },
+  guardrails: { max_consecutive_failures: 3, backpressure_commands: [] },
+  finalize: { auto_format: false, split_commits: false, self_review: false, create_pr: false },
+};
+
+const mockAgent: AgentAdapter = {
+  name: "mock",
+  detect: async () => ({ available: true }),
+  execute: () => ({
+    pid: 0,
+    promise: Promise.resolve({ exitCode: 0, stdout: "", stderr: "", timedOut: false }),
+    interrupt: () => {},
+  }),
+  dispose: () => {},
 };
 
 function makeTask(id: string, overrides?: Partial<Task>): Task {
@@ -173,27 +299,15 @@ function makeMergeOp(taskId: string, status: MergeOperation["status"]): MergeOpe
   };
 }
 
-function makeExecutor(results?: Map<string, WorkerResult>): WorkerExecutor {
-  return {
-    execute: async (task: Task, worktree: WorktreeInfo): Promise<WorkerResult> => {
-      if (results?.has(task.id)) return results.get(task.id)!;
-      return {
-        workerId: `w-${task.id}-0`,
-        taskId: task.id,
-        taskTitle: task.title,
-        branch: worktree.branch,
-      };
-    },
-  };
-}
-
 function makeOptions(overrides?: Partial<ParallelCoordinatorOptions>): ParallelCoordinatorOptions {
   return {
     tasks: [makeTask("T-1"), makeTask("T-2"), makeTask("T-3")],
     repoRoot: "/repo",
     project: "test-project",
     sessionPaths: mockSessionPaths,
-    executor: makeExecutor(),
+    synthConfig: mockSynthConfig,
+    agent: mockAgent,
+    fallbackAgent: null,
     ...overrides,
   };
 }
@@ -239,6 +353,10 @@ beforeEach(() => {
   mergeEnqueueCalls = [];
   mergeProcessResults = [];
   mergeProcessIndex = 0;
+  workerStartedTasks = [];
+  workerStopCalled = [];
+  workerStartBehavior = "immediate";
+  workerHangResolvers = new Map();
   mockWorktreeManagerInstance = defaultWorktreeManager();
   mockMergeEngineInstance = defaultMergeEngine();
   analyzeResult = makeParallelAnalysis([{ depth: 0, taskIds: ["T-1", "T-2", "T-3"] }]);
@@ -258,13 +376,11 @@ describe("ParallelCoordinator", () => {
           },
         }),
       );
-      // Constructor doesn't throw — config is accepted
       expect(coordinator).toBeDefined();
     });
 
     test("uses default config values when not specified", () => {
       const coordinator = new ParallelCoordinator(makeOptions());
-      // Defaults: maxWorkers=8, aiConflictResolution=true, maxRequeueCount=1
       expect(coordinator).toBeDefined();
     });
   });
@@ -326,11 +442,8 @@ describe("ParallelCoordinator", () => {
       const coordinator = new ParallelCoordinator(makeOptions());
       await coordinator.run();
 
-      // getCurrentBranch was called
       expect(gitCalls.some((c) => c.fn === "getCurrentBranch")).toBe(true);
-      // Session branch was initialized
       expect(mergeInitCalls.length).toBe(1);
-      // Backup tag was created
       expect(gitCalls.some((c) => c.fn === "createTag")).toBe(true);
     });
 
@@ -344,7 +457,6 @@ describe("ParallelCoordinator", () => {
       const coordinator = new ParallelCoordinator(makeOptions());
       await coordinator.run();
 
-      // At least one save (initial) + one after group completion
       expect(savedSessions.length).toBeGreaterThanOrEqual(2);
     });
   });
@@ -362,27 +474,12 @@ describe("ParallelCoordinator", () => {
         makeMergeOp("T-3", "completed"),
       ];
 
-      const executedTasks: string[] = [];
-      const executor: WorkerExecutor = {
-        execute: async (task, worktree) => {
-          executedTasks.push(task.id);
-          return {
-            workerId: `w-${task.id}-0`,
-            taskId: task.id,
-            taskTitle: task.title,
-            branch: worktree.branch,
-          };
-        },
-      };
-
-      const coordinator = new ParallelCoordinator(
-        makeOptions({ executor }),
-      );
+      const coordinator = new ParallelCoordinator(makeOptions());
       const result = await coordinator.run();
 
-      expect(executedTasks).toContain("T-1");
-      expect(executedTasks).toContain("T-2");
-      expect(executedTasks).toContain("T-3");
+      expect(workerStartedTasks).toContain("T-1");
+      expect(workerStartedTasks).toContain("T-2");
+      expect(workerStartedTasks).toContain("T-3");
       expect(result.mergedTaskIds).toEqual(["T-1", "T-2", "T-3"]);
       expect(result.serial).toBe(false);
     });
@@ -424,7 +521,6 @@ describe("ParallelCoordinator", () => {
       );
       await coordinator.run();
 
-      // All tasks were executed (batched in groups of 2)
       expect(worktreeAcquireCalls.length).toBe(5);
     });
   });
@@ -440,7 +536,6 @@ describe("ParallelCoordinator", () => {
       const coordinator = new ParallelCoordinator(makeOptions());
       const result = await coordinator.run();
 
-      // Each worker result was enqueued for merge
       expect(mergeEnqueueCalls.length).toBe(3);
       expect(result.mergedTaskIds).toEqual(["T-1", "T-2", "T-3"]);
     });
@@ -460,7 +555,6 @@ describe("ParallelCoordinator", () => {
       const coordinator = new ParallelCoordinator(makeOptions());
       await coordinator.run();
 
-      // cleanupAll called once per group (2 groups)
       expect(worktreeCleanedUp.length).toBe(2);
     });
 
@@ -479,7 +573,6 @@ describe("ParallelCoordinator", () => {
       const coordinator = new ParallelCoordinator(makeOptions());
       await coordinator.run();
 
-      // initial persist + 2 after-group persists = 3
       expect(savedSessions.length).toBe(3);
     });
   });
@@ -498,26 +591,22 @@ describe("ParallelCoordinator", () => {
       const events = collectEvents(coordinator);
       const result = await coordinator.run();
 
-      // T-1 was conflicted → re-queued (not in failedTaskIds)
       expect(result.failedTaskIds).not.toContain("T-1");
-      // conflict:detected event was emitted
       expect(events.some((e) => e.type === "conflict:detected")).toBe(true);
     });
 
     test("fails task after exceeding maxRequeueCount", async () => {
-      // First conflict → re-queue, second conflict → fail
-      const op1 = makeMergeOp("T-1", "conflicted");
-      const op2 = makeMergeOp("T-2", "completed");
-      const op3 = makeMergeOp("T-3", "completed");
-
-      mergeProcessResults = [op1, op2, op3];
+      mergeProcessResults = [
+        makeMergeOp("T-1", "conflicted"),
+        makeMergeOp("T-2", "completed"),
+        makeMergeOp("T-3", "completed"),
+      ];
 
       const coordinator = new ParallelCoordinator(
         makeOptions({ config: { maxRequeueCount: 0 } }),
       );
       const result = await coordinator.run();
 
-      // With maxRequeueCount=0, conflicted tasks fail immediately
       expect(result.failedTaskIds).toContain("T-1");
     });
 
@@ -581,13 +670,11 @@ describe("ParallelCoordinator", () => {
       const coordinator = new ParallelCoordinator(makeOptions());
       await coordinator.run();
 
-      // checkoutBranch called with original branch
       const checkoutCall = gitCalls.find(
         (c) => c.fn === "checkoutBranch" && c.args[0] === "main",
       );
       expect(checkoutCall).toBeDefined();
 
-      // mergeFF called with session branch
       const mergeCall = gitCalls.find(
         (c) => c.fn === "mergeFF" && (c.args[0] as string).startsWith("synth-session/"),
       );
@@ -604,9 +691,7 @@ describe("ParallelCoordinator", () => {
       const coordinator = new ParallelCoordinator(makeOptions());
       await coordinator.run();
 
-      // Tag was deleted
       expect(gitCalls.some((c) => c.fn === "deleteTag")).toBe(true);
-      // Session was deleted
       expect(deletedSessions.length).toBe(1);
     });
 
@@ -628,7 +713,6 @@ describe("ParallelCoordinator", () => {
 
   describe("SIGINT / abort", () => {
     test("sets aborted flag to stop further processing", async () => {
-      // Use two groups — abort after first group starts
       analyzeResult = makeParallelAnalysis([
         { depth: 0, taskIds: ["T-1", "T-2"] },
         { depth: 1, taskIds: ["T-3"] },
@@ -637,36 +721,18 @@ describe("ParallelCoordinator", () => {
       mergeProcessResults = [
         makeMergeOp("T-1", "completed"),
         makeMergeOp("T-2", "completed"),
-        // T-3 won't be reached
       ];
 
-      const executor: WorkerExecutor = {
-        execute: async (task, worktree) => {
-          return {
-            workerId: `w-${task.id}-0`,
-            taskId: task.id,
-            taskTitle: task.title,
-            branch: worktree.branch,
-          };
-        },
-      };
+      const coordinator = new ParallelCoordinator(makeOptions());
 
-      const coordinator = new ParallelCoordinator(
-        makeOptions({ executor }),
-      );
-
-      // Call abort synchronously before run starts the second group
-      // This tests the aborted flag check in the group loop
       coordinator.on((e) => {
         if (e.type === "parallel:group-completed") {
-          // Abort after the first group completes — the loop checks aborted before second group
           coordinator.abort();
         }
       });
 
       const result = await coordinator.run();
 
-      // T-3 should not have been executed
       expect(result.serial).toBe(false);
     });
 
@@ -680,9 +746,7 @@ describe("ParallelCoordinator", () => {
 
       await expect(coordinator.run()).rejects.toThrow();
 
-      // parallel:failed was emitted
       expect(events.some((e) => e.type === "parallel:failed")).toBe(true);
-      // checkoutBranch to original branch
       expect(
         gitCalls.some(
           (c) => c.fn === "checkoutBranch" && c.args[0] === "main",
@@ -699,7 +763,6 @@ describe("ParallelCoordinator", () => {
 
       await expect(coordinator.run()).rejects.toThrow("boom");
 
-      // cleanupAll was called during abort
       expect(worktreeCleanedUp.length).toBeGreaterThanOrEqual(1);
     });
   });
@@ -712,7 +775,6 @@ describe("ParallelCoordinator", () => {
     });
 
     afterEach(() => {
-      // Ensure no leaked SIGINT listeners
       while (process.listenerCount("SIGINT") > originalListenerCount) {
         const listeners = process.listeners("SIGINT");
         process.removeListener("SIGINT", listeners[listeners.length - 1] as NodeJS.SignalsListener);
@@ -726,28 +788,18 @@ describe("ParallelCoordinator", () => {
         makeMergeOp("T-3", "completed"),
       ];
 
+      const coordinator = new ParallelCoordinator(makeOptions());
+
       let sigintCountDuringExecution = 0;
-
-      const executor: WorkerExecutor = {
-        execute: async (task, worktree) => {
+      coordinator.on((e) => {
+        if (e.type === "worker:created") {
           sigintCountDuringExecution = process.listenerCount("SIGINT");
-          return {
-            workerId: `w-${task.id}-0`,
-            taskId: task.id,
-            taskTitle: task.title,
-            branch: worktree.branch,
-          };
-        },
-      };
+        }
+      });
 
-      const coordinator = new ParallelCoordinator(
-        makeOptions({ executor }),
-      );
       await coordinator.run();
 
-      // SIGINT handler was registered during execution
       expect(sigintCountDuringExecution).toBeGreaterThan(originalListenerCount);
-      // SIGINT handler removed after completion
       expect(process.listenerCount("SIGINT")).toBe(originalListenerCount);
     });
 
@@ -776,81 +828,38 @@ describe("ParallelCoordinator", () => {
       expect(process.listenerCount("SIGINT")).toBe(originalListenerCount);
     });
 
-    test("calls executor.stop() on SIGINT", async () => {
-      let stopCalled = false;
-      let executorCalled: (() => void) | null = null;
-      const executorCalledPromise = new Promise<void>((resolve) => {
-        executorCalled = resolve;
-      });
-      const workerResolvers: (() => void)[] = [];
+    test("calls worker.stop() on SIGINT", async () => {
+      workerStartBehavior = "hang";
 
-      const executor: WorkerExecutor = {
-        execute: async (task, worktree) => {
-          executorCalled!();
-          await new Promise<void>((resolve) => {
-            workerResolvers.push(resolve);
-          });
-          return {
-            workerId: `w-${task.id}-0`,
-            taskId: task.id,
-            taskTitle: task.title,
-            branch: worktree.branch,
-          };
-        },
-        stop: () => {
-          stopCalled = true;
-          for (const resolve of workerResolvers) resolve();
-        },
-      };
+      mergeProcessResults = [
+        makeMergeOp("T-1", "completed"),
+        makeMergeOp("T-2", "completed"),
+        makeMergeOp("T-3", "completed"),
+      ];
 
-      const coordinator = new ParallelCoordinator(
-        makeOptions({ executor }),
-      );
+      const coordinator = new ParallelCoordinator(makeOptions());
 
       const runPromise = coordinator.run();
 
-      // Wait for executor to actually be called
-      await executorCalledPromise;
+      await new Promise<void>((resolve) => setTimeout(resolve, 50));
 
       process.emit("SIGINT", "SIGINT");
 
       await runPromise;
 
-      expect(stopCalled).toBe(true);
+      expect(workerStopCalled.length).toBeGreaterThan(0);
     });
 
     test("cleans up worktrees on SIGINT", async () => {
-      let executorCalled: (() => void) | null = null;
-      const executorCalledPromise = new Promise<void>((resolve) => {
-        executorCalled = resolve;
-      });
-      const workerResolvers: (() => void)[] = [];
+      workerStartBehavior = "hang";
 
-      const executor: WorkerExecutor = {
-        execute: async (task, worktree) => {
-          executorCalled!();
-          await new Promise<void>((resolve) => {
-            workerResolvers.push(resolve);
-          });
-          return {
-            workerId: `w-${task.id}-0`,
-            taskId: task.id,
-            taskTitle: task.title,
-            branch: worktree.branch,
-          };
-        },
-        stop: () => {
-          for (const resolve of workerResolvers) resolve();
-        },
-      };
+      mergeProcessResults = [];
 
-      const coordinator = new ParallelCoordinator(
-        makeOptions({ executor }),
-      );
+      const coordinator = new ParallelCoordinator(makeOptions());
 
       const runPromise = coordinator.run();
 
-      await executorCalledPromise;
+      await new Promise<void>((resolve) => setTimeout(resolve, 50));
 
       process.emit("SIGINT", "SIGINT");
 
@@ -860,37 +869,15 @@ describe("ParallelCoordinator", () => {
     });
 
     test("checks out original branch on SIGINT", async () => {
-      let executorCalled: (() => void) | null = null;
-      const executorCalledPromise = new Promise<void>((resolve) => {
-        executorCalled = resolve;
-      });
-      const workerResolvers: (() => void)[] = [];
+      workerStartBehavior = "hang";
 
-      const executor: WorkerExecutor = {
-        execute: async (task, worktree) => {
-          executorCalled!();
-          await new Promise<void>((resolve) => {
-            workerResolvers.push(resolve);
-          });
-          return {
-            workerId: `w-${task.id}-0`,
-            taskId: task.id,
-            taskTitle: task.title,
-            branch: worktree.branch,
-          };
-        },
-        stop: () => {
-          for (const resolve of workerResolvers) resolve();
-        },
-      };
+      mergeProcessResults = [];
 
-      const coordinator = new ParallelCoordinator(
-        makeOptions({ executor }),
-      );
+      const coordinator = new ParallelCoordinator(makeOptions());
 
       const runPromise = coordinator.run();
 
-      await executorCalledPromise;
+      await new Promise<void>((resolve) => setTimeout(resolve, 50));
 
       process.emit("SIGINT", "SIGINT");
 
@@ -904,38 +891,16 @@ describe("ParallelCoordinator", () => {
     });
 
     test("emits parallel:failed with reason 'interrupted' on SIGINT", async () => {
-      let executorCalled: (() => void) | null = null;
-      const executorCalledPromise = new Promise<void>((resolve) => {
-        executorCalled = resolve;
-      });
-      const workerResolvers: (() => void)[] = [];
+      workerStartBehavior = "hang";
 
-      const executor: WorkerExecutor = {
-        execute: async (task, worktree) => {
-          executorCalled!();
-          await new Promise<void>((resolve) => {
-            workerResolvers.push(resolve);
-          });
-          return {
-            workerId: `w-${task.id}-0`,
-            taskId: task.id,
-            taskTitle: task.title,
-            branch: worktree.branch,
-          };
-        },
-        stop: () => {
-          for (const resolve of workerResolvers) resolve();
-        },
-      };
+      mergeProcessResults = [];
 
-      const coordinator = new ParallelCoordinator(
-        makeOptions({ executor }),
-      );
+      const coordinator = new ParallelCoordinator(makeOptions());
       const events = collectEvents(coordinator);
 
       const runPromise = coordinator.run();
 
-      await executorCalledPromise;
+      await new Promise<void>((resolve) => setTimeout(resolve, 50));
 
       process.emit("SIGINT", "SIGINT");
 
@@ -947,33 +912,19 @@ describe("ParallelCoordinator", () => {
     });
 
     test("cleanup completes even if workers do not stop within timeout", async () => {
-      // Workers that never resolve (simulating hung workers)
-      const executor: WorkerExecutor = {
-        execute: async () => {
-          // This promise never resolves — simulates a hung worker
-          return new Promise<WorkerResult>(() => {});
-        },
-        // No stop() — workers won't be signaled to stop
-      };
+      workerStartBehavior = "hang-forever";
 
-      const coordinator = new ParallelCoordinator(
-        makeOptions({ executor }),
-      );
+      const coordinator = new ParallelCoordinator(makeOptions());
       const events = collectEvents(coordinator);
 
       const runPromise = coordinator.run();
 
-      // Wait for workers to start
       await new Promise<void>((resolve) => setTimeout(resolve, 50));
 
-      // Simulate SIGINT — handleInterrupt will wait up to 5s then proceed
       process.emit("SIGINT", "SIGINT");
 
-      // The run() should complete (not hang forever) after the timeout
-      // We set a generous test timeout but the coordinator should resolve after ~5s
       await runPromise;
 
-      // Cleanup happened despite workers not stopping
       expect(worktreeCleanedUp.length).toBeGreaterThanOrEqual(1);
       expect(
         gitCalls.some(
@@ -984,7 +935,7 @@ describe("ParallelCoordinator", () => {
       const failedEvent = events.find((e) => e.type === "parallel:failed");
       expect(failedEvent).toBeDefined();
       expect((failedEvent as { reason?: string }).reason).toBe("interrupted");
-    }, 15000); // Extended timeout for the 5s graceful shutdown wait
+    }, 15000);
   });
 
   describe("event emission", () => {
@@ -1069,23 +1020,15 @@ describe("ParallelCoordinator", () => {
       await coordinator.run();
 
       expect(events.some((e) => e.type === "worker:created")).toBe(true);
-      expect(events.some((e) => e.type === "worker:started")).toBe(true);
       expect(events.some((e) => e.type === "worker:completed")).toBe(true);
     });
 
-    test("emits worker:failed when executor throws", async () => {
-      const failingExecutor: WorkerExecutor = {
-        execute: async () => {
-          throw new Error("worker error");
-        },
-      };
+    test("emits worker:failed when worker throws", async () => {
+      workerStartBehavior = "throw";
 
-      // No processNext results needed since all workers fail
       mergeProcessResults = [];
 
-      const coordinator = new ParallelCoordinator(
-        makeOptions({ executor: failingExecutor }),
-      );
+      const coordinator = new ParallelCoordinator(makeOptions());
       const events = collectEvents(coordinator);
       await coordinator.run();
 
@@ -1122,7 +1065,6 @@ describe("ParallelCoordinator", () => {
         called = true;
       });
 
-      // Serial fallback doesn't emit events, so called stays false
       await coordinator.run();
       expect(called).toBe(false);
     });
