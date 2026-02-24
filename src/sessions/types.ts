@@ -4,7 +4,7 @@ export interface SessionMetadata {
   description: string;
   createdAt: string;
   updatedAt: string;
-  status: "interviewing" | "planning" | "executing" | "paused" | "blocked" | "completed" | "finalizing" | "finalized" | "failed";
+  status: "interviewing" | "planning" | "executing" | "reviewing" | "paused" | "blocked" | "completed" | "finalizing" | "finalized" | "failed";
   taskCount: number;
   tasksCompleted: number;
   slug?: string;
@@ -20,4 +20,9 @@ export interface SessionPaths {
   logs: string;
   summary: string;
   interview: string;
+  reviewRoot: string;
+  reviewFindings: string;
+  reviewTasks: string;
+  reviewProgress: string;
+  reviewConversation: string;
 }

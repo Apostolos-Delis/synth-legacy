@@ -5,6 +5,7 @@ import type { SessionPaths } from "../sessions/types.js";
 import type { Task, TaskFile } from "../tasks/types.js";
 
 export function makeSessionPaths(root: string): SessionPaths {
+  const reviewRoot = join(root, "review");
   return {
     root,
     prd: join(root, "prd.md"),
@@ -15,6 +16,11 @@ export function makeSessionPaths(root: string): SessionPaths {
     logs: join(root, "logs"),
     summary: join(root, "summary.md"),
     interview: join(root, "interview.json"),
+    reviewRoot,
+    reviewFindings: join(reviewRoot, "findings.md"),
+    reviewTasks: join(reviewRoot, "tasks.json"),
+    reviewProgress: join(reviewRoot, "progress.md"),
+    reviewConversation: join(reviewRoot, "conversation.json"),
   };
 }
 

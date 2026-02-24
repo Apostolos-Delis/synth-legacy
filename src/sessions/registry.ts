@@ -125,6 +125,7 @@ async function getRepoKey(cwd: string): Promise<string> {
 
 function sessionPaths(repoKey: string, sessionId: string): SessionPaths {
   const root = join(SESSIONS_DIR, repoKey, sessionId);
+  const reviewRoot = join(root, "review");
   return {
     root,
     prd: join(root, "prd.md"),
@@ -135,6 +136,11 @@ function sessionPaths(repoKey: string, sessionId: string): SessionPaths {
     logs: join(root, "logs"),
     summary: join(root, "summary.md"),
     interview: join(root, "interview.json"),
+    reviewRoot,
+    reviewFindings: join(reviewRoot, "findings.md"),
+    reviewTasks: join(reviewRoot, "tasks.json"),
+    reviewProgress: join(reviewRoot, "progress.md"),
+    reviewConversation: join(reviewRoot, "conversation.json"),
   };
 }
 
