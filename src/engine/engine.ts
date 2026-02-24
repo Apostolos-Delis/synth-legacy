@@ -143,11 +143,12 @@ export class Engine {
   }
 
   private async autoCommit(task: Task): Promise<void> {
+    const COMMIT_TIMEOUT = 30_000; // 30s — enough for pre-commit hooks
     if (this.sessionSlug === null) {
       this.sessionSlug = await getSessionSlug(this.sessionPaths);
     }
     const commitMsg = `feat: [${this.sessionSlug}] ${task.title}`;
-    const addResult = await spawn({ cmd: ["git", "add", "-u"], cwd: this.cwd }).promise;
+    const addResult = await spawn({ cmd: ["git", "add", "-u"], cwd: this.cwd, timeout: COMMIT_TIMEOUT }).promise;
     if (addResult.exitCode !== 0) {
       this.emit({
         type: "task:failed",
@@ -159,12 +160,14 @@ export class Engine {
     const commitResult = await spawn({
       cmd: ["git", "commit", "-m", commitMsg, "--allow-empty"],
       cwd: this.cwd,
+      timeout: COMMIT_TIMEOUT,
     }).promise;
     if (commitResult.exitCode !== 0) {
+      const reason = commitResult.timedOut ? "timed out" : `exit ${commitResult.exitCode}`;
       this.emit({
         type: "task:failed",
         taskId: task.id,
-        message: `git commit failed (exit ${commitResult.exitCode}): ${commitResult.stderr}`,
+        message: `git commit failed (${reason}): ${commitResult.stderr}`,
       });
     }
   }
@@ -194,10 +197,6 @@ export class Engine {
       taskId: task.id,
       message: task.title,
     });
-
-    if (this.config.execution.auto_commit) {
-      await this.autoCommit(task);
-    }
 
     const durationSec = Math.round(duration / 1000);
     const progressEntry = `## Iteration ${this.iteration} - ${task.id}: ${task.title}\n- Status: done\n- Duration: ${durationSec}s\n- Criteria: ${criteriaDone}/${criteriaCount} observed\n---\n`;
@@ -344,7 +343,8 @@ export class Engine {
 
           const stripped = stripAcDoneMarkers(chunk);
           output += stripped;
-          this.emit({ type: "agent:stdout", message: stripped, taskId: task.id, isFirstChunk: isFirst });
+          const display = stripped.replace(COMPLETION_PATTERN, "");
+          this.emit({ type: "agent:stdout", message: display, taskId: task.id, isFirstChunk: isFirst });
         },
         onStderr: (chunk) => {
           this.emit({ type: "agent:stderr", message: chunk, taskId: task.id });
@@ -393,7 +393,27 @@ export class Engine {
         if (tripped) break;
       }
 
+      // Check completion immediately after task status update — before autoCommit
+      // so git hooks can never block the transition to review/finalize.
+      const finalTasks = await loadTasks(this.sessionPaths.tasks);
+      const done = allTasksDone(finalTasks);
+
+      if (success && this.config.execution.auto_commit) {
+        if (done) {
+          // Fire-and-forget: don't block completion on the final commit
+          this.autoCommit(task).catch(() => {});
+        } else {
+          await this.autoCommit(task);
+        }
+      }
+
       trace.endPhase("engine:result-processing");
+
+      if (done) {
+        this.emit({ type: "complete" });
+        this.setState("completed");
+        break;
+      }
 
       try {
         await updateRun(this.sessionPaths, { currentIteration: this.iteration });
@@ -429,15 +449,6 @@ export class Engine {
         taskId: task.id,
         data: iterResult,
       });
-
-      if (completionDetected) {
-        const finalTasks = await loadTasks(this.sessionPaths.tasks);
-        if (allTasksDone(finalTasks)) {
-          this.emit({ type: "complete" });
-          this.setState("completed");
-          break;
-        }
-      }
 
       if (this.config.execution.iteration_delay > 0) {
         await Bun.sleep(this.config.execution.iteration_delay);
