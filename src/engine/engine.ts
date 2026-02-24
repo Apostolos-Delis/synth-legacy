@@ -21,6 +21,7 @@ import { getSessionSlug } from "../sessions/slug.js";
 import { spawn } from "../utils/process.js";
 import { updateRun } from "../run/run.js";
 import { globalTrace } from "../utils/perf.js";
+import { parseTokenUsageFromOutput } from "./tokens.js";
 
 const COMPLETION_PATTERN = /<promise>COMPLETE<\/promise>/;
 
@@ -408,6 +409,7 @@ export class Engine {
         trace.recordPhase("engine:first-token", result.firstTokenMs);
       }
 
+      const tokenUsage = parseTokenUsageFromOutput(output);
       const iterResult: IterationResult = {
         iteration: this.iteration,
         taskId: task.id,
@@ -416,6 +418,9 @@ export class Engine {
         completionDetected,
         output: output.slice(0, 5000),
         duration,
+        tokenUsage: tokenUsage
+          ? { inputTokens: tokenUsage.inputTokens, outputTokens: tokenUsage.outputTokens }
+          : undefined,
       };
 
       this.emit({
