@@ -354,10 +354,10 @@ describe("parallel pipeline integration", () => {
       "parallel:group-completed",
       "parallel:completed",
     ];
-    const sessionEvents = eventTypes.filter((t) =>
-      t.startsWith("parallel:") || false,
+    const sessionEvents = eventTypes.filter((t: string) =>
+      t.startsWith("parallel:"),
     );
-    expect(sessionEvents).toEqual(expectedSequence);
+    expect(sessionEvents as string[]).toEqual(expectedSequence);
 
     // Each group should have worker:created/completed and merge events
     const workerCompleted = events.filter((e) => e.type === "worker:completed");

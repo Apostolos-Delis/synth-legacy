@@ -32,7 +32,7 @@ function createMockAgent(): { agent: AgentAdapter; getCallCount: () => number } 
     async detect() {
       return { available: true, version: "1.0.0" };
     },
-    execute(prompt: string, options: AgentExecuteOptions): AgentExecutionHandle {
+    execute(_prompt: string, options: AgentExecuteOptions): AgentExecutionHandle {
       callCount++;
       const isReviewGeneration = callCount === 1;
       const output = isReviewGeneration

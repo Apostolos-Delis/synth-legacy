@@ -31,22 +31,37 @@ function makeConfig(overrides: Partial<SynthConfig> = {}): SynthConfig {
 }
 
 function makeSessionPaths(): SessionPaths {
+  const root = "/tmp/test-session";
   return {
-    root: "/tmp/test-session",
-    prd: "/tmp/test-session/prd.md",
-    tasks: "/tmp/test-session/tasks.json",
-    logs: "/tmp/test-session/logs",
-    progress: "/tmp/test-session/progress.md",
-    review: "/tmp/test-session/review.json",
-    plannerConversation: "/tmp/test-session/planner-conversation.json",
-  } as SessionPaths;
+    root,
+    prd: `${root}/prd.md`,
+    tasks: `${root}/tasks.json`,
+    logs: `${root}/logs`,
+    progress: `${root}/progress.md`,
+    run: `${root}/run.json`,
+    lock: `${root}/lock`,
+    summary: `${root}/summary.md`,
+    interview: `${root}/interview.json`,
+    reviewRoot: `${root}/review`,
+    reviewFindings: `${root}/review/findings.json`,
+    reviewTasks: `${root}/review/tasks.json`,
+    reviewProgress: `${root}/review/progress.md`,
+    reviewConversation: `${root}/review/conversation.json`,
+  };
 }
 
 function makeMockSpawn(stdout = "") {
   return () => ({
     pid: 0,
-    promise: Promise.resolve({ exitCode: 0, stdout, stderr: "", timedOut: false }),
+    promise: Promise.resolve({
+      exitCode: 0,
+      stdout,
+      stderr: "",
+      timedOut: false,
+      timings: { spawnMs: 0, firstStdoutMs: null, firstStderrMs: null, totalMs: 0 },
+    }),
     interrupt: () => {},
+    process: null as never,
   });
 }
 
