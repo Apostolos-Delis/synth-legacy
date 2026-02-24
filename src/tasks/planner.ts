@@ -20,6 +20,7 @@ Output ONLY a JSON object with this exact structure (no markdown fences, no expl
       "verification": [{"type": "command", "value": "bun run typecheck"}],
       "priority": 1,
       "status": "open",
+      "affects": ["src/foo.ts", "src/bar/"],
       "dependsOn": [],
       "notes": "",
       "iterationCount": 0
@@ -34,7 +35,10 @@ Rules:
 - Each task should be completable in one agent iteration (~10 min)
 - Include verification commands when possible (typecheck, lint, test)
 - Keep tasks focused: one logical change per task
-- Order by dependency chain, then priority`;
+- Order by dependency chain, then priority
+- Set "affects" to the list of files and directories each task will create or modify (e.g. ["src/foo.ts", "src/bar/"]). This is used to detect conflicts between tasks.
+- Design tasks to be atomic and independent: each task should touch a minimal, well-scoped set of files and avoid overlapping with other tasks' affected files.
+- The more tasks that are independent (no shared dependsOn, no overlapping affects), the more tasks can be executed in parallel — so prefer splitting work into small, non-overlapping units.`;
 }
 
 export interface GenerateTasksOptions {
@@ -89,6 +93,7 @@ ${prd}`;
   taskFile.tasks = taskFile.tasks.map((t) => ({
     ...t,
     status: t.status ?? "open",
+    affects: t.affects ?? [],
     iterationCount: t.iterationCount ?? 0,
     notes: t.notes ?? "",
   }));
