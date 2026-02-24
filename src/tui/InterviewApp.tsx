@@ -149,8 +149,8 @@ export function InterviewApp({ onSendMessage, onComplete, onQuit, initialMessage
       return;
     }
 
-    // Ctrl+E — force-proceed (execute), regardless of state
-    if (key.name === "e" && key.ctrl) {
+    // Ctrl+E — force-proceed (execute)
+    if (key.name === "e" && key.ctrl && !isLoading) {
       key.preventDefault?.();
       onComplete();
       return;
