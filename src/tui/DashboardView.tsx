@@ -108,7 +108,15 @@ export function DashboardView({ state }: DashboardViewProps): ReactNode {
               <span fg={priorityColor}>P{task.priority}</span>
               {"  "}
               <span fg={colors.fg.muted}>{String(task.iterationCount).padEnd(6)}</span>
-              {showTime && <span fg={colors.fg.muted}>{" "}{task.status === "in_progress" ? formatElapsedMm(elapsedMs) : "  --  "}</span>}
+              {showTime && (
+                <span fg={colors.fg.muted}>{" "}{
+                  task.status === "in_progress" && state.taskStartTimes[task.id]
+                    ? formatElapsedMm(Date.now() - state.taskStartTimes[task.id])
+                    : state.taskElapsedMs[task.id] != null
+                      ? formatElapsedMm(state.taskElapsedMs[task.id])
+                      : "  --  "
+                }</span>
+              )}
               {showTokens && <span fg={colors.fg.muted}>{"  "}{tokenStr.padEnd(8)}</span>}
               <span fg={resultColor}> {resultIcon}</span>
             </text>

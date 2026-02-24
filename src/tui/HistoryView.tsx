@@ -8,7 +8,7 @@ interface HistoryEntry {
   iteration: number;
   taskId: string;
   status: string;
-  timestamp: string;
+  relativeTime: string;
 }
 
 interface HistoryViewProps {
@@ -16,30 +16,24 @@ interface HistoryViewProps {
   onBack: () => void;
 }
 
+function formatRelativeTime(timestamp: number): string {
+  if (timestamp === 0) return "historical";
+  const diff = Date.now() - timestamp;
+  const secs = Math.floor(diff / 1000);
+  if (secs < 60) return `${secs}s ago`;
+  const mins = Math.floor(secs / 60);
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.floor(mins / 60);
+  return `${hours}h ago`;
+}
+
 function buildHistoryEntries(state: TuiState): HistoryEntry[] {
-  const entries: HistoryEntry[] = [];
-  for (const task of state.tasks) {
-    if (task.status === "done" || task.status === "failed") {
-      entries.push({
-        iteration: task.iterationCount,
-        taskId: task.id,
-        status: task.status,
-        timestamp: task.iterationCount > 0 ? `${task.iterationCount} iter` : "",
-      });
-    }
-  }
-  // Also add in-progress tasks
-  for (const task of state.tasks) {
-    if (task.status === "in_progress") {
-      entries.push({
-        iteration: task.iterationCount,
-        taskId: task.id,
-        status: task.status,
-        timestamp: "running",
-      });
-    }
-  }
-  return entries;
+  return state.iterationEntries.map((entry) => ({
+    iteration: entry.iteration,
+    taskId: entry.taskId,
+    status: entry.status,
+    relativeTime: formatRelativeTime(entry.timestamp),
+  }));
 }
 
 export function HistoryView({ state, onBack }: HistoryViewProps): ReactNode {
@@ -95,7 +89,7 @@ export function HistoryView({ state, onBack }: HistoryViewProps): ReactNode {
           <text>
             <span fg={colors.accent.primary} attributes={boldAttr()}>History</span>
             <span fg={colors.fg.muted}>{" │ "}</span>
-            <span fg={colors.fg.primary}>{selectedEntry.taskId}</span>
+            <span fg={colors.fg.primary}>iter {selectedEntry.iteration} — {selectedEntry.taskId}</span>
             <span fg={colors.fg.muted}>{" │ "}</span>
             <span fg={isError ? colors.status.warning : colors.fg.secondary}>
               {isError ? "\u26A0 Log file not found" : "j/k:scroll  esc:back"}
@@ -133,7 +127,7 @@ export function HistoryView({ state, onBack }: HistoryViewProps): ReactNode {
       <box style={{ paddingLeft: 1 }}>
         <text>
           <span fg={colors.fg.muted} attributes={boldAttr()}>
-            {"#".padEnd(5)} {"Task ID".padEnd(12)} {"Status".padEnd(12)} Info
+            {"#".padEnd(5)} {"Iter".padEnd(6)} {"Task ID".padEnd(12)} {"Status".padEnd(12)} Timestamp
           </span>
         </text>
       </box>
@@ -157,12 +151,13 @@ export function HistoryView({ state, onBack }: HistoryViewProps): ReactNode {
             const bgStyle = isSelected ? { backgroundColor: colors.bg.highlight } : {};
 
             return (
-              <box key={`${entry.taskId}-${i}`} style={bgStyle}>
+              <box key={`${entry.taskId}-${entry.iteration}`} style={bgStyle}>
                 <text>
                   <span fg={isSelected ? colors.accent.primary : colors.fg.muted}>{String(i + 1).padEnd(5)}</span>
+                  <span fg={colors.fg.secondary}>{String(entry.iteration).padEnd(6)}</span>
                   <span fg={colors.fg.primary}>{entry.taskId.padEnd(12)}</span>
                   <span fg={statusColor}>{icon} {entry.status.padEnd(10)}</span>
-                  <span fg={colors.fg.muted}>{entry.timestamp}</span>
+                  <span fg={colors.fg.muted}>{entry.relativeTime}</span>
                 </text>
               </box>
             );

@@ -1,5 +1,6 @@
 import { parse } from "smol-toml";
 import { join } from "node:path";
+import { homedir } from "node:os";
 import type { SynthConfig } from "../config/types.js";
 import { spawn } from "../utils/process.js";
 import { fileExists, readText } from "../utils/fs.js";
@@ -11,7 +12,7 @@ export interface DoctorCheckResult {
   suggestion?: string;
 }
 
-async function checkCommand(cmd: string, versionArgs: string[]): Promise<{ available: boolean; version: string; error: string }> {
+export async function checkCommand(cmd: string, versionArgs: string[]): Promise<{ available: boolean; version: string; error: string }> {
   try {
     const result = await spawn({ cmd: [cmd, ...versionArgs], timeout: 10_000 }).promise;
     if (result.exitCode === 0) {
@@ -23,7 +24,7 @@ async function checkCommand(cmd: string, versionArgs: string[]): Promise<{ avail
   }
 }
 
-function parseVersion(versionStr: string): number[] {
+export function parseVersion(versionStr: string): number[] {
   const match = versionStr.match(/(\d+)\.(\d+)\.?(\d+)?/);
   if (!match) return [0, 0, 0];
   return [parseInt(match[1], 10), parseInt(match[2], 10), parseInt(match[3] ?? "0", 10)];
@@ -65,6 +66,34 @@ async function checkGit(cwd: string): Promise<DoctorCheckResult[]> {
   return results;
 }
 
+async function checkClaudeAuth(): Promise<DoctorCheckResult> {
+  // Claude Code stores credentials in ~/.claude/ — check for auth by running a lightweight probe
+  try {
+    const result = await spawn({ cmd: ["claude", "-p", "test", "--max-turns", "0"], timeout: 15_000 }).promise;
+    // Exit code 0 or non-auth errors mean auth is working
+    const stderr = result.stderr.toLowerCase();
+    if (stderr.includes("not authenticated") || stderr.includes("auth") || stderr.includes("api key") || stderr.includes("unauthorized")) {
+      return { name: "claude auth", status: "fail", message: "not authenticated", suggestion: "run: claude login" };
+    }
+    return { name: "claude auth", status: "pass" };
+  } catch {
+    // If the probe times out or crashes, check for credential files as fallback
+    const credPath = join(homedir(), ".claude", "credentials.json");
+    if (await fileExists(credPath)) {
+      return { name: "claude auth", status: "pass", message: "credentials file found" };
+    }
+    return { name: "claude auth", status: "warn", message: "could not verify authentication", suggestion: "run: claude login" };
+  }
+}
+
+async function checkCodexAuth(): Promise<DoctorCheckResult> {
+  // Codex requires OPENAI_API_KEY environment variable
+  if (process.env.OPENAI_API_KEY) {
+    return { name: "codex auth", status: "pass", message: "OPENAI_API_KEY set" };
+  }
+  return { name: "codex auth", status: "fail", message: "OPENAI_API_KEY not set", suggestion: "set OPENAI_API_KEY environment variable" };
+}
+
 async function checkAgentClis(): Promise<{ results: DoctorCheckResult[]; hasAgent: boolean }> {
   const results: DoctorCheckResult[] = [];
   let hasAgent = false;
@@ -73,6 +102,7 @@ async function checkAgentClis(): Promise<{ results: DoctorCheckResult[]; hasAgen
   if (claude.available) {
     hasAgent = true;
     results.push({ name: "claude CLI", status: "pass", message: claude.version });
+    results.push(await checkClaudeAuth());
   } else {
     results.push({ name: "claude CLI", status: "warn", message: "not found", suggestion: "install with: npm install -g @anthropic-ai/claude-code" });
   }
@@ -81,6 +111,7 @@ async function checkAgentClis(): Promise<{ results: DoctorCheckResult[]; hasAgen
   if (codex.available) {
     hasAgent = true;
     results.push({ name: "codex CLI", status: "pass", message: codex.version });
+    results.push(await checkCodexAuth());
   } else {
     results.push({ name: "codex CLI", status: "warn", message: "not found", suggestion: "install with: npm install -g @openai/codex" });
   }
@@ -88,7 +119,7 @@ async function checkAgentClis(): Promise<{ results: DoctorCheckResult[]; hasAgen
   if (!hasAgent) {
     // Override warnings to failures when neither is present
     for (const r of results) {
-      r.status = "fail";
+      if (r.name.endsWith("CLI")) r.status = "fail";
     }
   }
 

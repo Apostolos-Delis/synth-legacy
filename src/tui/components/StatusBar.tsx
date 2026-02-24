@@ -43,7 +43,7 @@ export const StatusBar = memo(function StatusBar({
 
   const tokenDisplay = currentTaskTokens != null && currentTaskTokens > 0
     ? `${formatTokenCount(currentTaskTokens)} tok`
-    : null;
+    : "N/A";
 
   return (
     <box
@@ -60,12 +60,8 @@ export const StatusBar = memo(function StatusBar({
         <span fg={colors.fg.secondary}>iter {iteration}</span>
         <span fg={colors.fg.muted}>{" │ "}</span>
         <span fg={colors.fg.secondary}>{elapsed}s</span>
-        {tokenDisplay && (
-          <>
-            <span fg={colors.fg.muted}>{" │ "}</span>
-            <span fg={colors.accent.secondary}>{tokenDisplay}</span>
-          </>
-        )}
+        <span fg={colors.fg.muted}>{" │ "}</span>
+        <span fg={tokenDisplay === "N/A" ? colors.fg.muted : colors.accent.secondary}>{tokenDisplay}</span>
         {currentPhase && (
           <>
             <span fg={colors.fg.muted}>{" │ "}</span>

@@ -500,24 +500,36 @@ async function cmdRun(sessionId?: string, startIteration = 0, tuiContext?: TuiCo
       phaseStartTime: null,
       completionSummary: null,
       taskOutputMap: {},
+      taskElapsedMs: {},
+      taskStartTimes: {},
+      iterationEntries: [],
+      configDisplay: JSON.stringify(config, null, 2),
       tokenUsage: { sessionTotal: { inputTokens: 0, outputTokens: 0, totalTokens: 0 }, taskTotals: {}, hasData: false },
     };
 
-    // Pre-load historical outputs for tasks completed in previous sessions
+    // Pre-load historical outputs and iteration entries for tasks completed in previous sessions
     const completedTasks = taskFile.tasks.filter((t) => t.status === "done");
-    if (completedTasks.length > 0) {
-      buildIterationMap(plan.paths.progress).then(async (iterMap) => {
-        if (!tuiData || iterMap.length === 0) return;
-        for (const task of completedTasks) {
-          if (tuiData.taskOutputMap[task.id]) continue;
-          const output = await loadTaskOutput(plan!.paths.logs, task.id, iterMap);
-          if (output && !tuiData.taskOutputMap[task.id]) {
-            tuiData.taskOutputMap[task.id] = output;
-          }
+    buildIterationMap(plan.paths.progress).then(async (iterMap) => {
+      if (!tuiData || iterMap.length === 0) return;
+      // Populate iteration entries from progress.md history
+      for (const entry of iterMap) {
+        tuiData.iterationEntries.push({
+          iteration: entry.iteration,
+          taskId: entry.taskId,
+          status: "done",
+          timestamp: 0, // historical entries don't have precise timestamps
+        });
+      }
+      // Load outputs for completed tasks
+      for (const task of completedTasks) {
+        if (tuiData.taskOutputMap[task.id]) continue;
+        const output = await loadTaskOutput(plan!.paths.logs, task.id, iterMap);
+        if (output && !tuiData.taskOutputMap[task.id]) {
+          tuiData.taskOutputMap[task.id] = output;
         }
-        renderTui();
-      });
-    }
+      }
+      renderTui();
+    });
   }
 
   let firstTokenRendered = false;
@@ -564,7 +576,9 @@ async function cmdRun(sessionId?: string, startIteration = 0, tuiContext?: TuiCo
           tuiData.phaseStartTime = event.timestamp ?? Date.now();
           if (event.taskId) {
             tuiData.taskOutputMap[event.taskId] = "";
-            taskStartTimes.set(event.taskId, Date.now());
+            const now = Date.now();
+            taskStartTimes.set(event.taskId, now);
+            tuiData.taskStartTimes[event.taskId] = now;
           }
           break;
         case "task:complete":
@@ -577,7 +591,9 @@ async function cmdRun(sessionId?: string, startIteration = 0, tuiContext?: TuiCo
           if (event.taskId) {
             const startTime = taskStartTimes.get(event.taskId);
             if (startTime) {
-              const elapsedSecs = Math.floor((Date.now() - startTime) / 1000);
+              const taskElapsed = Date.now() - startTime;
+              const elapsedSecs = Math.floor(taskElapsed / 1000);
+              tuiData.taskElapsedMs[event.taskId] = taskElapsed;
               const label = event.type === "task:complete" ? "Completed" : "Failed";
               const suffix = `\n${label} in ${elapsedSecs}s`;
               tuiData.taskOutputMap[event.taskId] = (tuiData.taskOutputMap[event.taskId] ?? "") + suffix;
@@ -637,6 +653,14 @@ async function cmdRun(sessionId?: string, startIteration = 0, tuiContext?: TuiCo
           break;
         case "iteration:end": {
           const iterData = event.data as IterationResult | undefined;
+          if (event.taskId && event.iteration != null) {
+            tuiData.iterationEntries.push({
+              iteration: event.iteration,
+              taskId: event.taskId,
+              status: iterData?.success ? "done" : "failed",
+              timestamp: Date.now(),
+            });
+          }
           if (iterData?.tokenUsage && event.taskId) {
             tokenAccumulator.add(event.taskId, {
               inputTokens: iterData.tokenUsage.inputTokens,
