@@ -25,10 +25,11 @@ function calcHeaderHeight(task: Task, width: number, terminalHeight: number, pan
   // Usable text width inside bordered box
   const innerWidth = Math.max(1, width - 6);
 
-  // Lines: border(2) + title(1) + description(N) + blank separator(1) + criteria(M)
+  // Lines: border(2) + title(1) + description(N) + blank separator(1) + section header(0|1) + criteria(M)
   const descLines = wrapLineCount(task.description, innerWidth);
   const criteriaLines = task.acceptanceCriteria.length;
-  const contentHeight = 2 + 1 + descLines + 1 + criteriaLines;
+  const sectionHeaderHeight = criteriaLines > 0 ? 1 : 0;
+  const contentHeight = 2 + 1 + descLines + 1 + sectionHeaderHeight + criteriaLines;
 
   const maxFromTerminal = Math.floor(terminalHeight * 0.5);
   const maxFromPane = paneHeight - MIN_OUTPUT_HEIGHT;
@@ -56,17 +57,6 @@ export const OutputPane = memo(function OutputPane({ output, width, height, isTh
     () => (task ? calcHeaderHeight(task, width, terminalHeight, height) : 0),
     [task, width, terminalHeight, height],
   );
-  const maxOutputHeight = height - headerHeight;
-
-  // Shrink the output box to fit content so we don't show a huge empty area
-  // with a scrollbar when only a few lines are present.
-  // +2 accounts for top/bottom border lines.
-  const contentLines = useMemo(
-    () => (output ? output.split("\n").length + 2 : MIN_OUTPUT_HEIGHT),
-    [output],
-  );
-  const outputHeight = Math.max(MIN_OUTPUT_HEIGHT, Math.min(maxOutputHeight, contentLines));
-
   const waiting = isThinking && !output;
 
   return (
@@ -74,7 +64,7 @@ export const OutputPane = memo(function OutputPane({ output, width, height, isTh
       {task && <TaskDetailHeader task={task} width={width} height={headerHeight} />}
       <box
         width={width}
-        height={outputHeight}
+        flexGrow={1}
         border={true}
         borderColor={outputScrollFocused ? colors.border.active : colors.border.normal}
         title={outputScrollFocused ? "Output (scrolling \u2014 Esc to exit)" : "Output"}

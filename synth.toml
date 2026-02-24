@@ -8,7 +8,7 @@ model = "opus"
 timeout = 600000
 
 [execution]
-max_iterations = 30
+max_iterations = 50
 iteration_delay = 2000
 auto_commit = true
 

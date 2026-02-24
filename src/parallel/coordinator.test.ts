@@ -1,4 +1,4 @@
-import { describe, test, expect, beforeEach, mock } from "bun:test";
+import { describe, test, expect, beforeEach, afterEach, mock } from "bun:test";
 import type { Task } from "../tasks/types.js";
 import type { SessionPaths } from "../sessions/types.js";
 import type { ParallelEvent } from "./events.js";
@@ -702,6 +702,289 @@ describe("ParallelCoordinator", () => {
       // cleanupAll was called during abort
       expect(worktreeCleanedUp.length).toBeGreaterThanOrEqual(1);
     });
+  });
+
+  describe("SIGINT handler", () => {
+    let originalListenerCount: number;
+
+    beforeEach(() => {
+      originalListenerCount = process.listenerCount("SIGINT");
+    });
+
+    afterEach(() => {
+      // Ensure no leaked SIGINT listeners
+      while (process.listenerCount("SIGINT") > originalListenerCount) {
+        const listeners = process.listeners("SIGINT");
+        process.removeListener("SIGINT", listeners[listeners.length - 1] as NodeJS.SignalsListener);
+      }
+    });
+
+    test("registers SIGINT handler when coordinator starts", async () => {
+      mergeProcessResults = [
+        makeMergeOp("T-1", "completed"),
+        makeMergeOp("T-2", "completed"),
+        makeMergeOp("T-3", "completed"),
+      ];
+
+      let sigintCountDuringExecution = 0;
+
+      const executor: WorkerExecutor = {
+        execute: async (task, worktree) => {
+          sigintCountDuringExecution = process.listenerCount("SIGINT");
+          return {
+            workerId: `w-${task.id}-0`,
+            taskId: task.id,
+            taskTitle: task.title,
+            branch: worktree.branch,
+          };
+        },
+      };
+
+      const coordinator = new ParallelCoordinator(
+        makeOptions({ executor }),
+      );
+      await coordinator.run();
+
+      // SIGINT handler was registered during execution
+      expect(sigintCountDuringExecution).toBeGreaterThan(originalListenerCount);
+      // SIGINT handler removed after completion
+      expect(process.listenerCount("SIGINT")).toBe(originalListenerCount);
+    });
+
+    test("deregisters SIGINT handler after successful completion", async () => {
+      mergeProcessResults = [
+        makeMergeOp("T-1", "completed"),
+        makeMergeOp("T-2", "completed"),
+        makeMergeOp("T-3", "completed"),
+      ];
+
+      const coordinator = new ParallelCoordinator(makeOptions());
+      await coordinator.run();
+
+      expect(process.listenerCount("SIGINT")).toBe(originalListenerCount);
+    });
+
+    test("deregisters SIGINT handler after error", async () => {
+      mockMergeEngineInstance.processNext = async () => {
+        throw new Error("merge error");
+      };
+
+      const coordinator = new ParallelCoordinator(makeOptions());
+
+      await expect(coordinator.run()).rejects.toThrow();
+
+      expect(process.listenerCount("SIGINT")).toBe(originalListenerCount);
+    });
+
+    test("calls executor.stop() on SIGINT", async () => {
+      let stopCalled = false;
+      let executorCalled: (() => void) | null = null;
+      const executorCalledPromise = new Promise<void>((resolve) => {
+        executorCalled = resolve;
+      });
+      const workerResolvers: (() => void)[] = [];
+
+      const executor: WorkerExecutor = {
+        execute: async (task, worktree) => {
+          executorCalled!();
+          await new Promise<void>((resolve) => {
+            workerResolvers.push(resolve);
+          });
+          return {
+            workerId: `w-${task.id}-0`,
+            taskId: task.id,
+            taskTitle: task.title,
+            branch: worktree.branch,
+          };
+        },
+        stop: () => {
+          stopCalled = true;
+          for (const resolve of workerResolvers) resolve();
+        },
+      };
+
+      const coordinator = new ParallelCoordinator(
+        makeOptions({ executor }),
+      );
+
+      const runPromise = coordinator.run();
+
+      // Wait for executor to actually be called
+      await executorCalledPromise;
+
+      process.emit("SIGINT", "SIGINT");
+
+      await runPromise;
+
+      expect(stopCalled).toBe(true);
+    });
+
+    test("cleans up worktrees on SIGINT", async () => {
+      let executorCalled: (() => void) | null = null;
+      const executorCalledPromise = new Promise<void>((resolve) => {
+        executorCalled = resolve;
+      });
+      const workerResolvers: (() => void)[] = [];
+
+      const executor: WorkerExecutor = {
+        execute: async (task, worktree) => {
+          executorCalled!();
+          await new Promise<void>((resolve) => {
+            workerResolvers.push(resolve);
+          });
+          return {
+            workerId: `w-${task.id}-0`,
+            taskId: task.id,
+            taskTitle: task.title,
+            branch: worktree.branch,
+          };
+        },
+        stop: () => {
+          for (const resolve of workerResolvers) resolve();
+        },
+      };
+
+      const coordinator = new ParallelCoordinator(
+        makeOptions({ executor }),
+      );
+
+      const runPromise = coordinator.run();
+
+      await executorCalledPromise;
+
+      process.emit("SIGINT", "SIGINT");
+
+      await runPromise;
+
+      expect(worktreeCleanedUp.length).toBeGreaterThanOrEqual(1);
+    });
+
+    test("checks out original branch on SIGINT", async () => {
+      let executorCalled: (() => void) | null = null;
+      const executorCalledPromise = new Promise<void>((resolve) => {
+        executorCalled = resolve;
+      });
+      const workerResolvers: (() => void)[] = [];
+
+      const executor: WorkerExecutor = {
+        execute: async (task, worktree) => {
+          executorCalled!();
+          await new Promise<void>((resolve) => {
+            workerResolvers.push(resolve);
+          });
+          return {
+            workerId: `w-${task.id}-0`,
+            taskId: task.id,
+            taskTitle: task.title,
+            branch: worktree.branch,
+          };
+        },
+        stop: () => {
+          for (const resolve of workerResolvers) resolve();
+        },
+      };
+
+      const coordinator = new ParallelCoordinator(
+        makeOptions({ executor }),
+      );
+
+      const runPromise = coordinator.run();
+
+      await executorCalledPromise;
+
+      process.emit("SIGINT", "SIGINT");
+
+      await runPromise;
+
+      expect(
+        gitCalls.some(
+          (c) => c.fn === "checkoutBranch" && c.args[0] === "main",
+        ),
+      ).toBe(true);
+    });
+
+    test("emits parallel:failed with reason 'interrupted' on SIGINT", async () => {
+      let executorCalled: (() => void) | null = null;
+      const executorCalledPromise = new Promise<void>((resolve) => {
+        executorCalled = resolve;
+      });
+      const workerResolvers: (() => void)[] = [];
+
+      const executor: WorkerExecutor = {
+        execute: async (task, worktree) => {
+          executorCalled!();
+          await new Promise<void>((resolve) => {
+            workerResolvers.push(resolve);
+          });
+          return {
+            workerId: `w-${task.id}-0`,
+            taskId: task.id,
+            taskTitle: task.title,
+            branch: worktree.branch,
+          };
+        },
+        stop: () => {
+          for (const resolve of workerResolvers) resolve();
+        },
+      };
+
+      const coordinator = new ParallelCoordinator(
+        makeOptions({ executor }),
+      );
+      const events = collectEvents(coordinator);
+
+      const runPromise = coordinator.run();
+
+      await executorCalledPromise;
+
+      process.emit("SIGINT", "SIGINT");
+
+      await runPromise;
+
+      const failedEvent = events.find((e) => e.type === "parallel:failed");
+      expect(failedEvent).toBeDefined();
+      expect((failedEvent as { reason?: string }).reason).toBe("interrupted");
+    });
+
+    test("cleanup completes even if workers do not stop within timeout", async () => {
+      // Workers that never resolve (simulating hung workers)
+      const executor: WorkerExecutor = {
+        execute: async () => {
+          // This promise never resolves — simulates a hung worker
+          return new Promise<WorkerResult>(() => {});
+        },
+        // No stop() — workers won't be signaled to stop
+      };
+
+      const coordinator = new ParallelCoordinator(
+        makeOptions({ executor }),
+      );
+      const events = collectEvents(coordinator);
+
+      const runPromise = coordinator.run();
+
+      // Wait for workers to start
+      await new Promise<void>((resolve) => setTimeout(resolve, 50));
+
+      // Simulate SIGINT — handleInterrupt will wait up to 5s then proceed
+      process.emit("SIGINT", "SIGINT");
+
+      // The run() should complete (not hang forever) after the timeout
+      // We set a generous test timeout but the coordinator should resolve after ~5s
+      await runPromise;
+
+      // Cleanup happened despite workers not stopping
+      expect(worktreeCleanedUp.length).toBeGreaterThanOrEqual(1);
+      expect(
+        gitCalls.some(
+          (c) => c.fn === "checkoutBranch" && c.args[0] === "main",
+        ),
+      ).toBe(true);
+
+      const failedEvent = events.find((e) => e.type === "parallel:failed");
+      expect(failedEvent).toBeDefined();
+      expect((failedEvent as { reason?: string }).reason).toBe("interrupted");
+    }, 15000); // Extended timeout for the 5s graceful shutdown wait
   });
 
   describe("event emission", () => {

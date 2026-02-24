@@ -1,6 +1,14 @@
 import { memo, type ReactNode } from "react";
 import type { Task } from "../../tasks/types.js";
-import { boldAttr, statusIndicators, colors, STATUS_COLORS_HEX } from "../theme.js";
+import { boldAttr, statusIndicators, colors, STATUS_COLORS_HEX, PRIORITY_COLORS_HEX } from "../theme.js";
+
+const PRIORITY_LABELS: Record<number, string> = {
+  1: "Critical",
+  2: "High",
+  3: "Medium",
+  4: "Low",
+  5: "Lowest",
+};
 
 interface TaskDetailHeaderProps {
   task: Task;
@@ -15,6 +23,8 @@ export const TaskDetailHeader = memo(function TaskDetailHeader({
 }: TaskDetailHeaderProps): ReactNode {
   const statusIcon = statusIndicators[task.status] ?? "?";
   const statusColor = STATUS_COLORS_HEX[task.status] ?? colors.fg.muted;
+  const priorityColor = PRIORITY_COLORS_HEX[task.priority] ?? colors.fg.muted;
+  const priorityLabel = PRIORITY_LABELS[task.priority] ?? `P${task.priority}`;
 
   // Word-wrap description into lines that fit the available width.
   const innerWidth = Math.max(1, width - 6);
@@ -33,9 +43,11 @@ export const TaskDetailHeader = memo(function TaskDetailHeader({
   if (descLines.length === 0) descLines.push("");
 
   // Build acceptance criteria rows, respecting height limit.
-  // Reserve 2 for border, 1 for title, descLines for description, 1 blank separator.
-  const maxCriteriaRows = Math.max(0, height - 2 - 1 - descLines.length - 1);
+  // Reserve 2 for border, 1 for title, descLines for description, 1 blank separator,
+  // and 1 for the section header line when criteria exist.
   const criteria = task.acceptanceCriteria;
+  const sectionHeaderCost = criteria.length > 0 ? 1 : 0;
+  const maxCriteriaRows = Math.max(0, height - 2 - 1 - descLines.length - 1 - sectionHeaderCost);
   const completed = task.criteriaCompleted;
 
   const criteriaRows: ReactNode[] = [];
@@ -75,6 +87,8 @@ export const TaskDetailHeader = memo(function TaskDetailHeader({
       <text>
         <span fg={statusColor} attributes={boldAttr()}>{statusIcon} </span>
         <span fg={colors.fg.primary} attributes={boldAttr()}>{task.title}</span>
+        {"  "}
+        <span fg={priorityColor} attributes={boldAttr()}>[{priorityLabel}]</span>
         <span fg={statusColor}> [{task.status}]</span>
       </text>
       {descLines.map((line, i) => (
@@ -83,6 +97,12 @@ export const TaskDetailHeader = memo(function TaskDetailHeader({
         </text>
       ))}
       <text />
+      {criteria.length > 0 && visibleCount > 0 && (
+        <text>
+          <span fg={colors.accent.primary} attributes={boldAttr()}>{"\u2500"} Acceptance Criteria</span>
+          <span fg={colors.fg.muted}> ({criteria.length})</span>
+        </text>
+      )}
       {criteriaRows}
     </box>
   );

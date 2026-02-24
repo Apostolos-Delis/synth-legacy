@@ -28,6 +28,7 @@ export interface ParallelCoordinatorConfig {
 
 export interface WorkerExecutor {
   execute(task: Task, worktree: WorktreeInfo): Promise<WorkerResult>;
+  stop?(): void;
 }
 
 export interface ParallelCoordinatorOptions {
@@ -63,7 +64,13 @@ export class ParallelCoordinator {
   private sessionBranch: string | null = null;
   private sessionStartTag: string | null = null;
   private aborted = false;
+  private interrupted = false;
   private requeueCounts = new Map<string, number>();
+  private activeWorkerPromises: Promise<unknown>[] = [];
+  private sigintHandler: (() => void) | null = null;
+  private interruptPromise: Promise<void> | null = null;
+  private interruptResolve: (() => void) | null = null;
+  private static readonly GRACEFUL_SHUTDOWN_TIMEOUT_MS = 5000;
 
   constructor(options: ParallelCoordinatorOptions) {
     const config = options.config ?? {};
@@ -99,6 +106,11 @@ export class ParallelCoordinator {
     }
 
     this.emit({ type: "parallel:started", timestamp: this.timestamp() });
+
+    this.interruptPromise = new Promise<void>((resolve) => {
+      this.interruptResolve = resolve;
+    });
+    this.registerSigintHandler();
 
     this.originalBranch = await getCurrentBranch(this.repoRoot);
     this.mergeEngine = new MergeEngine({ repoRoot: this.repoRoot });
@@ -197,6 +209,11 @@ export class ParallelCoordinator {
         this.emit({ type: "parallel:group-completed", timestamp: this.timestamp() });
       }
 
+      // If interrupted, cleanup was already handled by handleInterrupt
+      if (this.interrupted) {
+        return { mergedTaskIds, failedTaskIds, serial: false };
+      }
+
       // Merge session branch back to original branch
       if (this.originalBranch && this.sessionBranch) {
         await checkoutBranch(this.originalBranch, this.repoRoot);
@@ -209,10 +226,12 @@ export class ParallelCoordinator {
 
       await this.cleanup();
 
+      this.deregisterSigintHandler();
       this.emit({ type: "parallel:completed", timestamp: this.timestamp() });
 
       return { mergedTaskIds, failedTaskIds, serial: false };
     } catch (error) {
+      this.deregisterSigintHandler();
       this.emit({ type: "parallel:failed", timestamp: this.timestamp() });
       await this.handleAbort();
       throw error;
@@ -222,6 +241,75 @@ export class ParallelCoordinator {
   async abort(): Promise<void> {
     this.aborted = true;
     await this.handleAbort();
+  }
+
+  private registerSigintHandler(): void {
+    this.sigintHandler = () => {
+      void this.handleInterrupt();
+    };
+    process.on("SIGINT", this.sigintHandler);
+  }
+
+  private deregisterSigintHandler(): void {
+    if (this.sigintHandler) {
+      process.removeListener("SIGINT", this.sigintHandler);
+      this.sigintHandler = null;
+    }
+  }
+
+  private async handleInterrupt(): Promise<void> {
+    this.aborted = true;
+    this.interrupted = true;
+    this.deregisterSigintHandler();
+
+    // Stop all active workers
+    if (this.executor.stop) {
+      try {
+        this.executor.stop();
+      } catch {
+        // Best effort
+      }
+    }
+
+    // Wait up to 5s for active workers to finish gracefully
+    if (this.activeWorkerPromises.length > 0) {
+      const timeout = new Promise<void>((resolve) =>
+        setTimeout(resolve, ParallelCoordinator.GRACEFUL_SHUTDOWN_TIMEOUT_MS),
+      );
+      await Promise.race([
+        Promise.allSettled(this.activeWorkerPromises),
+        timeout,
+      ]);
+    }
+
+    // Clean up worktrees regardless of worker state
+    if (this.worktreeManager) {
+      try {
+        await this.worktreeManager.cleanupAll();
+      } catch {
+        // Best effort
+      }
+    }
+
+    // Checkout original branch
+    if (this.originalBranch) {
+      try {
+        await checkoutBranch(this.originalBranch, this.repoRoot);
+      } catch {
+        // Best effort
+      }
+    }
+
+    this.emit({
+      type: "parallel:failed",
+      timestamp: this.timestamp(),
+      reason: "interrupted",
+    });
+
+    // Signal run() to unblock and return
+    if (this.interruptResolve) {
+      this.interruptResolve();
+    }
   }
 
   private handleFailedMerge(
@@ -296,7 +384,23 @@ export class ParallelCoordinator {
         }
       });
 
-      const batchResults = await Promise.all(promises);
+      this.activeWorkerPromises = promises;
+      const batchSettled = Promise.all(promises);
+
+      if (this.interruptPromise) {
+        await Promise.race([batchSettled, this.interruptPromise]);
+      } else {
+        await batchSettled;
+      }
+
+      // If interrupted, break out immediately — cleanup handled by handleInterrupt
+      if (this.interrupted) {
+        this.activeWorkerPromises = [];
+        break;
+      }
+
+      const batchResults = await batchSettled;
+      this.activeWorkerPromises = [];
       for (const r of batchResults) {
         if (r) results.push(r);
       }

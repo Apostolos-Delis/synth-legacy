@@ -102,6 +102,7 @@ export interface ParallelCompletedEvent {
 export interface ParallelFailedEvent {
   type: "parallel:failed";
   timestamp: string;
+  reason?: string;
 }
 
 export type ParallelEvent =
