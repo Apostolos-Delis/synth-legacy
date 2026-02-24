@@ -8,21 +8,3 @@ export interface InterviewState {
   interviewerHistory: InterviewMessage[];
   prdPending: boolean;
 }
-
-export interface GeneratedPrd {
-  title: string;
-  problemStatement: string;
-  goals: string[];
-  targetUsers: string;
-  scope: {
-    included: string[];
-    excluded: string[];
-  };
-  userStories: {
-    id: string;
-    title: string;
-    description: string;
-    acceptanceCriteria: string[];
-  }[];
-  qualityGates: string[];
-}

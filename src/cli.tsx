@@ -47,12 +47,13 @@ async function loadRunModule() {
     acquireLock: mod.acquireLock,
     releaseLock: mod.releaseLock,
     endRun: mod.endRun,
+    checkLock: mod.checkLock,
   };
 }
 
 async function loadInterviewer() {
-  const { Interviewer, prdToMarkdown, WELCOME_MESSAGE } = await import("./interview/interviewer.js");
-  return { Interviewer, prdToMarkdown, WELCOME_MESSAGE };
+  const { Interviewer, extractPrdTitle, WELCOME_MESSAGE } = await import("./interview/interviewer.js");
+  return { Interviewer, extractPrdTitle, WELCOME_MESSAGE };
 }
 
 async function loadPlanner() {
@@ -846,12 +847,23 @@ async function cmdResume(sessionId?: string): Promise<void> {
       return;
     }
 
+    case "executing": {
+      const { checkLock } = await loadRunModule();
+      const lockStatus = await checkLock(plan.paths);
+      if (lockStatus.locked) {
+        logError(`Session ${id} is currently running (pid ${lockStatus.lock!.pid}). Cannot resume an active session.`);
+        process.exit(1);
+      }
+      // Lock is stale — session crashed without cleanup. Safe to resume.
+      break;
+    }
+
     case "planning": {
       log(fmt.info(`Session ${id} is in planning phase — starting execution.`));
       break; // fall through to execution resume below
     }
 
-    // executing, paused — fall through to execution resume below
+    // paused — fall through to execution resume below
   }
 
   const { loadRun } = await loadRunModule();
@@ -893,14 +905,14 @@ async function resumeInterview(
 
   const agent = getAgent(config.agent.name);
 
-  let prd: import("./interview/types.js").GeneratedPrd | null = null;
+  let prdMarkdown: string | null = null;
   const { id, paths } = { id: plan.metadata.id, paths: plan.paths };
 
   const interviewer = new interviewMod.Interviewer(agent, cwd, config.agent.model, async (messages) => {
     const state: import("./interview/types.js").InterviewState = {
       messages: messages as import("./interview/types.js").InterviewMessage[],
       interviewerHistory: messages as import("./interview/types.js").InterviewMessage[],
-      prdPending: !prd,
+      prdPending: !prdMarkdown,
     };
     await writeJson(paths.interview, state);
   });
@@ -933,9 +945,9 @@ async function resumeInterview(
           initialMessages={savedState.interviewerHistory}
           onSendMessage={async (msg, onChunk) => {
             const response = await interviewer.respond(msg, onChunk);
-            const extracted = interviewer.extractPrd(response);
-            if (extracted) prd = extracted;
-            return { response, done: !!extracted };
+            const extractedMd = interviewer.extractPrdMarkdown(response);
+            if (extractedMd) prdMarkdown = extractedMd;
+            return { response, done: !!extractedMd };
           }}
           onComplete={() => resolve(true)}
           onQuit={() => resolve(false)}
@@ -950,7 +962,7 @@ async function resumeInterview(
       return;
     }
 
-    if (!prd) {
+    if (!prdMarkdown) {
       process.off("SIGINT", sigintHandler);
       cleanup();
       agent.dispose();
@@ -958,15 +970,13 @@ async function resumeInterview(
     }
 
     // Phase 2: PRD Review (same flow as cmdPlan)
-    const extractedPrd = prd as import("./interview/types.js").GeneratedPrd;
-    const prdMarkdown = interviewMod.prdToMarkdown(extractedPrd);
-    const taskPrefix = await setSessionSlugAndPrefix(id, extractedPrd.title);
+    const taskPrefix = await setSessionSlugAndPrefix(id, interviewMod.extractPrdTitle(prdMarkdown));
 
     let approvedPrdContent: string | null = null;
     const prdApproved = await new Promise<boolean>((resolve) => {
       planRoot.render(
         <tui.PrdReviewView
-          prdMarkdown={prdMarkdown}
+          prdMarkdown={prdMarkdown!}
           agent={agent}
           cwd={cwd}
           model={config.agent.model}
@@ -1078,7 +1088,7 @@ async function resumeInterview(
       });
     };
 
-    while (!prd) {
+    while (!prdMarkdown) {
       const userInput = await askQuestion();
       if (userInput === null) {
         agent.dispose();
@@ -1088,28 +1098,28 @@ async function resumeInterview(
       const response = await interviewer.respond(userInput);
       log(`\n${ansi.magenta}Synth:${ansi.reset}`);
       log(response);
-      prd = interviewer.extractPrd(response);
+      prdMarkdown = interviewer.extractPrdMarkdown(response);
 
-      if (prd) {
-        log(`\n${ansi.primary}Does this all look good? Press Enter to generate the PRD and tasks, or type feedback to refine.${ansi.reset}`);
+      if (prdMarkdown) {
+        log(`\n${ansi.primary}Does this all look good? Press Enter to generate the PRD, or type feedback to refine.${ansi.reset}`);
         const confirmation = await askQuestion();
         if (confirmation === null) {
           agent.dispose();
           return;
         }
         if (confirmation.trim()) {
-          prd = null;
+          prdMarkdown = null;
           const refinement = await interviewer.respond(confirmation);
           log(`\n${ansi.magenta}Synth:${ansi.reset}`);
           log(refinement);
-          prd = interviewer.extractPrd(refinement);
+          prdMarkdown = interviewer.extractPrdMarkdown(refinement);
         }
       }
     }
 
     // Continue with task generation
-    await writeText(paths.prd, interviewMod.prdToMarkdown(prd));
-    const taskPrefix = await setSessionSlugAndPrefix(id, prd.title);
+    await writeText(paths.prd, prdMarkdown);
+    const taskPrefix = await setSessionSlugAndPrefix(id, interviewMod.extractPrdTitle(prdMarkdown));
 
     logSuccess(`PRD saved to ${paths.prd}`);
 
@@ -1214,7 +1224,7 @@ async function cmdStart(sessionIdOrFlag?: string): Promise<void> {
 
   const agent = getAgent(config.agent.name);
 
-  let prd: import("./interview/types.js").GeneratedPrd | null = null;
+  let prdMarkdown: string | null = null;
 
   // Create session early so we have paths for interview state persistence
   const { id, paths } = await createSession(cwd, "");
@@ -1223,7 +1233,7 @@ async function cmdStart(sessionIdOrFlag?: string): Promise<void> {
     const state: import("./interview/types.js").InterviewState = {
       messages: messages as import("./interview/types.js").InterviewMessage[],
       interviewerHistory: messages as import("./interview/types.js").InterviewMessage[],
-      prdPending: !prd,
+      prdPending: !prdMarkdown,
     };
     await writeJson(paths.interview, state);
   });
@@ -1254,9 +1264,9 @@ async function cmdStart(sessionIdOrFlag?: string): Promise<void> {
         <tui.InterviewApp
           onSendMessage={async (msg, onChunk) => {
             const response = await interviewer.respond(msg, onChunk);
-            const extracted = interviewer.extractPrd(response);
-            if (extracted) prd = extracted;
-            return { response, done: !!extracted };
+            const extractedMd = interviewer.extractPrdMarkdown(response);
+            if (extractedMd) prdMarkdown = extractedMd;
+            return { response, done: !!extractedMd };
           }}
           onComplete={() => resolve(true)}
           onQuit={() => resolve(false)}
@@ -1271,7 +1281,7 @@ async function cmdStart(sessionIdOrFlag?: string): Promise<void> {
       return;
     }
 
-    if (!prd) {
+    if (!prdMarkdown) {
       process.off("SIGINT", sigintHandler);
       cleanup();
       agent.dispose();
@@ -1279,15 +1289,13 @@ async function cmdStart(sessionIdOrFlag?: string): Promise<void> {
     }
 
     // Phase 2: PRD Review (user can revise before task generation)
-    const extractedPrd = prd as import("./interview/types.js").GeneratedPrd;
-    const prdMarkdown = interviewMod.prdToMarkdown(extractedPrd);
-    const taskPrefix = await setSessionSlugAndPrefix(id, extractedPrd.title);
+    const taskPrefix = await setSessionSlugAndPrefix(id, interviewMod.extractPrdTitle(prdMarkdown));
 
     let approvedPrdContent: string | null = null;
     const prdApproved = await new Promise<boolean>((resolve) => {
       planRoot.render(
         <tui.PrdReviewView
-          prdMarkdown={prdMarkdown}
+          prdMarkdown={prdMarkdown!}
           agent={agent}
           cwd={cwd}
           model={config.agent.model}
@@ -1390,7 +1398,7 @@ async function cmdStart(sessionIdOrFlag?: string): Promise<void> {
       });
     };
 
-    while (!prd) {
+    while (!prdMarkdown) {
       const userInput = await askQuestion();
       if (userInput === null) {
         agent.dispose();
@@ -1400,34 +1408,34 @@ async function cmdStart(sessionIdOrFlag?: string): Promise<void> {
       const response = await interviewer.respond(userInput);
       log(`\n${ansi.magenta}Synth:${ansi.reset}`);
       log(response);
-      prd = interviewer.extractPrd(response);
+      prdMarkdown = interviewer.extractPrdMarkdown(response);
 
-      if (prd) {
-        log(`\n${ansi.primary}Does this all look good? Press Enter to generate the PRD and tasks, or type feedback to refine.${ansi.reset}`);
+      if (prdMarkdown) {
+        log(`\n${ansi.primary}Does this all look good? Press Enter to generate the PRD, or type feedback to refine.${ansi.reset}`);
         const confirmation = await askQuestion();
         if (confirmation === null) {
           agent.dispose();
           return;
         }
         if (confirmation.trim()) {
-          prd = null;
+          prdMarkdown = null;
           const refinement = await interviewer.respond(confirmation);
           log(`\n${ansi.magenta}Synth:${ansi.reset}`);
           log(refinement);
-          prd = interviewer.extractPrd(refinement);
+          prdMarkdown = interviewer.extractPrdMarkdown(refinement);
         }
       }
     }
   }
 
   // Non-TUI path continues here (TUI path returns early above)
-  if (!prd) {
+  if (!prdMarkdown) {
     agent.dispose();
     return;
   }
 
-  await writeText(paths.prd, interviewMod.prdToMarkdown(prd));
-  const taskPrefix = await setSessionSlugAndPrefix(id, prd.title);
+  await writeText(paths.prd, prdMarkdown);
+  const taskPrefix = await setSessionSlugAndPrefix(id, interviewMod.extractPrdTitle(prdMarkdown));
 
   logSuccess(`PRD saved to ${paths.prd}`);
 

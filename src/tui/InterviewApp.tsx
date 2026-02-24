@@ -318,7 +318,7 @@ export function InterviewApp({ onSendMessage, onComplete, onQuit, initialMessage
           )}
           {pendingConfirmation && !isLoading && (
             <box style={{ width: "100%", flexDirection: "column", marginBottom: 1, paddingLeft: 1 }}>
-              <text fg={colors.status.info}>Does this all look good? Press Enter to generate the PRD and tasks, or type feedback to refine.</text>
+              <text fg={colors.status.info}>Does this all look good? Press Enter to generate the PRD, or type feedback to refine.</text>
             </box>
           )}
         </scrollbox>

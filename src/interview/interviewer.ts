@@ -1,5 +1,5 @@
 import type { AgentAdapter } from "../agents/types.js";
-import type { InterviewMessage, GeneratedPrd } from "./types.js";
+import type { InterviewMessage } from "./types.js";
 import type { ConversationMessage } from "../conversation/types.js";
 import { ConversationEngine } from "../conversation/engine.js";
 import { INTERVIEWER_SYSTEM_PROMPT } from "./prompts.js";
@@ -22,7 +22,7 @@ export class Interviewer {
       cwd,
       model,
       systemPrompt: INTERVIEWER_SYSTEM_PROMPT,
-      promptSuffix: "Continue the interview. If you have enough information, output the PRD JSON.",
+      promptSuffix: "Continue the interview. If you have enough information, write the complete PRD starting with a level-1 heading.",
       maxHistoryWindow: 16,
       persist,
     });
@@ -32,15 +32,10 @@ export class Interviewer {
     return this.engine.send(userMessage, onChunk);
   }
 
-  extractPrd(response: string): GeneratedPrd | null {
-    const jsonMatch = response.match(/```json\s*([\s\S]*?)\s*```/);
-    if (!jsonMatch) return null;
-
-    try {
-      return JSON.parse(jsonMatch[1]) as GeneratedPrd;
-    } catch {
-      return null;
-    }
+  extractPrdMarkdown(response: string): string | null {
+    const match = response.match(/^(# .+)/ms);
+    if (!match) return null;
+    return response.slice(response.indexOf(match[1]));
   }
 
   restoreHistory(messages: InterviewMessage[]): void {
@@ -52,23 +47,7 @@ export class Interviewer {
   }
 }
 
-export function prdToMarkdown(prd: GeneratedPrd): string {
-  const lines: string[] = [];
-  lines.push(`# ${prd.title}\n`);
-  lines.push(`## Problem Statement\n\n${prd.problemStatement}\n`);
-  lines.push(`## Goals\n\n${prd.goals.map((g) => `- ${g}`).join("\n")}\n`);
-  lines.push(`## Target Users\n\n${prd.targetUsers}\n`);
-  lines.push(`## Scope\n`);
-  lines.push(`### Included\n\n${prd.scope.included.map((s) => `- ${s}`).join("\n")}\n`);
-  lines.push(`### Excluded\n\n${prd.scope.excluded.map((s) => `- ${s}`).join("\n")}\n`);
-  lines.push(`## User Stories\n`);
-  for (const story of prd.userStories) {
-    lines.push(`### ${story.id}: ${story.title}\n`);
-    lines.push(`${story.description}\n`);
-    lines.push(`**Acceptance Criteria:**`);
-    lines.push(story.acceptanceCriteria.map((c) => `- [ ] ${c}`).join("\n"));
-    lines.push("");
-  }
-  lines.push(`## Quality Gates\n\n${prd.qualityGates.map((g) => `- ${g}`).join("\n")}\n`);
-  return lines.join("\n");
+export function extractPrdTitle(markdown: string): string {
+  const match = markdown.match(/^# (.+)$/m);
+  return match ? match[1].trim() : "";
 }
