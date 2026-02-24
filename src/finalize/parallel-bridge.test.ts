@@ -36,7 +36,7 @@ describe("createInitialTuiState", () => {
     const state = createInitialTuiState(5);
 
     expect(state.header.totalTasks).toBe(5);
-    expect(state.header.currentWave).toBe(1);
+    expect(state.header.currentWave).toBe(0);
     expect(state.header.activeWorkers).toBe(0);
     expect(state.header.mergedTasks).toBe(0);
     expect(state.workers).toEqual([]);
@@ -87,11 +87,23 @@ describe("applyParallelEvent", () => {
     expect(apply({ type: "parallel:started", timestamp: ts() })).toBe(true);
   });
 
+  test("parallel:started with totalGroups sets totalWaves", () => {
+    state = createInitialTuiState(3);
+    apply({ type: "parallel:started", timestamp: ts(), totalGroups: 4 });
+    expect(state.header.totalWaves).toBe(4);
+  });
+
+  test("parallel:started without totalGroups keeps default totalWaves", () => {
+    state = createInitialTuiState(3);
+    apply({ type: "parallel:started", timestamp: ts() });
+    expect(state.header.totalWaves).toBe(1);
+  });
+
   test("parallel:group-started increments wave", () => {
     state = createInitialTuiState(3);
     apply({ type: "parallel:group-started", timestamp: ts() });
 
-    expect(state.header.currentWave).toBe(2);
+    expect(state.header.currentWave).toBe(1);
   });
 
   test("worker:started updates workers and active count", () => {

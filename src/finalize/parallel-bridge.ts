@@ -1,4 +1,5 @@
-import type { ParallelEvent } from "../parallel/events.js";
+import { join } from "node:path";
+import type { ParallelEvent, ParallelEventListener } from "../parallel/events.js";
 import type { WorkerDisplayState } from "../parallel/worker.js";
 import type { WorkerInfo, WorkerStatus } from "../tui/components/WorkerPanel.js";
 import type { MergeQueueItem, MergeStatus } from "../tui/components/MergeQueuePanel.js";
@@ -6,6 +7,7 @@ import type { ConflictInfo, ConflictFile } from "../tui/components/ConflictResol
 import type { ParallelHeaderInfo } from "../tui/components/Header.js";
 import type { Task } from "../tasks/types.js";
 import type { TuiEngineData } from "../tui/types.js";
+import { appendText } from "../utils/fs.js";
 
 export interface ParallelTuiState {
   header: ParallelHeaderInfo;
@@ -39,7 +41,7 @@ export function buildWorkerInfos(displayStates: WorkerDisplayState[]): WorkerInf
 export function createInitialTuiState(totalTasks: number): ParallelTuiState {
   return {
     header: {
-      currentWave: 1,
+      currentWave: 0,
       totalWaves: 1,
       activeWorkers: 0,
       mergedTasks: 0,
@@ -58,6 +60,9 @@ export function applyParallelEvent(
 ): boolean {
   switch (event.type) {
     case "parallel:started":
+      if (event.totalGroups !== undefined) {
+        state.header.totalWaves = event.totalGroups;
+      }
       return true;
 
     case "parallel:group-started":
@@ -223,4 +228,14 @@ export function buildFixTuiData(
     configDisplay: "",
     tokenUsage: { sessionTotal: { inputTokens: 0, outputTokens: 0, totalTokens: 0 }, taskTotals: {}, hasData: false },
   };
+}
+
+export function attachParallelLogger(
+  on: (listener: ParallelEventListener) => void,
+  logsDir: string,
+): void {
+  const logPath = join(logsDir, "parallel.jsonl");
+  on((event) => {
+    appendText(logPath, JSON.stringify(event) + "\n").catch(() => {});
+  });
 }

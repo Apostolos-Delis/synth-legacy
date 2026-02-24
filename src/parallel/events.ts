@@ -130,6 +130,7 @@ export interface ThrottleActiveEvent {
 export interface ParallelStartedEvent {
   type: "parallel:started";
   timestamp: string;
+  totalGroups?: number;
 }
 
 export interface ParallelGroupStartedEvent {

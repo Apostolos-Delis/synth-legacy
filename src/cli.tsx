@@ -589,6 +589,7 @@ async function cmdRun(sessionId?: string, startIteration = 0, tuiContext?: TuiCo
       });
 
       // Wire parallel execution to the TUI (or fall back to log-based output)
+      const { attachParallelLogger } = await import("./finalize/parallel-bridge.js");
       let parallelRenderer: Awaited<ReturnType<typeof import("@opentui/core")["createCliRenderer"]>> | null = null;
       let parallelRoot: ReturnType<typeof import("@opentui/react")["createRoot"]> | null = null;
       let parallelOwnsRenderer = !tuiContext;
@@ -655,6 +656,8 @@ async function cmdRun(sessionId?: string, startIteration = 0, tuiContext?: TuiCo
           }, 16);
         };
 
+        attachParallelLogger(coordinator.on.bind(coordinator), plan.paths.logs);
+
         coordinator.on((event) => {
           applyParallelEvent(event, parallelState, () =>
             coordinator.getWorkerDisplayStates(),
@@ -668,6 +671,8 @@ async function cmdRun(sessionId?: string, startIteration = 0, tuiContext?: TuiCo
 
         renderParallelTui();
       } else {
+        attachParallelLogger(coordinator.on.bind(coordinator), plan.paths.logs);
+
         coordinator.on((event) => {
           switch (event.type) {
             case "parallel:started":
@@ -2419,7 +2424,7 @@ async function cmdFinalize(
 
           if (useParallel) {
             // ── Parallel execution TUI ──
-            const { createInitialTuiState, applyParallelEvent } = await import("./finalize/parallel-bridge.js");
+            const { createInitialTuiState, applyParallelEvent, attachParallelLogger } = await import("./finalize/parallel-bridge.js");
             const { ParallelCoordinator } = await loadParallelCoordinator();
 
             const coordinator = new ParallelCoordinator({
@@ -2462,6 +2467,8 @@ async function cmdFinalize(
                 renderParallelTui();
               }, 16);
             };
+
+            attachParallelLogger(coordinator.on.bind(coordinator), plan!.paths.logs);
 
             coordinator.on((event) => {
               applyParallelEvent(event, parallelState, () =>

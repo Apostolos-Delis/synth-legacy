@@ -128,7 +128,7 @@ export class ParallelCoordinator {
       return { mergedTaskIds: [], failedTaskIds: [], serial: true };
     }
 
-    this.emit({ type: "parallel:started", timestamp: this.timestamp() });
+    this.emit({ type: "parallel:started", timestamp: this.timestamp(), totalGroups: this.analysis.groups.length });
 
     this.interruptPromise = new Promise<void>((resolve) => {
       this.interruptResolve = resolve;
@@ -401,15 +401,6 @@ export class ParallelCoordinator {
       } catch {
         // Best effort
       }
-    }
-
-    // Reset terminal state in case TUI cleanup races with SIGINT
-    try {
-      process.stdout.write("\x1b[?1000l\x1b[?1003l\x1b[?1006l");
-      process.stdout.write("\x1b[?25h");
-      process.stdout.write("\x1b[?1049l");
-    } catch {
-      // stdout may already be closed
     }
 
     this.emit({
