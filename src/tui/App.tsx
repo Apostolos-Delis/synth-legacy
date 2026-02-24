@@ -10,6 +10,8 @@ import { HelpOverlay } from "./components/HelpOverlay.js";
 import { ConfirmationDialog } from "./components/ConfirmationDialog.js";
 import { ToastContainer } from "./components/Toast.js";
 import { useToast } from "./hooks/useToast.js";
+import type { ParallelHeaderInfo, ParallelCompletionInfo } from "./components/Header.js";
+import type { ParallelStatusInfo } from "./components/StatusBar.js";
 
 interface AppProps extends TuiEngineData {
   defaultView?: ViewMode;
@@ -17,6 +19,9 @@ interface AppProps extends TuiEngineData {
   onFinalize?: () => void;
   onPause?: () => void;
   onResume?: () => void;
+  parallel?: ParallelHeaderInfo | null;
+  parallelCompletion?: ParallelCompletionInfo | null;
+  parallelStatus?: ParallelStatusInfo | null;
 }
 
 export function App({
@@ -25,6 +30,9 @@ export function App({
   onFinalize,
   onPause,
   onResume,
+  parallel,
+  parallelCompletion,
+  parallelStatus,
   ...engineData
 }: AppProps): ReactNode {
   const [view, setView] = useState<ViewMode>(defaultView);
@@ -55,6 +63,8 @@ export function App({
   selectedTaskIndexRef.current = selectedTaskIndex;
   const tasksRef = useRef(engineData.tasks);
   tasksRef.current = engineData.tasks;
+  const parallelRef = useRef(parallel);
+  parallelRef.current = parallel;
 
   const prevEngineState = useRef(engineData.engineState);
   useEffect(() => {
@@ -141,9 +151,27 @@ export function App({
         return;
       }
 
-      // Execution view navigation (j/k/arrows/enter/escape)
+      // Execution view navigation (j/k/arrows/enter/escape/w)
       if (viewRef.current === "execution") {
         const taskCount = tasksRef.current.length;
+        const isParallel = !!parallelRef.current;
+
+        // 'w' toggles between WorkerPanel and OutputPane in parallel mode
+        if (key.name === "w" && isParallel) {
+          setNavMode((m) => m === "worker-panel" ? "output-scroll" : "worker-panel");
+          return;
+        }
+
+        if (navModeRef.current === "worker-panel") {
+          if (key.name === "escape") {
+            setNavMode("task-scroll");
+            return;
+          }
+          // In worker-panel mode, don't intercept j/k/arrows
+          if (key.name === "j" || key.name === "k" || key.name === "up" || key.name === "down") {
+            return;
+          }
+        }
 
         if (navModeRef.current === "output-scroll") {
           if (key.name === "escape") {
@@ -238,7 +266,14 @@ export function App({
   return (
     <box style={{ width: "100%", height: "100%", position: "relative" }}>
       <box style={isExecution ? visibleStyle : hiddenStyle}>
-        <ExecutionView state={executionState} selectedTaskIndex={selectedTaskIndex} navMode={navMode} />
+        <ExecutionView
+          state={executionState}
+          selectedTaskIndex={selectedTaskIndex}
+          navMode={navMode}
+          parallel={parallel}
+          parallelCompletion={parallelCompletion}
+          parallelStatus={parallelStatus}
+        />
       </box>
       <box style={isDashboard ? visibleStyle : hiddenStyle}>
         <DashboardView state={dashboardState} />

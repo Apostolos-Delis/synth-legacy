@@ -4,6 +4,12 @@ import type { NavMode } from "../types.js";
 import { colors, statusIndicators } from "../theme.js";
 import { formatTokenCount } from "../../engine/tokens.js";
 
+export interface ParallelStatusInfo {
+  recommendedWorkers: number;
+  confidence: "high" | "medium" | "low";
+  reason: string;
+}
+
 interface StatusBarProps {
   state: EngineState;
   iteration: number;
@@ -13,6 +19,7 @@ interface StatusBarProps {
   currentPhase?: string | null;
   navMode?: NavMode;
   currentTaskTokens?: number | null;
+  parallelStatus?: ParallelStatusInfo | null;
 }
 
 const STATE_DISPLAY: Record<EngineState, { label: string; color: string; indicator: string }> = {
@@ -25,6 +32,12 @@ const STATE_DISPLAY: Record<EngineState, { label: string; color: string; indicat
   failed: { label: "FAILED", color: colors.status.error, indicator: statusIndicators.failed },
 };
 
+const CONFIDENCE_COLOR: Record<string, string> = {
+  high: colors.status.success,
+  medium: colors.status.warning,
+  low: colors.fg.muted,
+};
+
 export const StatusBar = memo(function StatusBar({
   state,
   iteration,
@@ -34,13 +47,16 @@ export const StatusBar = memo(function StatusBar({
   currentPhase,
   navMode,
   currentTaskTokens,
+  parallelStatus,
 }: StatusBarProps): ReactNode {
   const display = STATE_DISPLAY[state];
   const elapsed = Math.round(elapsedMs / 1000);
 
   const navHints = navMode === "output-scroll"
     ? "j/k:scroll  esc:back  q:quit"
-    : "j/k:tasks  enter:scroll  p:pause  d:dashboard  h:history  q:quit";
+    : navMode === "worker-panel"
+      ? "w:output  esc:back  q:quit"
+      : "j/k:tasks  enter:scroll  p:pause  d:dashboard  h:history  q:quit";
 
   const tokenDisplay = currentTaskTokens != null && currentTaskTokens > 0
     ? `${formatTokenCount(currentTaskTokens)} tok`
@@ -69,6 +85,16 @@ export const StatusBar = memo(function StatusBar({
             <span fg={colors.accent.primary}>{currentPhase}</span>
           </>
         )}
+        {parallelStatus && (
+          <>
+            <span fg={colors.fg.muted}>{" │ "}</span>
+            <span fg={CONFIDENCE_COLOR[parallelStatus.confidence] ?? colors.fg.muted}>
+              {parallelStatus.recommendedWorkers}w ({parallelStatus.confidence})
+            </span>
+            <span fg={colors.fg.muted}>{" "}</span>
+            <span fg={colors.fg.dim}>{parallelStatus.reason}</span>
+          </>
+        )}
         <span fg={colors.fg.muted}>{" │ "}</span>
         <span fg={colors.fg.muted}>{navHints}</span>
       </text>
@@ -82,5 +108,6 @@ export const StatusBar = memo(function StatusBar({
   prev.currentPhase === next.currentPhase &&
   prev.navMode === next.navMode &&
   prev.currentTaskTokens === next.currentTaskTokens &&
+  prev.parallelStatus === next.parallelStatus &&
   Math.floor(prev.elapsedMs / 1000) === Math.floor(next.elapsedMs / 1000),
 );

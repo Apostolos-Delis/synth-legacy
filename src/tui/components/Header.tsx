@@ -2,6 +2,20 @@ import { memo, type ReactNode } from "react";
 import { boldAttr, colors } from "../theme.js";
 import { formatTokenCount } from "../../engine/tokens.js";
 
+export interface ParallelHeaderInfo {
+  currentWave: number;
+  totalWaves: number;
+  activeWorkers: number;
+  mergedTasks: number;
+  totalTasks: number;
+}
+
+export interface ParallelCompletionInfo {
+  totalDurationMs: number;
+  tasksCompleted: number;
+  conflictsResolved: number;
+}
+
 interface HeaderProps {
   projectName: string;
   sessionId: string;
@@ -13,6 +27,8 @@ interface HeaderProps {
   total: number;
   width: number;
   sessionTokens?: number | null;
+  parallel?: ParallelHeaderInfo | null;
+  parallelCompletion?: ParallelCompletionInfo | null;
 }
 
 function formatElapsed(ms: number): string {
@@ -42,12 +58,77 @@ export const Header = memo(function Header({
   total,
   width,
   sessionTokens,
+  parallel,
+  parallelCompletion,
 }: HeaderProps): ReactNode {
   const pct = total > 0 ? Math.round((done / total) * 100) : 0;
   const tokenDisplay = sessionTokens != null && sessionTokens > 0
     ? `${formatTokenCount(sessionTokens)} tokens`
     : "N/A";
 
+  // Parallel completion state: show summary stats
+  if (parallelCompletion) {
+    return (
+      <box
+        width={width}
+        height={1}
+        flexDirection="row"
+        style={{ backgroundColor: colors.bg.secondary, paddingLeft: 1, paddingRight: 1 }}
+      >
+        <text>
+          <span fg={colors.accent.primary} attributes={boldAttr()}>synth</span>
+          <span fg={colors.fg.muted}>{" │ "}</span>
+          <span fg={colors.fg.primary}>{projectName}</span>
+          <span fg={colors.fg.muted}> ({sessionId})</span>
+        </text>
+        <box flexGrow={1} />
+        <text>
+          <span fg={colors.status.success}>{"\u2713"} Complete</span>
+          <span fg={colors.fg.muted}>{" │ "}</span>
+          <span fg={colors.fg.secondary}>{formatElapsed(parallelCompletion.totalDurationMs)}</span>
+          <span fg={colors.fg.muted}>{" │ "}</span>
+          <span fg={colors.fg.secondary}>{parallelCompletion.tasksCompleted} tasks</span>
+          <span fg={colors.fg.muted}>{" │ "}</span>
+          <span fg={colors.fg.secondary}>{parallelCompletion.conflictsResolved} conflicts resolved</span>
+        </text>
+      </box>
+    );
+  }
+
+  // Parallel active state: show wave/worker/merge info
+  if (parallel) {
+    return (
+      <box
+        width={width}
+        height={1}
+        flexDirection="row"
+        style={{ backgroundColor: colors.bg.secondary, paddingLeft: 1, paddingRight: 1 }}
+      >
+        <text>
+          <span fg={colors.accent.primary} attributes={boldAttr()}>synth</span>
+          <span fg={colors.fg.muted}>{" │ "}</span>
+          <span fg={colors.fg.primary}>{projectName}</span>
+          <span fg={colors.fg.muted}> ({sessionId})</span>
+        </text>
+        <box flexGrow={1} />
+        <text>
+          <span fg={colors.accent.primary}>Parallel</span>
+          <span fg={colors.fg.muted}>{": "}</span>
+          <span fg={colors.fg.secondary}>Wave {parallel.currentWave}/{parallel.totalWaves}</span>
+          <span fg={colors.fg.muted}>{" │ "}</span>
+          <span fg={colors.fg.secondary}>Workers: {parallel.activeWorkers} active</span>
+          <span fg={colors.fg.muted}>{" │ "}</span>
+          <span fg={colors.fg.secondary}>Tasks: {parallel.mergedTasks}/{parallel.totalTasks} merged</span>
+          <span fg={colors.fg.muted}>{" │ "}</span>
+          <span fg={colors.fg.secondary}>{tokenDisplay}</span>
+          <span fg={colors.fg.muted}>{" │ "}</span>
+          <span fg={colors.fg.secondary}>{formatElapsed(elapsedMs)}</span>
+        </text>
+      </box>
+    );
+  }
+
+  // Non-parallel mode: unchanged
   return (
     <box
       width={width}
@@ -85,5 +166,7 @@ export const Header = memo(function Header({
   prev.total === next.total &&
   prev.width === next.width &&
   prev.sessionTokens === next.sessionTokens &&
+  prev.parallel === next.parallel &&
+  prev.parallelCompletion === next.parallelCompletion &&
   Math.floor(prev.elapsedMs / 1000) === Math.floor(next.elapsedMs / 1000),
 );

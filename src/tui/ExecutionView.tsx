@@ -3,17 +3,22 @@ import { useTerminalDimensions } from "@opentui/react";
 import type { TuiState, NavMode } from "./types.js";
 import { layout } from "./theme.js";
 import { Header } from "./components/Header.js";
+import type { ParallelHeaderInfo, ParallelCompletionInfo } from "./components/Header.js";
 import { TaskSidebar } from "./components/TaskSidebar.js";
 import { OutputPane } from "./components/OutputPane.js";
 import { StatusBar } from "./components/StatusBar.js";
+import type { ParallelStatusInfo } from "./components/StatusBar.js";
 
 interface ExecutionViewProps {
   state: TuiState;
   selectedTaskIndex: number;
   navMode: NavMode;
+  parallel?: ParallelHeaderInfo | null;
+  parallelCompletion?: ParallelCompletionInfo | null;
+  parallelStatus?: ParallelStatusInfo | null;
 }
 
-export function ExecutionView({ state, selectedTaskIndex, navMode }: ExecutionViewProps): ReactNode {
+export function ExecutionView({ state, selectedTaskIndex, navMode, parallel, parallelCompletion, parallelStatus }: ExecutionViewProps): ReactNode {
   const [, tick] = useState(0);
   useEffect(() => {
     if (state.engineState !== "executing" && state.engineState !== "reviewing") return;
@@ -67,6 +72,8 @@ export function ExecutionView({ state, selectedTaskIndex, navMode }: ExecutionVi
         total={state.tasks.length}
         width={width}
         sessionTokens={state.tokenUsage.hasData ? state.tokenUsage.sessionTotal.totalTokens : null}
+        parallel={parallel}
+        parallelCompletion={parallelCompletion}
       />
       <box flexDirection="row" height={bodyHeight}>
         <TaskSidebar
@@ -101,6 +108,7 @@ export function ExecutionView({ state, selectedTaskIndex, navMode }: ExecutionVi
             ? state.tokenUsage.taskTotals[state.currentTaskId].totalTokens
             : null
         }
+        parallelStatus={parallelStatus}
       />
     </box>
   );
