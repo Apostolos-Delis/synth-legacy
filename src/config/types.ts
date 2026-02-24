@@ -33,6 +33,11 @@ export interface SynthConfig {
     theme?: string;
     spinner?: string;
   };
+  parallel?: {
+    max_workers?: number;
+    ai_conflict_resolution?: boolean;
+    max_requeue_count?: number;
+  };
   notifications?: {
     enabled?: boolean;
   };

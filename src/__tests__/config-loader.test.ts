@@ -64,6 +64,35 @@ describe("loadConfig", () => {
     }
   });
 
+  test("parallel section uses defaults when missing from toml", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "synth-test-"));
+    try {
+      const config = await loadConfig(dir);
+      expect(config.parallel?.max_workers).toBe(8);
+      expect(config.parallel?.ai_conflict_resolution).toBe(true);
+      expect(config.parallel?.max_requeue_count).toBe(1);
+    } finally {
+      await rm(dir, { recursive: true });
+    }
+  });
+
+  test("parallel section merges from toml", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "synth-test-"));
+    try {
+      await writeText(
+        join(dir, "synth.toml"),
+        `[parallel]\nmax_workers = 4\nai_conflict_resolution = false\n`,
+      );
+      const config = await loadConfig(dir);
+      expect(config.parallel?.max_workers).toBe(4);
+      expect(config.parallel?.ai_conflict_resolution).toBe(false);
+      // Default preserved for unset field
+      expect(config.parallel?.max_requeue_count).toBe(1);
+    } finally {
+      await rm(dir, { recursive: true });
+    }
+  });
+
   test("array values replace rather than merge", async () => {
     const dir = await mkdtemp(join(tmpdir(), "synth-test-"));
     try {

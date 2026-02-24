@@ -27,6 +27,11 @@ export const DEFAULT_CONFIG: SynthConfig = {
     self_review: true,
     create_pr: true,
   },
+  parallel: {
+    max_workers: 8,
+    ai_conflict_resolution: true,
+    max_requeue_count: 1,
+  },
   tui: {
     theme: "tokyonight",
   },
