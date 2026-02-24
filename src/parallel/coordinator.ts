@@ -296,13 +296,11 @@ export class ParallelCoordinator {
       }
 
       // Merge session branch back to original branch
-      let mergeSucceeded = false;
       let mergeError: string | undefined;
       if (this.originalBranch && this.sessionBranch) {
         await checkoutBranch(this.originalBranch, this.repoRoot);
         try {
           await mergeFF(this.sessionBranch, this.repoRoot);
-          mergeSucceeded = true;
         } catch {
           // FF merge failed — session branch has diverged from original.
           // Leave the user on the session branch so their work is accessible.
@@ -319,9 +317,7 @@ export class ParallelCoordinator {
       await this.cleanup();
 
       this.deregisterSigintHandler();
-      if (mergeSucceeded) {
-        this.emit({ type: "parallel:completed", timestamp: this.timestamp() });
-      }
+      this.emit({ type: "parallel:completed", timestamp: this.timestamp() });
 
       return { mergedTaskIds, failedTaskIds, serial: false, error: mergeError };
     } catch (error) {

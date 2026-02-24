@@ -68,23 +68,11 @@ async function checkGit(cwd: string): Promise<DoctorCheckResult[]> {
 }
 
 async function checkClaudeAuth(): Promise<DoctorCheckResult> {
-  // Claude Code stores credentials in ~/.claude/ — check for auth by running a lightweight probe
-  try {
-    const result = await spawn({ cmd: ["claude", "-p", "test", "--max-turns", "0"], timeout: 15_000 }).promise;
-    // Exit code 0 or non-auth errors mean auth is working
-    const stderr = result.stderr.toLowerCase();
-    if (stderr.includes("not authenticated") || stderr.includes("auth") || stderr.includes("api key") || stderr.includes("unauthorized")) {
-      return { name: "claude auth", status: "fail", message: "not authenticated", suggestion: "run: claude login" };
-    }
-    return { name: "claude auth", status: "pass" };
-  } catch {
-    // If the probe times out or crashes, check for credential files as fallback
-    const credPath = join(homedir(), ".claude", "credentials.json");
-    if (await fileExists(credPath)) {
-      return { name: "claude auth", status: "pass", message: "credentials file found" };
-    }
-    return { name: "claude auth", status: "warn", message: "could not verify authentication", suggestion: "run: claude login" };
+  const credPath = join(homedir(), ".claude", "credentials.json");
+  if (await fileExists(credPath)) {
+    return { name: "claude auth", status: "pass", message: "credentials file found" };
   }
+  return { name: "claude auth", status: "warn", message: "could not verify authentication", suggestion: "run: claude login" };
 }
 
 async function checkCodexAuth(): Promise<DoctorCheckResult> {
