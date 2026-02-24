@@ -38,6 +38,8 @@ export interface WorkerOutputEvent {
   type: "worker:output";
   timestamp: string;
   workerId: string;
+  message: string;
+  taskId: string;
 }
 
 // Merge events

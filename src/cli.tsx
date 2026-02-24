@@ -2207,6 +2207,10 @@ async function cmdFinalize(
             applyParallelEvent(event, parallelState, () =>
               coordinator.getWorkerDisplayStates(),
             );
+            if (event.type === "worker:output" && "taskId" in event) {
+              const taskId = event.taskId;
+              tuiData.taskOutputMap[taskId] = (tuiData.taskOutputMap[taskId] ?? "") + event.message;
+            }
             renderParallelTuiThrottled();
           });
 

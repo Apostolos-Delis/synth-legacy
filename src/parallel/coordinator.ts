@@ -446,6 +446,13 @@ export class ParallelCoordinator {
           this.fallbackAgent,
           this.sessionPaths,
         );
+
+        worker.on((event) => {
+          if (event.type === "worker:started" || event.type === "worker:progress" || event.type === "worker:output") {
+            this.emit(event);
+          }
+        });
+
         batchWorkers.push(worker);
 
         try {

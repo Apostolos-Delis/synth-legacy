@@ -9,6 +9,7 @@ import type { WorkerResult } from "./merge-engine.js";
 import type { ParallelEventListener, ParallelEvent } from "./events.js";
 import { Engine } from "../engine/engine.js";
 import { saveTasks } from "../tasks/store.js";
+import { stripAnsi } from "../tui/utils.js";
 
 export type WorkerStatus =
   | "idle"
@@ -274,7 +275,14 @@ export class Worker {
         break;
       case "agent:stdout":
         if (typeof event.message === "string" && event.message.trim()) {
-          this.lastOutput = event.message.trim().slice(-200);
+          this.lastOutput = stripAnsi(event.message).trim().slice(-200);
+          this.emitParallel({
+            type: "worker:output",
+            timestamp: new Date().toISOString(),
+            workerId: this.id,
+            message: event.message,
+            taskId: this.config.task.id,
+          });
         }
         break;
       case "task:complete":
