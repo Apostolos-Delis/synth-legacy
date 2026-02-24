@@ -24,7 +24,6 @@ export class Interviewer {
       readOnly: true,
       systemPrompt: INTERVIEWER_SYSTEM_PROMPT,
       promptSuffix: "Continue the interview. Prefer inferring implementation details from context over asking the user. If you can confidently address all checklist areas, write the complete PRD starting with a level-1 heading.",
-
       persist,
     });
   }
