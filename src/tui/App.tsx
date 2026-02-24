@@ -98,6 +98,14 @@ export function App({
     () => ({ ...engineData, view: "dashboard" as ViewMode }),
     [engineData],
   );
+  const historyState: TuiState = useMemo(
+    () => ({ ...engineData, view: "history" as ViewMode }),
+    [engineData],
+  );
+  const configState: TuiState = useMemo(
+    () => ({ ...engineData, view: "config" as ViewMode }),
+    [engineData],
+  );
 
   const handleKeyboard = useCallback(
     (key: { name: string; ctrl?: boolean; meta?: boolean }) => {
@@ -230,15 +238,6 @@ export function App({
       </box>
     );
   }
-
-  const historyState: TuiState = useMemo(
-    () => ({ ...engineData, view: "history" as ViewMode }),
-    [engineData],
-  );
-  const configState: TuiState = useMemo(
-    () => ({ ...engineData, view: "config" as ViewMode }),
-    [engineData],
-  );
 
   // Render views — active view gets full size, others hidden.
   const isExecution = view === "execution";
