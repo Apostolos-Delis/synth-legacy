@@ -66,6 +66,7 @@ export function ExecutionView({ state, selectedTaskIndex, navMode }: ExecutionVi
         done={done}
         total={state.tasks.length}
         width={width}
+        sessionTokens={state.tokenUsage.hasData ? state.tokenUsage.sessionTotal.totalTokens : null}
       />
       <box flexDirection="row" height={bodyHeight}>
         <TaskSidebar
@@ -95,6 +96,11 @@ export function ExecutionView({ state, selectedTaskIndex, navMode }: ExecutionVi
         width={width}
         currentPhase={state.currentPhase}
         navMode={navMode}
+        currentTaskTokens={
+          state.currentTaskId && state.tokenUsage.taskTotals[state.currentTaskId]
+            ? state.tokenUsage.taskTotals[state.currentTaskId].totalTokens
+            : null
+        }
       />
     </box>
   );

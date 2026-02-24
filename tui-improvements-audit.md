@@ -137,7 +137,7 @@ These are features synth has that ralph-tui lacks entirely — protect and refin
 - **AI conflict resolution**: When merge conflicts occur, send the conflict hunks + file context to the agent for resolution. Fall back to flagging for human review if AI resolution fails or confidence is low
 - **TUI integration**: Workers panel showing per-worker status (task, progress, agent output), merge queue panel, conflict resolution view
 - **CLI flag**: `--parallel [N]` to set worker count, default to serial execution
-- **Session branch management**: Create a `synth-session/{plan-id}` branch to isolate parallel work from the user's working branch
+- **Session branch management**: Create a `synth-session/{session-id}` branch to isolate parallel work from the user's working branch
 
 **Design considerations (learn from ralph-tui's mistakes):**
 - Keep the parallel coordinator as a separate module, not bolted into the existing engine — the engine should remain a single-task executor

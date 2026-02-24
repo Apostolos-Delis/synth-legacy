@@ -8,8 +8,9 @@ interface FooterProps {
 }
 
 const SHORTCUTS: Record<ViewMode, string> = {
-  execution: "q:quit  p:pause/resume  d:dashboard",
+  execution: "q:quit  p:pause/resume  d:dashboard  h:history",
   dashboard: "q:quit  p:pause/resume  Esc:back",
+  history: "j/k:navigate  Enter:view  Esc:back",
   interview: "Enter:send  q:quit",
   generating: "Please wait...",
   review: "j/k:navigate  Enter:start execution  Esc/q:save and quit",
