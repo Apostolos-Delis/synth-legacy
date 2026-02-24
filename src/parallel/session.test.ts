@@ -73,6 +73,19 @@ mock.module("../utils/git.js", () => ({
       throw new Error(`Failed to delete branch '${name}': ${override.stderr}`);
     }
   },
+  getCurrentBranch: async () => "main",
+  checkoutBranch: async () => {},
+  listBranches: async () => [],
+  listTags: async () => [],
+  deleteTag: async () => {},
+  gitLog: async () => "",
+}));
+
+// Mock tasks/store (imported by session.ts for reconciliation)
+mock.module("../tasks/store.js", () => ({
+  loadTasks: async () => ({ tasks: [] }),
+  saveTasks: async () => {},
+  updateTaskStatus: (taskFile: unknown) => taskFile,
 }));
 
 import {

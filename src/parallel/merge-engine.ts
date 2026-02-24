@@ -107,56 +107,67 @@ export class MergeEngine {
       return operation;
     }
 
-    // Try fast-forward first
-    const ffHandle = spawn({
-      cmd: ["git", "merge", "--ff-only", operation.sourceBranch],
+    // Squash merge: collapses all branch commits into staged changes
+    const squashHandle = spawn({
+      cmd: ["git", "merge", "--squash", operation.sourceBranch],
       cwd: this.repoRoot,
     });
-    const ffResult = await ffHandle.promise;
-    if (ffResult.exitCode === 0) {
-      operation.status = "completed";
+    const squashResult = await squashHandle.promise;
+
+    if (squashResult.exitCode !== 0) {
+      // Conflict: extract conflicted file paths and reset to backup
+      // (squash merge doesn't set MERGE_HEAD, so use reset --hard instead of merge --abort)
+      operation.status = "conflicted";
+      operation.error = squashResult.stderr;
+
+      let conflicted = parseConflictedFiles(squashResult.stderr);
+      if (conflicted.length === 0) {
+        conflicted = await getConflictedFilesFromDiff(this.repoRoot);
+      }
+      operation.conflictedFiles = conflicted;
+
+      const resetHandle = spawn({
+        cmd: ["git", "reset", "--hard", backupTag],
+        cwd: this.repoRoot,
+      });
+      await resetHandle.promise;
+
       return operation;
     }
 
-    // Fall back to merge commit
-    const mergeHandle = spawn({
-      cmd: [
-        "git",
-        "merge",
-        operation.sourceBranch,
-        "-m",
-        `feat(${operation.taskId}): ${operation.taskTitle}`,
-      ],
+    // Check if squash produced any staged changes
+    const diffHandle = spawn({
+      cmd: ["git", "diff", "--cached", "--quiet"],
       cwd: this.repoRoot,
     });
-    const mergeResult = await mergeHandle.promise;
-    if (mergeResult.exitCode === 0) {
-      operation.status = "completed";
+    const diffResult = await diffHandle.promise;
+    if (diffResult.exitCode === 0) {
+      // No changes — squash was a no-op
+      operation.status = "failed";
+      operation.error = "Squash merge produced no changes";
       return operation;
     }
 
-    // Conflict: extract conflicted file paths, abort merge, and reset to backup
-    operation.status = "conflicted";
-    operation.error = mergeResult.stderr;
+    // Commit the squashed changes
+    const commitHandle = spawn({
+      cmd: ["git", "commit", "-m", `feat(${operation.taskId}): ${operation.taskTitle}`],
+      cwd: this.repoRoot,
+    });
+    const commitResult = await commitHandle.promise;
+    if (commitResult.exitCode !== 0) {
+      operation.status = "failed";
+      operation.error = `Failed to commit squash: ${commitResult.stderr}`;
 
-    let conflicted = parseConflictedFiles(mergeResult.stderr);
-    if (conflicted.length === 0) {
-      conflicted = await getConflictedFilesFromDiff(this.repoRoot);
+      const resetHandle = spawn({
+        cmd: ["git", "reset", "--hard", backupTag],
+        cwd: this.repoRoot,
+      });
+      await resetHandle.promise;
+
+      return operation;
     }
-    operation.conflictedFiles = conflicted;
 
-    const abortHandle = spawn({
-      cmd: ["git", "merge", "--abort"],
-      cwd: this.repoRoot,
-    });
-    await abortHandle.promise;
-
-    const resetHandle = spawn({
-      cmd: ["git", "reset", "--hard", backupTag],
-      cwd: this.repoRoot,
-    });
-    await resetHandle.promise;
-
+    operation.status = "completed";
     return operation;
   }
 

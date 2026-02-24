@@ -514,8 +514,8 @@ async function cmdRun(sessionId?: string, startIteration = 0, tuiContext?: TuiCo
 
     if (actionableTasks.length < 3 || !analysis.recommendParallel) {
       log(
-        fmt.warn(
-          `Parallel mode: only ${actionableTasks.length} actionable task(s) with max parallelism ${analysis.maxParallelism} — falling back to serial execution`,
+        fmt.info(
+          `${actionableTasks.length} actionable task(s) — using serial execution`,
         ),
       );
     } else {
@@ -539,59 +539,147 @@ async function cmdRun(sessionId?: string, startIteration = 0, tuiContext?: TuiCo
           maxWorkers: parallelWorkers ?? config.parallel?.max_workers,
           aiConflictResolution: config.parallel?.ai_conflict_resolution,
           maxRequeueCount: config.parallel?.max_requeue_count,
+          staggerDelayMs: config.parallel?.stagger_delay_ms,
         },
         synthConfig: config,
         agent,
         fallbackAgent: parallelFallbackAgent,
       });
 
-      coordinator.on((event) => {
-        switch (event.type) {
-          case "parallel:started":
-            log(fmt.info("Parallel execution started"));
-            break;
-          case "parallel:group-started":
-            log(fmt.info("Starting wave"));
-            break;
-          case "worker:started":
-            log(fmt.info(`Worker ${event.workerId} started`));
-            break;
-          case "worker:completed":
-            logSuccess(`Worker ${event.workerId} completed`);
-            break;
-          case "worker:failed":
-            logError(`Worker ${event.workerId} failed`);
-            break;
-          case "merge:completed":
-            logSuccess(`Merged task ${event.taskId}`);
-            break;
-          case "merge:failed":
-            logError(`Merge failed for task ${event.taskId}`);
-            break;
-          case "conflict:detected":
-            log(fmt.warn("Merge conflict detected"));
-            break;
-          case "parallel:completed":
-            logSuccess("Parallel execution completed");
-            break;
-          case "parallel:warning":
-            log(fmt.warn(event.message));
-            break;
-          case "parallel:failed":
-            logError("Parallel execution failed");
-            break;
+      // Wire parallel execution to the TUI (or fall back to log-based output)
+      let parallelRenderer: Awaited<ReturnType<typeof import("@opentui/core")["createCliRenderer"]>> | null = null;
+      let parallelRoot: ReturnType<typeof import("@opentui/react")["createRoot"]> | null = null;
+      let parallelOwnsRenderer = !tuiContext;
+
+      if (tuiEnabled) {
+        const { createInitialTuiState, applyParallelEvent } = await import("./finalize/parallel-bridge.js");
+        const tui = await loadTui();
+        if (tuiContext) {
+          parallelRenderer = tuiContext.renderer;
+          parallelRoot = tuiContext.root;
+        } else {
+          parallelRenderer = await tui.createCliRenderer({
+            useKittyKeyboard: { disambiguate: true, alternateKeys: true },
+          });
+          parallelRoot = tui.createRoot(parallelRenderer);
         }
-      });
+
+        const parallelTuiData: TuiEngineData = {
+          engineState: "executing",
+          iteration: 0,
+          maxIterations: 1,
+          tasks: [...taskFile.tasks],
+          currentTaskId: null,
+          output: "",
+          agentName: config.agent.name,
+          projectName: config.project.name,
+          sessionId: plan.metadata.id,
+          startTime: Date.now(),
+          interviewMessages: [],
+          isThinking: false,
+          currentPhase: "Parallel execution",
+          phaseStartTime: Date.now(),
+          completionSummary: null,
+          taskOutputMap: {},
+          taskElapsedMs: {},
+          taskStartTimes: {},
+          iterationEntries: [],
+          configDisplay: JSON.stringify(config, null, 2),
+          tokenUsage: { sessionTotal: { inputTokens: 0, outputTokens: 0, totalTokens: 0 }, taskTotals: {}, hasData: false },
+        };
+
+        const parallelState = createInitialTuiState(actionableTasks.length);
+
+        const renderParallelTui = () => {
+          parallelRoot!.render(
+            <tui.App
+              {...parallelTuiData}
+              parallel={parallelState.header}
+              workers={parallelState.workers}
+              mergeItems={parallelState.mergeItems}
+              conflict={parallelState.conflict}
+              onQuit={() => coordinator.abort()}
+            />,
+          );
+        };
+
+        let parallelRenderScheduled = false;
+        const renderParallelTuiThrottled = () => {
+          if (parallelRenderScheduled) return;
+          parallelRenderScheduled = true;
+          setTimeout(() => {
+            parallelRenderScheduled = false;
+            renderParallelTui();
+          }, 16);
+        };
+
+        coordinator.on((event) => {
+          applyParallelEvent(event, parallelState, () =>
+            coordinator.getWorkerDisplayStates(),
+          );
+          if (event.type === "worker:output" && "taskId" in event) {
+            const taskId = (event as { taskId: string }).taskId;
+            parallelTuiData.taskOutputMap[taskId] = (parallelTuiData.taskOutputMap[taskId] ?? "") + (event as { message: string }).message;
+          }
+          renderParallelTuiThrottled();
+        });
+
+        renderParallelTui();
+      } else {
+        coordinator.on((event) => {
+          switch (event.type) {
+            case "parallel:started":
+              log(fmt.info("Parallel execution started"));
+              break;
+            case "parallel:group-started":
+              log(fmt.info("Starting wave"));
+              break;
+            case "worker:started":
+              log(fmt.info(`Worker ${event.workerId} started`));
+              break;
+            case "worker:completed":
+              logSuccess(`Worker ${event.workerId} completed`);
+              break;
+            case "worker:failed":
+              logError(`Worker ${event.workerId} failed`);
+              break;
+            case "merge:completed":
+              logSuccess(`Merged task ${event.taskId}`);
+              break;
+            case "merge:failed":
+              logError(`Merge failed for task ${event.taskId}${event.reason ? `: ${event.reason}` : ""}`);
+              break;
+            case "conflict:detected":
+              log(fmt.warn("Merge conflict detected"));
+              break;
+            case "parallel:completed":
+              logSuccess("Parallel execution completed");
+              break;
+            case "parallel:warning":
+              log(fmt.warn(event.message));
+              break;
+            case "parallel:failed":
+              logError("Parallel execution failed");
+              break;
+          }
+        });
+      }
 
       try {
         const result = await coordinator.run();
-        log(
-          fmt.info(
-            `Parallel result: ${result.mergedTaskIds.length} merged, ${result.failedTaskIds.length} failed`,
-          ),
-        );
+        if (!tuiEnabled) {
+          log(
+            fmt.info(
+              `Parallel result: ${result.mergedTaskIds.length} merged, ${result.failedTaskIds.length} failed`,
+            ),
+          );
+        }
       } finally {
         await runMod.releaseLock(plan.paths);
+        if (parallelOwnsRenderer) {
+          if (parallelRoot) parallelRoot.unmount();
+          if (parallelRenderer) parallelRenderer.destroy();
+        }
       }
 
       parallelFallbackAgent?.dispose();
@@ -2141,10 +2229,10 @@ async function cmdFinalize(
     process.on("SIGINT", sigintHandler);
 
     try {
-      type FinalizeYield = "quit" | "parallel-execute";
+      type FinalizeYield = "quit" | "execute";
 
-      // Yield loop: FinalizeApp can yield back to cmdFinalize for parallel execution,
-      // then we remount FinalizeApp to continue from the recheck/PR phase.
+      // Yield loop: FinalizeApp yields back to cmdFinalize for fix execution
+      // (parallel or serial TUI), then we remount FinalizeApp at recheck/PR phase.
       let running = true;
       while (running) {
         const action = await new Promise<FinalizeYield>((resolve) => {
@@ -2156,7 +2244,7 @@ async function cmdFinalize(
               sessionPaths={plan!.paths}
               cwd={cwd}
               onQuit={() => resolve("quit")}
-              onParallelExecute={() => resolve("parallel-execute")}
+              onExecute={() => resolve("execute")}
             />,
           );
         });
@@ -2166,95 +2254,163 @@ async function cmdFinalize(
           break;
         }
 
-        if (action === "parallel-execute") {
-          // 1. Convert fixes to tasks
+        if (action === "execute") {
           const { fixTasksToTasks } = await import("./finalize/fix-converter.js");
-          const { createInitialTuiState, applyParallelEvent, buildFixParallelTuiData } = await import("./finalize/parallel-bridge.js");
-          const { ParallelCoordinator } = await loadParallelCoordinator();
+          const { buildFixTuiData } = await import("./finalize/parallel-bridge.js");
 
           const fixes = orchestrator.getConfirmedFixes();
           const tasks = fixTasksToTasks(fixes, cwd);
+          const { analyzeTaskGraph } = await loadParallelCoordinator();
+          const analysis = analyzeTaskGraph(tasks);
+          const useParallel = tasks.length >= 3 && analysis.recommendParallel;
 
-          // 2. Create coordinator
-          const coordinator = new ParallelCoordinator({
-            tasks,
-            repoRoot: cwd,
-            project: config.project.name,
-            sessionPaths: plan!.paths,
-            config: {
-              maxWorkers: config.parallel?.max_workers ?? 4,
-              aiConflictResolution: config.parallel?.ai_conflict_resolution,
-              maxRequeueCount: config.parallel?.max_requeue_count,
-            },
-            synthConfig: config,
-            agent,
-            fallbackAgent: null,
-          });
+          if (useParallel) {
+            // ── Parallel execution TUI ──
+            const { createInitialTuiState, applyParallelEvent } = await import("./finalize/parallel-bridge.js");
+            const { ParallelCoordinator } = await loadParallelCoordinator();
 
-          // 3. Build TUI state and mount App with parallel props
-          const tuiData = buildFixParallelTuiData(tasks, config, plan!.metadata.id);
-          const parallelState = createInitialTuiState(tasks.length);
-
-          const renderParallelTui = () => {
-            root!.render(
-              <tui.App
-                {...tuiData}
-                parallel={parallelState.header}
-                workers={parallelState.workers}
-                mergeItems={parallelState.mergeItems}
-                conflict={parallelState.conflict}
-                onQuit={() => coordinator.abort()}
-              />,
-            );
-          };
-
-          // Throttle renders to ~60fps (same pattern as main execution path)
-          let parallelRenderScheduled = false;
-          const renderParallelTuiThrottled = () => {
-            if (parallelRenderScheduled) return;
-            parallelRenderScheduled = true;
-            setTimeout(() => {
-              parallelRenderScheduled = false;
-              renderParallelTui();
-            }, 16);
-          };
-
-          coordinator.on((event) => {
-            applyParallelEvent(event, parallelState, () =>
-              coordinator.getWorkerDisplayStates(),
-            );
-            if (event.type === "worker:output" && "taskId" in event) {
-              const taskId = event.taskId;
-              tuiData.taskOutputMap[taskId] = (tuiData.taskOutputMap[taskId] ?? "") + event.message;
-            }
-            renderParallelTuiThrottled();
-          });
-
-          renderParallelTui();
-
-          // Deregister our SIGINT handler — coordinator manages its own
-          // graceful shutdown (worktree cleanup, worker teardown).
-          process.off("SIGINT", sigintHandler);
-          let result;
-          try {
-            result = await coordinator.run();
-          } finally {
-            process.on("SIGINT", sigintHandler);
-          }
-
-          // 4. Fall back to sequential if coordinator says serial
-          if (result.serial) {
-            await orchestrator.executeFixes(agent, config, plan!.paths, () => {});
-          } else {
-            // 5. Tell orchestrator fixes are done, advance to recheck
-            await orchestrator.completeFixExecution(
-              result.mergedTaskIds.length,
-              result.failedTaskIds.length,
+            const coordinator = new ParallelCoordinator({
+              tasks,
+              repoRoot: cwd,
+              project: config.project.name,
+              sessionPaths: plan!.paths,
+              config: {
+                maxWorkers: config.parallel?.max_workers ?? 4,
+                aiConflictResolution: config.parallel?.ai_conflict_resolution,
+                maxRequeueCount: config.parallel?.max_requeue_count,
+              },
+              synthConfig: config,
               agent,
-              config,
-              plan!.paths,
-              () => {},
-            );
+              fallbackAgent: null,
+            });
+
+            const tuiData = buildFixTuiData(tasks, config, plan!.metadata.id, "Parallel fix execution");
+            const parallelState = createInitialTuiState(tasks.length);
+
+            const renderParallelTui = () => {
+              root!.render(
+                <tui.App
+                  {...tuiData}
+                  parallel={parallelState.header}
+                  workers={parallelState.workers}
+                  mergeItems={parallelState.mergeItems}
+                  conflict={parallelState.conflict}
+                  onQuit={() => coordinator.abort()}
+                />,
+              );
+            };
+
+            let parallelRenderScheduled = false;
+            const renderParallelTuiThrottled = () => {
+              if (parallelRenderScheduled) return;
+              parallelRenderScheduled = true;
+              setTimeout(() => {
+                parallelRenderScheduled = false;
+                renderParallelTui();
+              }, 16);
+            };
+
+            coordinator.on((event) => {
+              applyParallelEvent(event, parallelState, () =>
+                coordinator.getWorkerDisplayStates(),
+              );
+              if (event.type === "worker:output" && "taskId" in event) {
+                const taskId = event.taskId;
+                tuiData.taskOutputMap[taskId] = (tuiData.taskOutputMap[taskId] ?? "") + event.message;
+              }
+              renderParallelTuiThrottled();
+            });
+
+            renderParallelTui();
+
+            process.off("SIGINT", sigintHandler);
+            let result;
+            try {
+              result = await coordinator.run();
+            } finally {
+              process.on("SIGINT", sigintHandler);
+            }
+
+            if (result.serial) {
+              await orchestrator.executeFixes(agent, config, plan!.paths, () => {});
+            } else {
+              await orchestrator.completeFixExecution(
+                result.mergedTaskIds.length,
+                result.failedTaskIds.length,
+                agent,
+                config,
+                plan!.paths,
+                () => {},
+              );
+            }
+          } else {
+            // ── Serial execution TUI ──
+            const tuiData = buildFixTuiData(tasks, config, plan!.metadata.id, "Serial fix execution");
+
+            let serialRenderScheduled = false;
+            const renderSerialTui = () => {
+              root!.render(
+                <tui.App
+                  {...tuiData}
+                  onQuit={() => {
+                    cleanup();
+                    process.exit(0);
+                  }}
+                />,
+              );
+            };
+            const renderSerialTuiThrottled = () => {
+              if (serialRenderScheduled) return;
+              serialRenderScheduled = true;
+              setTimeout(() => {
+                serialRenderScheduled = false;
+                renderSerialTui();
+              }, 16);
+            };
+
+            renderSerialTui();
+
+            // Run fixes serially, updating TUI state as each fix progresses
+            await orchestrator.executeFixes(agent, config, plan!.paths, (msg) => {
+              // Map orchestrator messages to TUI task state updates
+              const executing = /^Executing fix (\d+)\/\d+: (.*)/.exec(msg.content);
+              if (executing) {
+                const idx = parseInt(executing[1], 10) - 1;
+                if (tasks[idx]) {
+                  tuiData.currentTaskId = tasks[idx].id;
+                  tuiData.isThinking = true;
+                  tuiData.currentPhase = `Fix ${executing[1]}/${tasks.length}`;
+                  tuiData.phaseStartTime = Date.now();
+                  const task = tuiData.tasks.find((t) => t.id === tasks[idx].id);
+                  if (task) task.status = "in_progress";
+                  tuiData.taskStartTimes[tasks[idx].id] = Date.now();
+                }
+              }
+
+              const complete = /^Fix (\d+)\/\d+ complete/.exec(msg.content);
+              if (complete) {
+                const idx = parseInt(complete[1], 10) - 1;
+                if (tasks[idx]) {
+                  const task = tuiData.tasks.find((t) => t.id === tasks[idx].id);
+                  if (task) task.status = "done";
+                  tuiData.isThinking = false;
+                  const startTime = tuiData.taskStartTimes[tasks[idx].id];
+                  if (startTime) tuiData.taskElapsedMs[tasks[idx].id] = Date.now() - startTime;
+                }
+              }
+
+              const failed = /^Fix (\d+)\/\d+ failed/.exec(msg.content);
+              if (failed) {
+                const idx = parseInt(failed[1], 10) - 1;
+                if (tasks[idx]) {
+                  const task = tuiData.tasks.find((t) => t.id === tasks[idx].id);
+                  if (task) task.status = "failed";
+                  tuiData.isThinking = false;
+                }
+              }
+
+              renderSerialTuiThrottled();
+            });
           }
 
           // Loop back → remounts FinalizeApp at recheck/PR phase
@@ -2371,7 +2527,9 @@ async function cmdSpawn(sessionIdOrFlag?: string): Promise<void> {
 
 async function cmdPs(): Promise<void> {
   const plans = await listSessions(cwd);
-  const running = plans.filter((p) => p.status === "executing");
+  const running = plans.filter((p) =>
+    p.status === "executing" || p.status === "reviewing" || p.status === "finalizing"
+  );
 
   if (running.length === 0) {
     log(fmt.dim("No running synth instances."));

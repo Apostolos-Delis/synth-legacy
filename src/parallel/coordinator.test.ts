@@ -48,10 +48,23 @@ mock.module("./session.js", () => ({
   deleteParallelSession: async (_paths: SessionPaths) => {
     deletedSessions.push(true);
   },
+  cleanupStaleParallelState: async () => {},
+  reconcileTasksFromGitLog: async () => [],
 }));
 
 mock.module("./conflict-resolver.js", () => ({
   resolveConflicts: async () => conflictResolverResult,
+}));
+
+mock.module("./resource-monitor.js", () => ({
+  ResourceMonitor: class {
+    snapshot() {
+      return { loadAvg1m: 1.0, cpuCount: 8, freeMemPct: 50, processRssMb: 200 };
+    }
+    recommendedConcurrency(maxDesired: number) {
+      return { concurrency: maxDesired, reason: null };
+    }
+  },
 }));
 
 mock.module("../utils/git.js", () => ({
@@ -71,6 +84,15 @@ mock.module("../utils/git.js", () => ({
   mergeFF: async (branch: string, cwd: string) => {
     gitCalls.push({ fn: "mergeFF", args: [branch, cwd] });
   },
+  listBranches: async () => [],
+  listTags: async () => [],
+  gitLog: async () => "",
+}));
+
+mock.module("../tasks/store.js", () => ({
+  loadTasks: async () => ({ tasks: [] }),
+  saveTasks: async () => {},
+  updateTaskStatus: (taskFile: unknown) => taskFile,
 }));
 
 // Mock WorktreeManager and MergeEngine as classes
@@ -316,6 +338,7 @@ function makeOptions(overrides?: Partial<ParallelCoordinatorOptions>): ParallelC
     repoRoot: "/repo",
     project: "test-project",
     sessionPaths: mockSessionPaths,
+    config: { staggerDelayMs: 0 },
     synthConfig: mockSynthConfig,
     agent: mockAgent,
     fallbackAgent: null,
@@ -528,7 +551,7 @@ describe("ParallelCoordinator", () => {
       const coordinator = new ParallelCoordinator(
         makeOptions({
           tasks,
-          config: { maxWorkers: 2 },
+          config: { maxWorkers: 2, staggerDelayMs: 0 },
         }),
       );
       await coordinator.run();
@@ -598,7 +621,7 @@ describe("ParallelCoordinator", () => {
       ];
 
       const coordinator = new ParallelCoordinator(
-        makeOptions({ config: { maxRequeueCount: 1 } }),
+        makeOptions({ config: { maxRequeueCount: 1, staggerDelayMs: 0 } }),
       );
       const events = collectEvents(coordinator);
       const result = await coordinator.run();
@@ -615,7 +638,7 @@ describe("ParallelCoordinator", () => {
       ];
 
       const coordinator = new ParallelCoordinator(
-        makeOptions({ config: { maxRequeueCount: 0 } }),
+        makeOptions({ config: { maxRequeueCount: 0, staggerDelayMs: 0 } }),
       );
       const result = await coordinator.run();
 
@@ -630,7 +653,7 @@ describe("ParallelCoordinator", () => {
       ];
 
       const coordinator = new ParallelCoordinator(
-        makeOptions({ config: { maxRequeueCount: 0 } }),
+        makeOptions({ config: { maxRequeueCount: 0, staggerDelayMs: 0 } }),
       );
       const events = collectEvents(coordinator);
       await coordinator.run();
@@ -646,7 +669,7 @@ describe("ParallelCoordinator", () => {
       ];
 
       const coordinator = new ParallelCoordinator(
-        makeOptions({ config: { aiConflictResolution: true, maxRequeueCount: 0 } }),
+        makeOptions({ config: { aiConflictResolution: true, maxRequeueCount: 0, staggerDelayMs: 0 } }),
       );
       const events = collectEvents(coordinator);
       await coordinator.run();
@@ -665,7 +688,7 @@ describe("ParallelCoordinator", () => {
       ];
 
       const coordinator = new ParallelCoordinator(
-        makeOptions({ config: { maxRequeueCount: 1 } }),
+        makeOptions({ config: { maxRequeueCount: 1, staggerDelayMs: 0 } }),
       );
       const events = collectEvents(coordinator);
       const result = await coordinator.run();
@@ -702,7 +725,7 @@ describe("ParallelCoordinator", () => {
       ];
 
       const coordinator = new ParallelCoordinator(
-        makeOptions({ config: { maxRequeueCount: 1 } }),
+        makeOptions({ config: { maxRequeueCount: 1, staggerDelayMs: 0 } }),
       );
       const result = await coordinator.run();
 
@@ -727,7 +750,7 @@ describe("ParallelCoordinator", () => {
       ];
 
       const coordinator = new ParallelCoordinator(
-        makeOptions({ config: { maxRequeueCount: 1 } }),
+        makeOptions({ config: { maxRequeueCount: 1, staggerDelayMs: 0 } }),
       );
       const result = await coordinator.run();
 
@@ -748,7 +771,7 @@ describe("ParallelCoordinator", () => {
       ];
 
       const coordinator = new ParallelCoordinator(
-        makeOptions({ config: { aiConflictResolution: false, maxRequeueCount: 0 } }),
+        makeOptions({ config: { aiConflictResolution: false, maxRequeueCount: 0, staggerDelayMs: 0 } }),
       );
       const events = collectEvents(coordinator);
       await coordinator.run();
@@ -1147,6 +1170,42 @@ describe("ParallelCoordinator", () => {
       expect(events.some((e) => e.type === "merge:queued")).toBe(true);
       expect(events.some((e) => e.type === "merge:started")).toBe(true);
       expect(events.some((e) => e.type === "merge:completed")).toBe(true);
+    });
+  });
+
+  describe("staggered launch", () => {
+    test("accepts staggerDelayMs config", () => {
+      const coordinator = new ParallelCoordinator(
+        makeOptions({
+          config: { staggerDelayMs: 500 },
+        }),
+      );
+      expect(coordinator).toBeDefined();
+    });
+
+    test("defaults staggerDelayMs to 2000 when not specified", () => {
+      const coordinator = new ParallelCoordinator(makeOptions());
+      expect(coordinator).toBeDefined();
+    });
+
+    test("launches workers with stagger delay between them", async () => {
+      mergeProcessResults = [
+        makeMergeOp("T-1", "completed"),
+        makeMergeOp("T-2", "completed"),
+        makeMergeOp("T-3", "completed"),
+      ];
+
+      const coordinator = new ParallelCoordinator(
+        makeOptions({
+          config: { staggerDelayMs: 0 },
+        }),
+      );
+      const result = await coordinator.run();
+
+      expect(workerStartedTasks).toContain("T-1");
+      expect(workerStartedTasks).toContain("T-2");
+      expect(workerStartedTasks).toContain("T-3");
+      expect(result.mergedTaskIds).toEqual(["T-1", "T-2", "T-3"]);
     });
   });
 

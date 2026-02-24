@@ -70,6 +70,7 @@ export interface MergeFailedEvent {
   timestamp: string;
   operationId: string;
   taskId: string;
+  reason?: string;
 }
 
 // Conflict events
@@ -105,6 +106,16 @@ export interface TaskRequeuedEvent {
   taskId: string;
   attempt: number;
   maxAttempts: number;
+}
+
+// Throttle events
+
+export interface ThrottleActiveEvent {
+  type: "throttle:active";
+  timestamp: string;
+  recommendedConcurrency: number;
+  maxConcurrency: number;
+  reason: string;
 }
 
 // Session-level events
@@ -156,6 +167,7 @@ export type ParallelEvent =
   | ConflictAiResolvingEvent
   | ConflictResolvedEvent
   | TaskRequeuedEvent
+  | ThrottleActiveEvent
   | ParallelStartedEvent
   | ParallelGroupStartedEvent
   | ParallelGroupCompletedEvent

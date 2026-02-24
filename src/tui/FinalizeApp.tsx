@@ -16,8 +16,6 @@ import { useDestroyedRef } from "./hooks/useDestroyedRef.js";
 import { useSyncLineCount } from "./hooks/useSyncLineCount.js";
 import { calcInputSizing } from "./hooks/useInputSizing.js";
 
-const PARALLEL_THRESHOLD = 3;
-
 interface FinalizeAppProps {
   orchestrator: FinalizeOrchestrator;
   agent: AgentAdapter;
@@ -26,7 +24,7 @@ interface FinalizeAppProps {
   cwd: string;
   onQuit: () => void;
   onComplete?: (summary: CompletionSummary) => void;
-  onParallelExecute?: () => void;
+  onExecute?: () => void;
 }
 
 const PHASE_LABELS: Record<FinalizePhase, string> = {
@@ -73,7 +71,7 @@ function MessageBubble({ message }: { message: FinalizeMessage }): ReactNode {
   );
 }
 
-export function FinalizeApp({ orchestrator, agent, config, sessionPaths, cwd, onQuit, onComplete, onParallelExecute }: FinalizeAppProps): ReactNode {
+export function FinalizeApp({ orchestrator, agent, config, sessionPaths, cwd, onQuit, onComplete, onExecute }: FinalizeAppProps): ReactNode {
   const [messages, setMessages] = useState<FinalizeMessage[]>(() => orchestrator.getMessages());
   const [currentPhase, setCurrentPhase] = useState<FinalizePhase>(() => orchestrator.getCurrentPhase());
   const [isLoading, setIsLoading] = useState(true);
@@ -192,13 +190,14 @@ export function FinalizeApp({ orchestrator, agent, config, sessionPaths, cwd, on
     if (activeExecRef.current) return;
 
     if (currentPhase === "executing-fixes") {
-      // Delegate to parallel execution when above threshold and callback exists
-      const fixes = orchestrator.getConfirmedFixes();
-      if (fixes.length >= PARALLEL_THRESHOLD && onParallelExecute) {
-        onParallelExecute();
+      // Always delegate fix execution to cmdFinalize, which decides
+      // whether to use the parallel or serial execution TUI
+      if (onExecute) {
+        onExecute();
         return;
       }
 
+      // Fallback: run inline if no onExecute callback (non-TUI mode)
       activeExecRef.current = "executing-fixes";
       setIsLoading(true);
       setLoadingStartTime(Date.now());
@@ -208,7 +207,6 @@ export function FinalizeApp({ orchestrator, agent, config, sessionPaths, cwd, on
       }).then(() => {
         if (!destroyedRef.current) {
           setMessages([...orchestrator.getMessages()]);
-          // Auto-chain into PR creation if fixes completed cleanly
           if (orchestrator.getCurrentPhase() === "creating-pr") {
             runPrCreation();
             return;
@@ -229,7 +227,7 @@ export function FinalizeApp({ orchestrator, agent, config, sessionPaths, cwd, on
     } else if (currentPhase === "creating-pr") {
       runPrCreation();
     }
-  }, [currentPhase, orchestrator, agent, config, sessionPaths, runPrCreation, onParallelExecute]);
+  }, [currentPhase, orchestrator, agent, config, sessionPaths, runPrCreation, onExecute]);
 
   // Determine if the last assistant message has options
   const lastMessage = messages.length > 0 ? messages[messages.length - 1] : null;

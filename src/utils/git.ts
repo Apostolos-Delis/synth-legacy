@@ -174,6 +174,87 @@ export interface WorktreeInfo {
   branch: string | null;
 }
 
+export async function squashMerge(
+  branch: string,
+  cwd: string,
+): Promise<{ exitCode: number; stderr: string }> {
+  const result = await spawn({
+    cmd: ["git", "merge", "--squash", branch],
+    cwd,
+  }).promise;
+  return { exitCode: result.exitCode, stderr: result.stderr };
+}
+
+export async function commitStaged(
+  message: string,
+  cwd: string,
+): Promise<void> {
+  const result = await spawn({
+    cmd: ["git", "commit", "-m", message],
+    cwd,
+  }).promise;
+  if (result.exitCode !== 0) {
+    throw new Error(`Failed to commit: ${result.stderr}`);
+  }
+}
+
+export async function hasStagedChanges(cwd: string): Promise<boolean> {
+  const result = await spawn({
+    cmd: ["git", "diff", "--cached", "--quiet"],
+    cwd,
+  }).promise;
+  // exit code 0 = no changes, 1 = has changes
+  return result.exitCode !== 0;
+}
+
+export async function listBranches(
+  pattern: string,
+  cwd: string,
+): Promise<string[]> {
+  const result = await spawn({
+    cmd: ["git", "branch", "--list", pattern, "--format=%(refname:short)"],
+    cwd,
+  }).promise;
+  if (result.exitCode !== 0) {
+    throw new Error(`Failed to list branches matching '${pattern}': ${result.stderr}`);
+  }
+  return result.stdout
+    .trim()
+    .split("\n")
+    .filter((line) => line.length > 0);
+}
+
+export async function listTags(
+  pattern: string,
+  cwd: string,
+): Promise<string[]> {
+  const result = await spawn({
+    cmd: ["git", "tag", "-l", pattern],
+    cwd,
+  }).promise;
+  if (result.exitCode !== 0) {
+    throw new Error(`Failed to list tags matching '${pattern}': ${result.stderr}`);
+  }
+  return result.stdout
+    .trim()
+    .split("\n")
+    .filter((line) => line.length > 0);
+}
+
+export async function gitLog(
+  args: string[],
+  cwd: string,
+): Promise<string> {
+  const result = await spawn({
+    cmd: ["git", "log", ...args],
+    cwd,
+  }).promise;
+  if (result.exitCode !== 0) {
+    throw new Error(`Failed to run git log: ${result.stderr}`);
+  }
+  return result.stdout.trim();
+}
+
 export async function listWorktrees(cwd: string): Promise<WorktreeInfo[]> {
   const result = await spawn({
     cmd: ["git", "worktree", "list", "--porcelain"],
