@@ -85,6 +85,16 @@ export interface ConflictResolvedEvent {
   failedCount: number;
 }
 
+// Re-queue events
+
+export interface TaskRequeuedEvent {
+  type: "task:requeued";
+  timestamp: string;
+  taskId: string;
+  attempt: number;
+  maxAttempts: number;
+}
+
 // Session-level events
 
 export interface ParallelStartedEvent {
@@ -126,6 +136,7 @@ export type ParallelEvent =
   | ConflictDetectedEvent
   | ConflictAiResolvingEvent
   | ConflictResolvedEvent
+  | TaskRequeuedEvent
   | ParallelStartedEvent
   | ParallelGroupStartedEvent
   | ParallelGroupCompletedEvent

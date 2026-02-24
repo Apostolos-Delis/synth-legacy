@@ -68,6 +68,7 @@ export class ParallelCoordinator {
   private aborted = false;
   private interrupted = false;
   private requeueCounts = new Map<string, number>();
+  private pendingRequeue = new Set<string>();
   private activeWorkers: Worker[] = [];
   private activeWorkerPromises: Promise<unknown>[] = [];
   private sigintHandler: (() => void) | null = null;
@@ -143,10 +144,12 @@ export class ParallelCoordinator {
     const taskMap = new Map(this.tasks.map((t) => [t.id, t]));
 
     try {
-      for (let gi = 0; gi < this.analysis.groups.length; gi++) {
+      const groups = [...this.analysis.groups];
+
+      for (let gi = 0; gi < groups.length; gi++) {
         if (this.aborted) break;
 
-        const group = this.analysis.groups[gi];
+        const group = groups[gi];
         this.emit({ type: "parallel:group-started", timestamp: this.timestamp() });
 
         const effectiveWorkers = Math.min(group.taskIds.length, this.maxWorkers);
@@ -234,6 +237,24 @@ export class ParallelCoordinator {
         }
 
         await this.worktreeManager!.cleanupAll();
+
+        // Inject re-queued tasks into the next wave or create a new final wave
+        if (this.pendingRequeue.size > 0) {
+          const requeuedIds = [...this.pendingRequeue];
+          this.pendingRequeue.clear();
+
+          if (gi + 1 < groups.length) {
+            // Prepend to the next group
+            groups[gi + 1] = {
+              ...groups[gi + 1],
+              taskIds: [...requeuedIds, ...groups[gi + 1].taskIds],
+            };
+          } else {
+            // No more groups — create a new wave for re-queued tasks
+            groups.push({ depth: group.depth + 1, taskIds: requeuedIds });
+          }
+        }
+
         await this.persistState(mergedTaskIds, failedTaskIds, gi);
 
         this.emit({ type: "parallel:group-completed", timestamp: this.timestamp() });
@@ -349,7 +370,14 @@ export class ParallelCoordinator {
     const count = this.requeueCounts.get(operation.taskId) ?? 0;
     if (count < this.maxRequeueCount) {
       this.requeueCounts.set(operation.taskId, count + 1);
-      // Task is re-queued — don't add to failedTaskIds
+      this.pendingRequeue.add(operation.taskId);
+      this.emit({
+        type: "task:requeued",
+        timestamp: this.timestamp(),
+        taskId: operation.taskId,
+        attempt: count + 1,
+        maxAttempts: this.maxRequeueCount,
+      });
     } else {
       failedTaskIds.push(operation.taskId);
       this.emit({

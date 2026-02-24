@@ -28,6 +28,13 @@ type WorkerStartBehavior = "immediate" | "hang" | "hang-forever" | "throw";
 let workerStartBehavior: WorkerStartBehavior = "immediate";
 let workerHangResolvers: Map<string, (result: WorkerResult) => void> = new Map();
 
+// Conflict resolver mock state
+let conflictResolverResult: { resolved: boolean; resolvedCount: number; failedCount: number } = {
+  resolved: false,
+  resolvedCount: 0,
+  failedCount: 0,
+};
+
 // --- Mock modules ---
 
 mock.module("./task-graph.js", () => ({
@@ -41,6 +48,10 @@ mock.module("./session.js", () => ({
   deleteParallelSession: async (_paths: SessionPaths) => {
     deletedSessions.push(true);
   },
+}));
+
+mock.module("./conflict-resolver.js", () => ({
+  resolveConflicts: async () => conflictResolverResult,
 }));
 
 mock.module("../utils/git.js", () => ({
@@ -357,6 +368,7 @@ beforeEach(() => {
   workerStopCalled = [];
   workerStartBehavior = "immediate";
   workerHangResolvers = new Map();
+  conflictResolverResult = { resolved: false, resolvedCount: 0, failedCount: 0 };
   mockWorktreeManagerInstance = defaultWorktreeManager();
   mockMergeEngineInstance = defaultMergeEngine();
   analyzeResult = makeParallelAnalysis([{ depth: 0, taskIds: ["T-1", "T-2", "T-3"] }]);
@@ -640,6 +652,92 @@ describe("ParallelCoordinator", () => {
       await coordinator.run();
 
       expect(events.some((e) => e.type === "conflict:ai-resolving")).toBe(true);
+    });
+
+    test("re-queued tasks are re-executed in a new wave", async () => {
+      // First wave: T-1 conflicts, T-2 and T-3 complete
+      // Re-queue wave: T-1 succeeds on second attempt
+      mergeProcessResults = [
+        makeMergeOp("T-1", "conflicted"),
+        makeMergeOp("T-2", "completed"),
+        makeMergeOp("T-3", "completed"),
+        makeMergeOp("T-1", "completed"), // T-1 succeeds on re-queue
+      ];
+
+      const coordinator = new ParallelCoordinator(
+        makeOptions({ config: { maxRequeueCount: 1 } }),
+      );
+      const events = collectEvents(coordinator);
+      const result = await coordinator.run();
+
+      // T-1 should have been executed twice (original + re-queue)
+      const t1Executions = workerStartedTasks.filter((id) => id === "T-1");
+      expect(t1Executions.length).toBe(2);
+
+      // T-1 should be in mergedTaskIds (succeeded on re-queue), not in failedTaskIds
+      expect(result.mergedTaskIds).toContain("T-1");
+      expect(result.failedTaskIds).not.toContain("T-1");
+
+      // Should have emitted task:requeued event
+      expect(events.some((e) => e.type === "task:requeued")).toBe(true);
+
+      // Should have extra group events for the re-queue wave
+      const groupStarted = events.filter((e) => e.type === "parallel:group-started");
+      expect(groupStarted.length).toBe(2); // original wave + re-queue wave
+    });
+
+    test("re-queued tasks injected into next group when available", async () => {
+      analyzeResult = makeParallelAnalysis([
+        { depth: 0, taskIds: ["T-1", "T-2"] },
+        { depth: 1, taskIds: ["T-3"] },
+      ]);
+
+      // First wave: T-1 conflicts, T-2 completes
+      // Second wave (with re-queued T-1 prepended): T-1 succeeds, T-3 completes
+      mergeProcessResults = [
+        makeMergeOp("T-1", "conflicted"),
+        makeMergeOp("T-2", "completed"),
+        makeMergeOp("T-1", "completed"), // T-1 succeeds on re-queue in group 2
+        makeMergeOp("T-3", "completed"),
+      ];
+
+      const coordinator = new ParallelCoordinator(
+        makeOptions({ config: { maxRequeueCount: 1 } }),
+      );
+      const result = await coordinator.run();
+
+      // T-1 should have been executed twice
+      const t1Executions = workerStartedTasks.filter((id) => id === "T-1");
+      expect(t1Executions.length).toBe(2);
+
+      // All tasks should be merged
+      expect(result.mergedTaskIds).toContain("T-1");
+      expect(result.mergedTaskIds).toContain("T-2");
+      expect(result.mergedTaskIds).toContain("T-3");
+      expect(result.failedTaskIds).toHaveLength(0);
+    });
+
+    test("re-queued task fails after exhausting requeue attempts", async () => {
+      // Single wave: T-1 conflicts twice (once original, once re-queue)
+      mergeProcessResults = [
+        makeMergeOp("T-1", "conflicted"),
+        makeMergeOp("T-2", "completed"),
+        makeMergeOp("T-3", "completed"),
+        makeMergeOp("T-1", "conflicted"), // T-1 conflicts again on re-queue
+      ];
+
+      const coordinator = new ParallelCoordinator(
+        makeOptions({ config: { maxRequeueCount: 1 } }),
+      );
+      const result = await coordinator.run();
+
+      // T-1 should have been executed twice
+      const t1Executions = workerStartedTasks.filter((id) => id === "T-1");
+      expect(t1Executions.length).toBe(2);
+
+      // T-1 should be in failedTaskIds after exhausting retries
+      expect(result.failedTaskIds).toContain("T-1");
+      expect(result.mergedTaskIds).not.toContain("T-1");
     });
 
     test("does not emit conflict:ai-resolving when disabled", async () => {
