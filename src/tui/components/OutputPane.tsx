@@ -9,7 +9,16 @@ const MIN_OUTPUT_HEIGHT = 10;
 
 function wrapLineCount(text: string, width: number): number {
   if (width <= 0 || text.length === 0) return 1;
-  return Math.max(1, Math.ceil(text.length / width));
+  let count = 0;
+  let remaining = text;
+  while (remaining.length > 0) {
+    count++;
+    if (remaining.length <= width) break;
+    let breakAt = remaining.lastIndexOf(" ", width);
+    if (breakAt <= 0) breakAt = width;
+    remaining = remaining.slice(breakAt).trimStart();
+  }
+  return Math.max(1, count);
 }
 
 function calcHeaderHeight(task: Task, width: number, terminalHeight: number, paneHeight: number): number {
@@ -21,7 +30,7 @@ function calcHeaderHeight(task: Task, width: number, terminalHeight: number, pan
   const criteriaLines = task.acceptanceCriteria.length;
   const contentHeight = 2 + 1 + descLines + 1 + criteriaLines;
 
-  const maxFromTerminal = Math.floor(terminalHeight * 0.4);
+  const maxFromTerminal = Math.floor(terminalHeight * 0.5);
   const maxFromPane = paneHeight - MIN_OUTPUT_HEIGHT;
 
   return Math.max(4, Math.min(contentHeight, maxFromTerminal, maxFromPane));

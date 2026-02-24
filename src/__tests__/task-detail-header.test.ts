@@ -193,6 +193,79 @@ describe("TaskDetailHeader text truncation logic", () => {
   });
 });
 
+describe("TaskDetailHeader word-wrap line counting", () => {
+  // Mirrors the word-boundary-aware wrapping used in both
+  // TaskDetailHeader (render) and OutputPane (height calc).
+  function wrapLineCount(text: string, width: number): number {
+    if (width <= 0 || text.length === 0) return 1;
+    let count = 0;
+    let remaining = text;
+    while (remaining.length > 0) {
+      count++;
+      if (remaining.length <= width) break;
+      let breakAt = remaining.lastIndexOf(" ", width);
+      if (breakAt <= 0) breakAt = width;
+      remaining = remaining.slice(breakAt).trimStart();
+    }
+    return Math.max(1, count);
+  }
+
+  test("short text fits in one line", () => {
+    expect(wrapLineCount("hello", 80)).toBe(1);
+  });
+
+  test("empty text returns 1 line", () => {
+    expect(wrapLineCount("", 80)).toBe(1);
+  });
+
+  test("zero width returns 1 line", () => {
+    expect(wrapLineCount("hello", 0)).toBe(1);
+  });
+
+  test("text exactly at width fits in one line", () => {
+    expect(wrapLineCount("abcde", 5)).toBe(1);
+  });
+
+  test("word-wrap produces more lines than naive char-split", () => {
+    // "aaa bbb ccc" with width=7:
+    // Naive: ceil(11/7)=2 lines
+    // Word-wrap: "aaa bbb" (break at space@7 → "aaa bbb"), then "ccc" → 2 lines
+    // But with width=8: "aaa bbb " fits, then "ccc" → still 2
+    // Use width=6 to force 3 lines:
+    // "aaa bbb ccc", width=6 → lastIndexOf(" ",6)=3 → "aaa", remaining="bbb ccc"
+    // "bbb ccc", width=6 → lastIndexOf(" ",6)=3 → "bbb", remaining="ccc"
+    // "ccc" fits → 3 lines. Naive: ceil(11/6)=2
+    const text = "aaa bbb ccc";
+    const width = 6;
+    const naiveCount = Math.ceil(text.length / width); // 2
+    const wordWrapCount = wrapLineCount(text, width); // 3
+    expect(wordWrapCount).toBeGreaterThan(naiveCount);
+    expect(wordWrapCount).toBe(3);
+  });
+
+  test("long word without spaces hard-breaks at width", () => {
+    expect(wrapLineCount("abcdefghij", 5)).toBe(2);
+  });
+
+  test("multi-line description wraps correctly", () => {
+    // Simulate a realistic task description at innerWidth=34 (width=40, -6 for borders)
+    const desc = "Implement the post-execution review cycle for tasks";
+    const innerWidth = 34;
+    // "Implement the post-execution review" (35 chars) > 34
+    // lastIndexOf(" ", 34) = 35? Let's trace:
+    // desc.lastIndexOf(" ", 34) → index of space at position ≤34
+    // desc = "Implement the post-execution review cycle for tasks"
+    //         0123456789...
+    // Space positions: 9, 13, 29, 36, 42, 46
+    // lastIndexOf(" ", 34) → 29
+    // Line 1: "Implement the post-execution" (0..29)
+    // remaining: "review cycle for tasks"
+    // "review cycle for tasks".length = 22 <= 34 → line 2
+    // Total: 2 lines
+    expect(wrapLineCount(desc, innerWidth)).toBe(2);
+  });
+});
+
 describe("TaskDetailHeader criteria row limit", () => {
   test("maxCriteriaRows calculation respects height", () => {
     // Component: maxCriteriaRows = Math.max(0, height - 2 - 3)
