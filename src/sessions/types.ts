@@ -8,6 +8,8 @@ export interface SessionMetadata {
   taskCount: number;
   tasksCompleted: number;
   slug?: string;
+  branch?: string;
+  worktreePath?: string;
 }
 
 export interface SessionPaths {

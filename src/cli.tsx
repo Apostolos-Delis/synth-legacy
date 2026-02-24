@@ -1319,6 +1319,18 @@ async function cmdResume(sessionId?: string): Promise<void> {
     process.exit(1);
   }
 
+  // Guard: check worktree mismatch
+  if (plan.metadata.worktreePath) {
+    const worktreeExists = await fileExists(join(plan.metadata.worktreePath, ".git"));
+    if (!worktreeExists) {
+      log(fmt.warn(`Worktree at ${plan.metadata.worktreePath} no longer exists. Resuming from current directory.`));
+      await updateSessionMetadata(cwd, plan.metadata.id, { worktreePath: undefined, branch: undefined });
+    } else if (process.cwd() !== plan.metadata.worktreePath) {
+      logError(`Session ${plan.metadata.id} is tied to worktree at ${plan.metadata.worktreePath}.\nRun from that directory: cd ${plan.metadata.worktreePath} && synth resume ${plan.metadata.id}`);
+      process.exit(1);
+    }
+  }
+
   const status = plan.metadata.status;
   const id = plan.metadata.id;
 
@@ -1676,7 +1688,7 @@ async function resumeInterview(
     let taskFile;
     try {
       taskFile = await generateTasks(
-        agent, paths.prd, config.project.name, config.project.branch || `synth/${id}`, cwd,
+        agent, paths.prd, config.project.name, config.project.branch || `synth/${id}`, sessionCwd,
         {
           model: config.agent.model,
           taskPrefix,
@@ -1823,8 +1835,66 @@ async function resumeInterview(
   }
 }
 
+export function parseWorktreeFlag(argv: string[]): { useWorktree: boolean; explicitName?: string } {
+  const wIndex = argv.indexOf("-w") !== -1 ? argv.indexOf("-w") : argv.indexOf("--worktree");
+  if (wIndex === -1) return { useWorktree: false };
+  const next = argv[wIndex + 1];
+  if (next && !next.startsWith("-")) {
+    return { useWorktree: true, explicitName: next };
+  }
+  return { useWorktree: true };
+}
+
+async function renameWorktreeBranch(
+  currentBranch: string,
+  prdTitle: string,
+  sessionId: string,
+  workingDir: string,
+): Promise<string> {
+  const newBranch = `synth/${deriveSessionSlug(prdTitle)}`;
+  if (newBranch === currentBranch) return currentBranch;
+  const result = await (spawn({ cmd: ["git", "branch", "-m", currentBranch, newBranch], cwd: workingDir })).promise;
+  if (result.exitCode === 0) {
+    await updateSessionMetadata(workingDir, sessionId, { branch: newBranch });
+    return newBranch;
+  }
+  return currentBranch;
+}
+
+async function createWorktreeForSession(
+  repoRoot: string,
+  wtName: string,
+): Promise<{ wtPath: string; branchName: string }> {
+  const branchName = `synth/${wtName}`;
+  const wtPath = join(repoRoot, ".worktrees", wtName);
+
+  if (tuiEnabled) {
+    const spinner = createSpinner("Creating worktree");
+    const result = await (spawn({ cmd: ["git", "worktree", "add", wtPath, "-b", branchName], cwd: repoRoot })).promise;
+    if (result.exitCode !== 0) {
+      spinner.stop(fmt.error(`Failed to create worktree: ${result.stderr}`));
+      process.exit(1);
+    }
+    spinner.stop(fmt.success(`Worktree created at ${wtPath}`));
+  } else {
+    log("Creating worktree...");
+    const result = await (spawn({ cmd: ["git", "worktree", "add", wtPath, "-b", branchName], cwd: repoRoot })).promise;
+    if (result.exitCode !== 0) {
+      logError(`Failed to create worktree: ${result.stderr}`);
+      process.exit(1);
+    }
+    logSuccess(`Worktree created at ${wtPath}`);
+  }
+
+  return { wtPath, branchName };
+}
+
 async function cmdStart(sessionIdOrFlag?: string): Promise<void> {
   const config = await applyTheme();
+  const repoRoot = cwd;
+  let sessionCwd = cwd;
+
+  const { useWorktree, explicitName: explicitWorktreeName } = parseWorktreeFlag(args);
 
   const prdIndex = args.indexOf("--prd");
   if (prdIndex !== -1) {
@@ -1842,6 +1912,15 @@ async function cmdStart(sessionIdOrFlag?: string): Promise<void> {
     const prdTitle = prdContent.match(/^#\s+(.+)$/m)?.[1]?.trim() || "Generated from PRD";
     const { id, paths } = await createSession(cwd, prdTitle);
 
+    // Create worktree if -w flag is set
+    if (useWorktree) {
+      const wtName = explicitWorktreeName ?? deriveSessionSlug(prdTitle);
+      const { wtPath, branchName } = await createWorktreeForSession(repoRoot, wtName);
+      process.chdir(wtPath);
+      sessionCwd = wtPath;
+      await updateSessionMetadata(sessionCwd, id, { branch: branchName, worktreePath: wtPath });
+    }
+
     await writeText(paths.prd, prdContent);
     const taskPrefix = await setSessionSlugAndPrefix(id, prdTitle);
     log(fmt.info(`Created session: ${id}`));
@@ -1854,12 +1933,12 @@ async function cmdStart(sessionIdOrFlag?: string): Promise<void> {
 
     const taskFile = tuiEnabled
       ? await withSpinner("Generating tasks from PRD", () =>
-          generateTasks(agent, paths.prd, config.project.name, config.project.branch, cwd, { model: config.agent.model, taskPrefix }),
+          generateTasks(agent, paths.prd, config.project.name, config.project.branch, sessionCwd, { model: config.agent.model, taskPrefix }),
           { successMessage: fmt.success("Tasks generated") },
         )
       : await (async () => {
           log("Generating tasks from PRD...");
-          return generateTasks(agent, paths.prd, config.project.name, config.project.branch, cwd, { model: config.agent.model, taskPrefix });
+          return generateTasks(agent, paths.prd, config.project.name, config.project.branch, sessionCwd, { model: config.agent.model, taskPrefix });
         })();
 
     await saveTasks(paths.tasks, taskFile);
@@ -1897,7 +1976,18 @@ async function cmdStart(sessionIdOrFlag?: string): Promise<void> {
   // Create session early so we have paths for interview state persistence
   const { id, paths } = await createSession(cwd, "");
 
-  const interviewer = new interviewMod.Interviewer(agent, cwd, config.agent.model, async (messages) => {
+  // Create worktree if -w flag is set (use session ID as fallback name before PRD title is known)
+  let worktreeBranchName: string | undefined;
+  if (useWorktree) {
+    const wtName = explicitWorktreeName ?? id;
+    const { wtPath, branchName } = await createWorktreeForSession(repoRoot, wtName);
+    process.chdir(wtPath);
+    sessionCwd = wtPath;
+    worktreeBranchName = branchName;
+    await updateSessionMetadata(sessionCwd, id, { branch: branchName, worktreePath: wtPath });
+  }
+
+  const interviewer = new interviewMod.Interviewer(agent, sessionCwd, config.agent.model, async (messages) => {
     const state: import("./interview/types.js").InterviewState = {
       messages: messages as import("./interview/types.js").InterviewMessage[],
       interviewerHistory: messages as import("./interview/types.js").InterviewMessage[],
@@ -1959,13 +2049,18 @@ async function cmdStart(sessionIdOrFlag?: string): Promise<void> {
     // Phase 2: PRD Review (user can revise before task generation)
     const taskPrefix = await setSessionSlugAndPrefix(id, interviewMod.extractPrdTitle(prdMarkdown));
 
+    // Rename worktree branch to match PRD slug (if auto-generated name was used)
+    if (useWorktree && !explicitWorktreeName && worktreeBranchName) {
+      worktreeBranchName = await renameWorktreeBranch(worktreeBranchName, interviewMod.extractPrdTitle(prdMarkdown), id, sessionCwd);
+    }
+
     let approvedPrdContent: string | null = null;
     const prdApproved = await new Promise<boolean>((resolve) => {
       planRoot.render(
         <tui.PrdReviewView
           prdMarkdown={prdMarkdown!}
           agent={agent}
-          cwd={cwd}
+          cwd={sessionCwd}
           model={config.agent.model}
           onApprove={(finalizedPrd) => {
             approvedPrdContent = finalizedPrd;
@@ -1995,7 +2090,7 @@ async function cmdStart(sessionIdOrFlag?: string): Promise<void> {
     let taskFile;
     try {
       taskFile = await generateTasks(
-        agent, paths.prd, config.project.name, config.project.branch || `synth/${id}`, cwd,
+        agent, paths.prd, config.project.name, config.project.branch || `synth/${id}`, sessionCwd,
         {
           model: config.agent.model,
           taskPrefix,
@@ -2105,10 +2200,15 @@ async function cmdStart(sessionIdOrFlag?: string): Promise<void> {
   await writeText(paths.prd, prdMarkdown);
   const taskPrefix = await setSessionSlugAndPrefix(id, interviewMod.extractPrdTitle(prdMarkdown));
 
+  // Rename worktree branch to match PRD slug (if auto-generated name was used)
+  if (useWorktree && !explicitWorktreeName && worktreeBranchName) {
+    worktreeBranchName = await renameWorktreeBranch(worktreeBranchName, interviewMod.extractPrdTitle(prdMarkdown), id, sessionCwd);
+  }
+
   logSuccess(`PRD saved to ${paths.prd}`);
 
   log("Generating tasks...\n");
-  const taskFile = await generateTasks(agent, paths.prd, config.project.name, config.project.branch || `synth/${id}`, cwd, { model: config.agent.model, taskPrefix });
+  const taskFile = await generateTasks(agent, paths.prd, config.project.name, config.project.branch || `synth/${id}`, sessionCwd, { model: config.agent.model, taskPrefix });
 
   await saveTasks(paths.tasks, taskFile);
   await writeText(paths.progress, "## Codebase Patterns\n\n---\n\n");
@@ -2459,72 +2559,6 @@ async function cmdFinalize(
   }
 }
 
-async function cmdSpawn(sessionIdOrFlag?: string): Promise<void> {
-  await applyTheme();
-  let sessionId: string | undefined;
-  let doStart = false;
-
-  if (sessionIdOrFlag === "--start") {
-    doStart = true;
-  } else {
-    sessionId = sessionIdOrFlag;
-  }
-
-  if (!sessionId && !doStart) {
-    const plan = await getMostRecentSession(cwd);
-    if (!plan) {
-      logError("No session found. Use 'synth spawn --start' to start a new session.");
-      process.exit(1);
-    }
-    sessionId = plan.metadata.id;
-  }
-
-  const wtName = sessionId ?? `synth-${Date.now().toString(36)}`;
-  if (!/^[\w./-]+$/.test(wtName)) {
-    logError(`Invalid session ID: ${wtName}`);
-    process.exit(1);
-  }
-  const wtPath = join(cwd, ".worktrees", wtName);
-  const branchName = `synth/${wtName}`;
-
-  if (tuiEnabled) {
-    const spinner = createSpinner("Creating worktree");
-    const addHandle = spawn({
-      cmd: ["git", "worktree", "add", wtPath, "-b", branchName],
-      cwd,
-    });
-    const addResult = await addHandle.promise;
-    if (addResult.exitCode !== 0) {
-      spinner.stop(fmt.error(`Failed to create worktree: ${addResult.stderr}`));
-      process.exit(1);
-    }
-    spinner.stop(fmt.success("Worktree created"));
-  } else {
-    log("Creating worktree...");
-    const addHandle = spawn({
-      cmd: ["git", "worktree", "add", wtPath, "-b", branchName],
-      cwd,
-    });
-    const addResult = await addHandle.promise;
-    if (addResult.exitCode !== 0) {
-      logError(`Failed to create worktree: ${addResult.stderr}`);
-      process.exit(1);
-    }
-  }
-
-  const cmd = doStart ? "synth start" : `synth resume ${sessionId}`;
-  log(fmt.info(`Starting: cd ${wtPath} && ${cmd}`));
-
-  const runHandle = spawn({
-    cmd: ["bash", "-c", `cd "${wtPath}" && ${cmd}`],
-    cwd: wtPath,
-  });
-
-  log(fmt.label("  PID:", String(runHandle.pid)));
-  log(fmt.label("  Worktree:", wtPath));
-  log(fmt.label("  Branch:", branchName));
-}
-
 async function cmdPs(): Promise<void> {
   const plans = await listSessions(cwd);
   const running = plans.filter((p) =>
@@ -2729,9 +2763,6 @@ async function main(): Promise<void> {
     case "themes":
       await cmdThemes();
       break;
-    case "spawn":
-      await cmdSpawn(await resolvePlanId(args[1]));
-      break;
     case "ps":
       await cmdPs();
       break;
@@ -2754,9 +2785,8 @@ async function main(): Promise<void> {
       log("Usage: synth <command> [options]\n");
 
       log(`${ansi.bold}Workflow:${ansi.reset}`);
-      log(`  ${ansi.primary}start${ansi.reset} ${ansi.muted}[--prd <path>]${ansi.reset}   Interview → generate tasks → execute → PR`);
-      log(`  ${ansi.primary}resume${ansi.reset} ${ansi.muted}[<session-id>]${ansi.reset}  Resume a paused or interrupted session`);
-      log(`  ${ansi.primary}spawn${ansi.reset} ${ansi.muted}[<session-id>]${ansi.reset}   Run session in background worktree`);
+      log(`  ${ansi.primary}start${ansi.reset} ${ansi.muted}[--prd <path>] [-w [name]]${ansi.reset}   Interview → tasks → execute → PR`);
+      log(`  ${ansi.primary}resume${ansi.reset} ${ansi.muted}[<session-id>]${ansi.reset}             Resume a paused or interrupted session`);
 
       log(`\n${ansi.bold}Inspect:${ansi.reset}`);
       log(`  ${ansi.primary}ls${ansi.reset} ${ansi.muted}[--all]${ansi.reset}              List sessions (hides completed)`);
