@@ -67,7 +67,7 @@ describe("loadConfig", () => {
   test("parallel section uses defaults when missing from toml", async () => {
     const dir = await mkdtemp(join(tmpdir(), "synth-test-"));
     try {
-      const config = await loadConfig(dir);
+      const config = await loadConfig(dir, undefined, join(dir, "no-global.toml"));
       expect(config.parallel?.enabled).toBe(true);
       expect(config.parallel?.max_workers).toBe(8);
       expect(config.parallel?.ai_conflict_resolution).toBe(true);
@@ -99,7 +99,7 @@ describe("loadConfig", () => {
     const dir = await mkdtemp(join(tmpdir(), "synth-test-"));
     try {
       await writeText(join(dir, "synth.toml"), `[parallel]\nenabled = false\n`);
-      const config = await loadConfig(dir);
+      const config = await loadConfig(dir, undefined, join(dir, "no-global.toml"));
       expect(config.parallel?.enabled).toBe(false);
       // Other defaults preserved
       expect(config.parallel?.max_workers).toBe(8);
@@ -129,7 +129,7 @@ describe("loadConfig", () => {
       await writeText(globalFile, `[agent]\nmodel = "sonnet"\n\n[tui]\ntheme = "dracula"\n`);
       const config = await loadConfig(dir, undefined, globalFile);
       expect(config.agent.model).toBe("sonnet");
-      expect(config.tui.theme).toBe("dracula");
+      expect(config.tui!.theme).toBe("dracula");
       // Defaults preserved for unset values
       expect(config.agent.name).toBe("claude");
       expect(config.execution.max_iterations).toBe(20);
@@ -165,7 +165,7 @@ describe("loadConfig", () => {
       // Project wins over global
       expect(config.agent.model).toBe("opus");
       // Global wins over default
-      expect(config.tui.theme).toBe("dracula");
+      expect(config.tui!.theme).toBe("dracula");
       // Project-specific
       expect(config.project.name).toBe("test-proj");
       // Default preserved
