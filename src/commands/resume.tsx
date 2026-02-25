@@ -458,8 +458,9 @@ export async function cmdResumeInternal(
     runContext?: { config: import("../config/types.js").SynthConfig; sessionPaths: SessionPaths },
     savedConversation?: import("../finalize/chat-types.js").FinalizeMessage[],
     savedState?: import("../finalize/chat-types.js").OrchestratorState,
+    ctx?: import("./finalize.js").CliContext,
     options?: import("./finalize.js").FinalizeUiOptions,
-  ) => cmdFinalize(sid, tuiContext, runContext, savedConversation, savedState, { cwd, tuiEnabled }, options);
+  ) => cmdFinalize(sid, tuiContext, runContext, savedConversation, savedState, ctx ?? { cwd, tuiEnabled }, options);
 
   // Build local cmdRun wrapper
   const localCmdRun = async (sid?: string, startIteration = 0, tuiContext?: TuiContext) => {
@@ -720,11 +721,11 @@ export async function cmdResumeInternal(
             await localCmdFinalize(id, { renderer, root }, {
               config,
               sessionPaths: plan.paths,
-            }, undefined, undefined, {
+            }, undefined, undefined, undefined, {
               mode: "review",
               orchestrator: reviewOrchestrator,
               backgroundAudit,
-              onReviewComplete: (result) => {
+              onReviewComplete: (result: { fixesApplied: number }) => {
                 reviewCompleted = true;
                 reviewFixesApplied = result.fixesApplied;
               },

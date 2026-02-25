@@ -118,7 +118,7 @@ export function PrdReviewView({
       } catch (err) {
         if (destroyedRef.current) return;
         if (err instanceof Error && (err.name === "AbortError" || err.message.includes("cancel"))) {
-          setStreamingText("");
+          resetStreaming();
           setIsLoading(false);
           return;
         }

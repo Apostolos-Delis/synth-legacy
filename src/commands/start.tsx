@@ -123,6 +123,7 @@ export async function resumeInterview(
   const { cwd, tuiEnabled } = ctx;
   const config = await applyTheme(cwd);
   const showToolLogs = config.tui?.show_tool_logs !== false;
+  const logger = getLogger();
 
   const [{ getAgent }, interviewMod, { generateTasks }] = await Promise.all([
     loadAgentRegistry(),

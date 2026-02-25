@@ -226,6 +226,7 @@ export function FinalizeApp({
         setIsLoading(false);
       }
     });
+    return undefined;
   }, [orchestrator, agent, config, sessionPaths, cwd, mode, backgroundAudit, showToolLogs, appendChunk, appendTool, resetStreaming, setStreaming]);
 
   // Execute fixes when phase transitions to "executing-fixes"

@@ -50,14 +50,10 @@ export function spawn(options: SpawnOptions): SpawnHandle {
   let firstStdoutMs: number | null = null;
   let firstStderrMs: number | null = null;
 
-  if (stdin !== undefined) {
+  if (stdin !== undefined && proc.stdin) {
     try {
-      const writer = proc.stdin?.getWriter();
-      if (writer) {
-        const encoder = new TextEncoder();
-        writer.write(encoder.encode(stdin));
-        writer.close();
-      }
+      proc.stdin.write(stdin);
+      proc.stdin.end();
     } catch {
     }
   }
