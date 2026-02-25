@@ -1,3 +1,4 @@
+import pkg from "../../package.json" assert { type: "json" };
 import { loadConfig } from "../config/loader.js";
 import type { SynthConfig } from "../config/types.js";
 import { resolveTheme } from "../tui/themes/resolve.js";
@@ -5,7 +6,7 @@ import { ansi, fmt, STATUS_ICONS, STATUS_COLORS, initTheme } from "../tui/theme.
 import { formatDuration } from "../utils/format.js";
 import type { CompletionSummary } from "../tui/types.js";
 
-export const VERSION = "0.7.5";
+export const VERSION = pkg.version;
 export const REPO = "Apostolos-Delis/synth";
 
 export function log(msg: string): void {

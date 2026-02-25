@@ -1,7 +1,26 @@
+import { basename, dirname } from "node:path";
 import type { CommandModule } from "yargs";
 import { VERSION, REPO } from "./helpers.js";
 import { fmt } from "../tui/theme.js";
 import { createSpinner } from "../tui/spinner.js";
+
+function resolveInstallDir(): string {
+  if (process.env.SYNTH_INSTALL_DIR) {
+    return process.env.SYNTH_INSTALL_DIR;
+  }
+
+  const execBase = basename(process.execPath);
+  if (execBase === "synth" || execBase.startsWith("synth-")) {
+    return dirname(process.execPath);
+  }
+
+  const whichSynth = Bun.which("synth");
+  if (whichSynth) {
+    return dirname(whichSynth);
+  }
+
+  return `${process.env.HOME}/.local/bin`;
+}
 
 function detectPlatform(): { os: string; arch: string } {
   const platform = process.platform;
@@ -54,7 +73,7 @@ async function downloadAndInstall(
 
   const decompressed = Bun.gunzipSync(compressed);
 
-  const installDir = process.env.SYNTH_INSTALL_DIR || `${process.env.HOME}/.local/bin`;
+  const installDir = resolveInstallDir();
   const installPath = `${installDir}/synth`;
 
   const { mkdirSync, writeFileSync, chmodSync, renameSync } = await import("node:fs");
