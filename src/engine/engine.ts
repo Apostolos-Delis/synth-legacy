@@ -189,7 +189,7 @@ export class Engine {
     }
 
     const mergedFile = this.mergeCriteriaIntoTaskFile(freshTaskFile, task);
-    const doneFile = updateTaskStatus(mergedFile, task.id, "done");
+    const doneFile = updateTaskStatus(mergedFile, task.id, "done", { durationMs: duration });
     await saveTasks(this.sessionPaths.tasks, doneFile);
     this.circuitBreaker.recordSuccess();
     this.emit({
@@ -219,7 +219,7 @@ export class Engine {
         : `Iteration ${this.iteration}: agent exited with code ${result.exitCode}`;
 
     const mergedFile = this.mergeCriteriaIntoTaskFile(freshTaskFile, task);
-    const failedFile = updateTaskStatus(mergedFile, task.id, "open", failNotes);
+    const failedFile = updateTaskStatus(mergedFile, task.id, "open", { notes: failNotes });
     await saveTasks(this.sessionPaths.tasks, failedFile);
     this.emit({
       type: "task:failed",

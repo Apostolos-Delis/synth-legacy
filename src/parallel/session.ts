@@ -191,7 +191,7 @@ export async function reconcileTasksFromGitLog(
   // Update tasks.json for each reconciled task
   let taskFile = await loadTasks(sessionPaths.tasks);
   for (const taskId of reconciledIds) {
-    taskFile = updateTaskStatus(taskFile, taskId, "done", "Reconciled from git history after crash recovery");
+    taskFile = updateTaskStatus(taskFile, taskId, "done", { notes: "Reconciled from git history after crash recovery" });
   }
   await saveTasks(sessionPaths.tasks, taskFile);
 

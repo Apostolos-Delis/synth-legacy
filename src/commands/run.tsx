@@ -187,6 +187,12 @@ export async function cmdRun(
           parallelRoot = tui.createRoot(parallelRenderer);
         }
 
+        const parallelTaskElapsedMs = Object.fromEntries(
+          taskFile.tasks
+            .filter((t) => t.durationMs != null)
+            .map((t) => [t.id, t.durationMs as number]),
+        );
+
         const parallelTuiData: TuiEngineData = {
           engineState: "executing",
           iteration: 0,
@@ -204,7 +210,7 @@ export async function cmdRun(
           phaseStartTime: Date.now(),
           completionSummary: null,
           taskOutputMap: {},
-          taskElapsedMs: {},
+          taskElapsedMs: parallelTaskElapsedMs,
           taskStartTimes: {},
           iterationEntries: [],
           configDisplay: JSON.stringify(config, null, 2),
@@ -238,13 +244,42 @@ export async function cmdRun(
 
         attachParallelLogger(coordinator.on.bind(coordinator), plan.paths.logs);
 
+        const workerElapsedByTaskId = new Map<string, number>();
+
         coordinator.on((event) => {
           applyParallelEvent(event, parallelState, () =>
             coordinator.getWorkerDisplayStates(),
           );
+          if (event.type === "worker:started" || event.type === "worker:progress" || event.type === "worker:completed" || event.type === "worker:failed") {
+            const workers = coordinator.getWorkerDisplayStates();
+            const worker = workers.find((w) => w.id === event.workerId);
+            if (worker) {
+              const taskId = worker.task.id;
+              const task = parallelTuiData.tasks.find((t) => t.id === taskId);
+              if (task && task.status !== "done" && task.status !== "failed") {
+                task.status = "in_progress";
+              }
+              const startTime = Date.now() - worker.elapsedMs;
+              parallelTuiData.taskStartTimes[taskId] = startTime;
+              parallelTuiData.taskElapsedMs[taskId] = worker.elapsedMs;
+              workerElapsedByTaskId.set(taskId, worker.elapsedMs);
+            }
+          }
           if (event.type === "worker:output" && "taskId" in event) {
             const taskId = (event as { taskId: string }).taskId;
             parallelTuiData.taskOutputMap[taskId] = (parallelTuiData.taskOutputMap[taskId] ?? "") + (event as { message: string }).message;
+          }
+          if (event.type === "merge:completed") {
+            const task = parallelTuiData.tasks.find((t) => t.id === event.taskId);
+            if (task) task.status = "done";
+            const elapsed = workerElapsedByTaskId.get(event.taskId);
+            if (elapsed != null) {
+              parallelTuiData.taskElapsedMs[event.taskId] = elapsed;
+            }
+          }
+          if (event.type === "merge:failed" || event.type === "merge:skipped") {
+            const task = parallelTuiData.tasks.find((t) => t.id === event.taskId);
+            if (task) task.status = "failed";
           }
           notifyParallelTuiThrottled();
         });
@@ -349,6 +384,12 @@ export async function cmdRun(
       });
       root = tui.createRoot(renderer);
     }
+    const initialTaskElapsedMs = Object.fromEntries(
+      taskFile.tasks
+        .filter((t) => t.durationMs != null)
+        .map((t) => [t.id, t.durationMs as number]),
+    );
+
     tuiData = {
       engineState: "executing",
       iteration: startIteration,
@@ -366,7 +407,7 @@ export async function cmdRun(
       phaseStartTime: null,
       completionSummary: null,
       taskOutputMap: {},
-      taskElapsedMs: {},
+      taskElapsedMs: initialTaskElapsedMs,
       taskStartTimes: {},
       iterationEntries: [],
       configDisplay: JSON.stringify(config, null, 2),

@@ -164,6 +164,7 @@ export class ParallelCoordinator {
 
     const mergedTaskIds: string[] = [...reconciledIds];
     const failedTaskIds: string[] = [];
+    const durationByTaskId = new Map<string, number>();
 
     await this.persistState(mergedTaskIds, failedTaskIds, -1);
 
@@ -190,6 +191,9 @@ export class ParallelCoordinator {
         const results = await this.executeWave(groupTasks, effectiveWorkers);
 
         for (const result of results) {
+          if (typeof result.durationMs === "number") {
+            durationByTaskId.set(result.taskId, result.durationMs);
+          }
           const hasCommits = await this.branchHasNewCommits(result.branch);
           if (!hasCommits) {
             this.emit({
@@ -222,7 +226,7 @@ export class ParallelCoordinator {
 
           if (processed.status === "completed") {
             mergedTaskIds.push(processed.taskId);
-            await this.persistTaskDone(processed.taskId);
+            await this.persistTaskDone(processed.taskId, durationByTaskId.get(processed.taskId));
             this.emit({
               type: "merge:completed",
               timestamp: this.timestamp(),
@@ -265,7 +269,7 @@ export class ParallelCoordinator {
                   failedCount: resolution.failedCount,
                 });
                 mergedTaskIds.push(processed.taskId);
-                await this.persistTaskDone(processed.taskId);
+                await this.persistTaskDone(processed.taskId, durationByTaskId.get(processed.taskId));
                 this.emit({
                   type: "merge:completed",
                   timestamp: this.timestamp(),
@@ -718,10 +722,10 @@ export class ParallelCoordinator {
     }
   }
 
-  private async persistTaskDone(taskId: string): Promise<void> {
+  private async persistTaskDone(taskId: string, durationMs?: number): Promise<void> {
     try {
       const taskFile = await loadTasks(this.sessionPaths.tasks);
-      const updated = updateTaskStatus(taskFile, taskId, "done");
+      const updated = updateTaskStatus(taskFile, taskId, "done", { durationMs });
       await saveTasks(this.sessionPaths.tasks, updated);
     } catch {
       // Best effort — don't fail the merge over a status write
