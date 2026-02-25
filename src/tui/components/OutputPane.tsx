@@ -60,6 +60,7 @@ export const OutputPane = memo(function OutputPane({ output, width, height, isTh
         borderColor={outputScrollFocused ? colors.border.active : colors.border.normal}
         title={outputScrollFocused ? "Output (scrolling \u2014 Esc to exit)" : "Output"}
         flexDirection="column"
+        overflow="hidden"
       >
         <scrollbox
           flexGrow={1}

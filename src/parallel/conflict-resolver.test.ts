@@ -54,7 +54,7 @@ mock.module("node:fs", () => ({
 }));
 
 mock.module("./ai-resolver.js", () => ({
-  resolveWithAi: async (conflictInfo: { file: string; taskId: string }, _agent: unknown, _cwd: string) => {
+  resolveWithAi: async (conflictInfo: { file: string; taskId: string; context?: { prd: string } }, _agent: unknown, _cwd: string) => {
     resolveWithAiCalls.push({ file: conflictInfo.file, taskId: conflictInfo.taskId });
     return resolveWithAiResults.get(conflictInfo.file) ?? null;
   },
@@ -89,6 +89,15 @@ function makeOperation(overrides?: Partial<MergeOperation>): MergeOperation {
   };
 }
 
+function makeContext() {
+  return {
+    prd: "PRD",
+    taskDescription: "Task description",
+    acceptanceCriteria: ["Do the thing"],
+    mergedTasks: [],
+  };
+}
+
 // --- Tests ---
 
 beforeEach(() => {
@@ -106,6 +115,7 @@ describe("resolveConflicts", () => {
       makeOperation({ conflictedFiles: [] }),
       "/repo",
       makeAgent(),
+      makeContext(),
     );
 
     expect(result.resolved).toBe(false);
@@ -118,6 +128,7 @@ describe("resolveConflicts", () => {
       makeOperation({ conflictedFiles: undefined }),
       "/repo",
       makeAgent(),
+      makeContext(),
     );
 
     expect(result.resolved).toBe(false);
@@ -129,6 +140,7 @@ describe("resolveConflicts", () => {
       makeOperation({ conflictedFiles: files }),
       "/repo",
       makeAgent(),
+      makeContext(),
     );
 
     expect(result.resolved).toBe(false);
@@ -155,6 +167,7 @@ describe("resolveConflicts", () => {
       makeOperation({ conflictedFiles: files }),
       "/repo",
       makeAgent(),
+      makeContext(),
     );
 
     expect(result.resolved).toBe(true);
@@ -171,7 +184,7 @@ describe("resolveConflicts", () => {
     spawnResults.set("git update-index", { exitCode: 0, stdout: "", stderr: "" });
     spawnResults.set("git commit", { exitCode: 0, stdout: "", stderr: "" });
 
-    await resolveConflicts(makeOperation(), "/repo", makeAgent());
+    await resolveConflicts(makeOperation(), "/repo", makeAgent(), makeContext());
 
     const mergeCall = spawnCalls.find(
       (c) => c.cmd.includes("merge") && c.cmd.includes("--squash"),
@@ -184,7 +197,7 @@ describe("resolveConflicts", () => {
     spawnResults.set("git merge --squash", { exitCode: 128, stdout: "", stderr: "fatal: not a git repo" });
     spawnResults.set("git reset --hard HEAD", { exitCode: 0, stdout: "", stderr: "" });
 
-    const result = await resolveConflicts(makeOperation(), "/repo", makeAgent());
+    const result = await resolveConflicts(makeOperation(), "/repo", makeAgent(), makeContext());
 
     expect(result.resolved).toBe(false);
     expect(result.failedCount).toBe(1);
@@ -206,7 +219,7 @@ describe("resolveConflicts", () => {
     spawnResults.set("git update-index", { exitCode: 0, stdout: "", stderr: "" });
     spawnResults.set("git commit", { exitCode: 0, stdout: "", stderr: "" });
 
-    await resolveConflicts(makeOperation(), "/repo", makeAgent());
+    await resolveConflicts(makeOperation(), "/repo", makeAgent(), makeContext());
 
     // Verify git show was called for all 3 stages
     const showCalls = spawnCalls.filter((c) => c.cmd[0] === "git" && c.cmd[1] === "show");
@@ -231,6 +244,7 @@ describe("resolveConflicts", () => {
       makeOperation({ conflictedFiles: ["src/a.ts", "src/b.ts"] }),
       "/repo",
       makeAgent(),
+      makeContext(),
     );
 
     expect(resolveWithAiCalls.length).toBe(2);
@@ -248,7 +262,7 @@ describe("resolveConflicts", () => {
     spawnResults.set("git update-index", { exitCode: 0, stdout: "", stderr: "" });
     spawnResults.set("git commit", { exitCode: 0, stdout: "", stderr: "" });
 
-    const result = await resolveConflicts(makeOperation(), "/repo", makeAgent());
+    const result = await resolveConflicts(makeOperation(), "/repo", makeAgent(), makeContext());
 
     expect(result.resolved).toBe(true);
     expect(result.resolvedCount).toBe(1);
@@ -275,6 +289,7 @@ describe("resolveConflicts", () => {
       makeOperation({ conflictedFiles: ["src/a.ts", "src/b.ts"] }),
       "/repo",
       makeAgent(),
+      makeContext(),
     );
 
     expect(result.resolved).toBe(false);
@@ -298,7 +313,7 @@ describe("resolveConflicts", () => {
     spawnResults.set("git commit", { exitCode: 1, stdout: "", stderr: "commit failed" });
     spawnResults.set("git reset --hard HEAD", { exitCode: 0, stdout: "", stderr: "" });
 
-    const result = await resolveConflicts(makeOperation(), "/repo", makeAgent());
+    const result = await resolveConflicts(makeOperation(), "/repo", makeAgent(), makeContext());
 
     expect(result.resolved).toBe(false);
   });

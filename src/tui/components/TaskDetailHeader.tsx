@@ -3,6 +3,12 @@ import type { Task } from "../../tasks/types.js";
 import { boldAttr, statusIndicators, colors, STATUS_COLORS_HEX, PRIORITY_COLORS_HEX } from "../theme.js";
 import { wrapText } from "../utils.js";
 
+function truncateText(text: string, maxWidth: number): string {
+  if (text.length <= maxWidth) return text;
+  if (maxWidth <= 3) return text.slice(0, maxWidth);
+  return text.slice(0, maxWidth - 1) + "\u2026";
+}
+
 const PRIORITY_LABELS: Record<number, string> = {
   1: "Critical",
   2: "High",
@@ -30,9 +36,16 @@ export const TaskDetailHeader = memo(function TaskDetailHeader({
   const innerWidth = Math.max(1, width - 6);
   const descLines = wrapText(task.description, innerWidth);
 
+  // Pre-truncate title to fit within the box alongside fixed-width elements
+  const titleOverhead = 2 + 2 + priorityLabel.length + 2 + 2 + task.status.length + 1;
+  const titleMaxLen = Math.max(10, innerWidth - titleOverhead);
+  const displayTitle = truncateText(task.title, titleMaxLen);
+
   // Cap visible description lines to available space: border(2) + title(1) + blank sep(1)
   const maxDescLines = Math.max(1, height - 2 - 1 - 1);
-  const visibleDescLines = descLines.slice(0, maxDescLines);
+  const visibleDescLines = descLines.slice(0, maxDescLines).map(
+    (line) => truncateText(line, innerWidth),
+  );
 
   // Build acceptance criteria rows, respecting height limit.
   // Reserve 2 for border, 1 for title, visibleDescLines for description, 1 blank separator,
@@ -52,7 +65,7 @@ export const TaskDetailHeader = memo(function TaskDetailHeader({
     const text = criteria[i].length > maxLen ? criteria[i].slice(0, maxLen - 3) + "..." : criteria[i];
 
     criteriaRows.push(
-      <text key={`ac-${i}`} truncate={true}>
+      <text key={`ac-${i}`}>
         <span fg={iconColor}> {icon}</span>
         <span fg={colors.fg.secondary}> #{i + 1} </span>
         <span fg={colors.fg.primary}>{text}</span>
@@ -62,7 +75,7 @@ export const TaskDetailHeader = memo(function TaskDetailHeader({
 
   if (criteria.length > visibleCount) {
     criteriaRows.push(
-      <text key="ac-more" truncate={true}>
+      <text key="ac-more">
         <span fg={colors.fg.muted}>  +{criteria.length - visibleCount} more...</span>
       </text>,
     );
@@ -77,21 +90,21 @@ export const TaskDetailHeader = memo(function TaskDetailHeader({
       flexDirection="column"
       overflow="hidden"
     >
-      <text truncate={true}>
+      <text>
         <span fg={statusColor} attributes={boldAttr()}>{statusIcon} </span>
-        <span fg={colors.fg.primary} attributes={boldAttr()}>{task.title}</span>
+        <span fg={colors.fg.primary} attributes={boldAttr()}>{displayTitle}</span>
         {"  "}
         <span fg={priorityColor} attributes={boldAttr()}>[{priorityLabel}]</span>
         <span fg={statusColor}> [{task.status}]</span>
       </text>
       {visibleDescLines.map((line, i) => (
-        <text key={`desc-${i}`} truncate={true}>
+        <text key={`desc-${i}`}>
           <span fg={colors.fg.muted}>{line}</span>
         </text>
       ))}
       <text />
       {criteria.length > 0 && visibleCount > 0 && (
-        <text truncate={true}>
+        <text>
           <span fg={colors.accent.primary} attributes={boldAttr()}>{"\u2500"} Acceptance Criteria</span>
           <span fg={colors.fg.muted}> ({criteria.length})</span>
         </text>

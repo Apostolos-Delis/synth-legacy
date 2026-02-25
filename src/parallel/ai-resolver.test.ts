@@ -62,6 +62,12 @@ describe("buildConflictPrompt", () => {
       "theirs",
       "COOR-001",
       "Add feature",
+      {
+        prd: "",
+        taskDescription: "",
+        acceptanceCriteria: [],
+        mergedTasks: [],
+      },
     );
 
     expect(prompt).toContain("src/index.ts");
@@ -77,6 +83,12 @@ describe("buildConflictPrompt", () => {
       "theirs content here",
       "T-1",
       "Title",
+      {
+        prd: "",
+        taskDescription: "",
+        acceptanceCriteria: [],
+        mergedTasks: [],
+      },
     );
 
     expect(prompt).toContain("base content here");
@@ -92,11 +104,41 @@ describe("buildConflictPrompt", () => {
       "t",
       "T-1",
       "Title",
+      {
+        prd: "",
+        taskDescription: "",
+        acceptanceCriteria: [],
+        mergedTasks: [],
+      },
     );
 
     expect(prompt).toContain("BASE");
     expect(prompt).toContain("OURS");
     expect(prompt).toContain("THEIRS");
+  });
+
+  test("includes PRD, acceptance criteria, and merged task summaries", () => {
+    const prompt = buildConflictPrompt(
+      "f.ts",
+      "b",
+      "o",
+      "t",
+      "T-1",
+      "Title",
+      {
+        prd: "PRD content",
+        taskDescription: "Do the thing",
+        acceptanceCriteria: ["Must work", "Must be fast"],
+        mergedTasks: [
+          { id: "T-0", title: "Prep work", commits: ["feat(T-0): Prep work"] },
+        ],
+      },
+    );
+
+    expect(prompt).toContain("PRD content");
+    expect(prompt).toContain("Do the thing");
+    expect(prompt).toContain("Must work");
+    expect(prompt).toContain("feat(T-0): Prep work");
   });
 });
 

@@ -77,6 +77,7 @@ export const TaskSidebar = memo(function TaskSidebar({
       borderColor={borderFg}
       title="Tasks"
       flexDirection="column"
+      overflow="hidden"
     >
       {needsScroll ? (
         <scrollbox

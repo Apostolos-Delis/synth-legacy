@@ -164,7 +164,7 @@ export async function reconcileTasksFromGitLog(
   sessionPaths: SessionPaths,
   tasks: Task[],
 ): Promise<string[]> {
-  const taskIdPattern = /^[a-f0-9]+\s+feat\(([A-Z]+-\d+)\):/;
+  const taskIdPattern = /^[a-f0-9]+\s+feat\(([^)]+)\):/;
   let logOutput: string;
   try {
     logOutput = await gitLog(["--oneline"], repoRoot);

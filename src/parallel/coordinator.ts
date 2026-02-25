@@ -23,8 +23,10 @@ import {
   createTag,
   deleteTag,
   mergeFF,
+  gitLog,
 } from "../utils/git.js";
-import { resolveConflicts } from "./conflict-resolver.js";
+import { fileExists, readText } from "../utils/fs.js";
+import { resolveConflicts, type ConflictResolutionContext } from "./conflict-resolver.js";
 import { ResourceMonitor } from "./resource-monitor.js";
 import { spawn } from "../utils/process.js";
 
@@ -243,13 +245,18 @@ export class ParallelCoordinator {
                 taskId: processed.taskId,
               });
 
+              const task = taskMap.get(processed.taskId);
+              const context = await this.buildConflictContext(task, mergedTaskIds);
               const resolution = await resolveConflicts(
                 processed,
                 this.repoRoot,
                 this.agent,
+                context,
               );
 
               if (resolution.resolved) {
+                processed.status = "completed";
+                processed.error = undefined;
                 this.emit({
                   type: "conflict:resolved",
                   timestamp: this.timestamp(),
@@ -259,6 +266,12 @@ export class ParallelCoordinator {
                 });
                 mergedTaskIds.push(processed.taskId);
                 await this.persistTaskDone(processed.taskId);
+                this.emit({
+                  type: "merge:completed",
+                  timestamp: this.timestamp(),
+                  operationId: processed.id,
+                  taskId: processed.taskId,
+                });
               } else {
                 this.handleFailedMerge(processed, failedTaskIds);
               }
@@ -612,6 +625,72 @@ export class ParallelCoordinator {
         });
       }
     });
+  }
+
+  private async buildConflictContext(
+    task: Task | undefined,
+    mergedTaskIds: string[],
+  ): Promise<ConflictResolutionContext> {
+    const prd = await this.loadPrdContent();
+    const mergedTasks = await this.buildMergedTaskSummaries(mergedTaskIds);
+    return {
+      prd,
+      taskDescription: task?.description ?? "",
+      acceptanceCriteria: task?.acceptanceCriteria ?? [],
+      mergedTasks,
+    };
+  }
+
+  private async loadPrdContent(): Promise<string> {
+    if (await fileExists(this.sessionPaths.prd)) {
+      return await readText(this.sessionPaths.prd);
+    }
+    return "";
+  }
+
+  private async buildMergedTaskSummaries(
+    mergedTaskIds: string[],
+  ): Promise<{ id: string; title: string; commits: string[] }[]> {
+    if (mergedTaskIds.length === 0) return [];
+
+    const taskMap = new Map(this.tasks.map((t) => [t.id, t]));
+    const mergedSet = new Set(mergedTaskIds);
+    const commitMap = new Map<string, string[]>();
+
+    let logOutput = "";
+    try {
+      const args = ["--oneline"];
+      if (this.sessionStartTag) {
+        args.push(`${this.sessionStartTag}..HEAD`);
+      }
+      logOutput = await gitLog(args, this.repoRoot);
+    } catch {
+      logOutput = "";
+    }
+
+    if (logOutput) {
+      for (const line of logOutput.split("\n")) {
+        if (!line.trim()) continue;
+        const match = line.match(/^[a-f0-9]+\s+(.+)$/);
+        if (!match) continue;
+        const subject = match[1];
+        const taskMatch = subject.match(/feat\(([^)]+)\):/);
+        if (!taskMatch) continue;
+        const taskId = taskMatch[1];
+        if (!mergedSet.has(taskId)) continue;
+        const existing = commitMap.get(taskId) ?? [];
+        if (!existing.includes(subject)) {
+          existing.push(subject);
+          commitMap.set(taskId, existing);
+        }
+      }
+    }
+
+    return mergedTaskIds.map((id) => ({
+      id,
+      title: taskMap.get(id)?.title ?? id,
+      commits: commitMap.get(id) ?? [],
+    }));
   }
 
   private async handleAbort(): Promise<void> {

@@ -89,6 +89,11 @@ mock.module("../utils/git.js", () => ({
   gitLog: async () => "",
 }));
 
+mock.module("../utils/fs.js", () => ({
+  fileExists: async () => false,
+  readText: async () => "",
+}));
+
 mock.module("../tasks/store.js", () => ({
   loadTasks: async () => ({ tasks: [] }),
   saveTasks: async () => {},
@@ -99,6 +104,7 @@ mock.module("../tasks/store.js", () => ({
 let mockWorktreeManagerInstance: {
   acquire: (workerId: string, taskId: string, sessionBranch: string) => Promise<WorktreeInfo>;
   cleanupAll: () => Promise<void>;
+  releaseDirectory: (workerId: string) => Promise<void>;
 };
 
 let mockMergeEngineInstance: {
@@ -117,6 +123,9 @@ mock.module("./worktree-manager.js", () => ({
     async cleanupAll(): Promise<void> {
       worktreeCleanedUp.push(true);
       return mockWorktreeManagerInstance.cleanupAll();
+    }
+    async releaseDirectory(workerId: string): Promise<void> {
+      return mockWorktreeManagerInstance.releaseDirectory(workerId);
     }
   },
 }));
@@ -355,6 +364,7 @@ function defaultWorktreeManager() {
       branch: `synth-parallel/${taskId}`,
     }),
     cleanupAll: async () => {},
+    releaseDirectory: async () => {},
   };
 }
 

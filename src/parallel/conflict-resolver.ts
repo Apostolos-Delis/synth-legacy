@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { spawn } from "../utils/process.js";
 import type { AgentAdapter } from "../agents/types.js";
 import type { MergeOperation } from "./merge-engine.js";
-import type { AiAgent, ConflictInfo } from "./ai-resolver.js";
+import type { AiAgent, ConflictInfo, ConflictContext } from "./ai-resolver.js";
 import { resolveWithAi } from "./ai-resolver.js";
 
 export interface ConflictResolutionResult {
@@ -13,6 +13,8 @@ export interface ConflictResolutionResult {
   resolvedCount: number;
   failedCount: number;
 }
+
+export type ConflictResolutionContext = ConflictContext;
 
 const MAX_CONFLICTED_FILES = 10;
 
@@ -49,6 +51,7 @@ async function getConflictInfo(
   file: string,
   taskId: string,
   taskTitle: string,
+  context: ConflictResolutionContext,
   cwd: string,
 ): Promise<ConflictInfo> {
   const [base, ours, theirs] = await Promise.all([
@@ -56,7 +59,7 @@ async function getConflictInfo(
     getStageContent(file, 2, cwd),
     getStageContent(file, 3, cwd),
   ]);
-  return { file, base, ours, theirs, taskId, taskTitle };
+  return { file, base, ours, theirs, taskId, taskTitle, context };
 }
 
 async function stageResolvedFile(file: string, content: string, cwd: string): Promise<void> {
@@ -108,6 +111,7 @@ export async function resolveConflicts(
   operation: MergeOperation,
   repoRoot: string,
   agent: AgentAdapter,
+  context: ConflictResolutionContext,
 ): Promise<ConflictResolutionResult> {
   const files = operation.conflictedFiles ?? [];
 
@@ -145,6 +149,7 @@ export async function resolveConflicts(
         file,
         operation.taskId,
         operation.taskTitle,
+        context,
         repoRoot,
       );
 
