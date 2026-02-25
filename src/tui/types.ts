@@ -3,7 +3,14 @@ import type { EngineState } from "../engine/types.js";
 import type { InterviewMessage } from "../interview/types.js";
 
 export type ViewMode = "execution" | "dashboard" | "history" | "config" | "interview" | "generating" | "review" | "completion" | "completion-finalize" | "finalize";
-export type NavMode = "task-scroll" | "output-scroll" | "worker-panel" | "merge-panel" | "conflict-panel";
+export type NavMode =
+  | "task-scroll"
+  | "detail-select"
+  | "task-detail-scroll"
+  | "output-scroll"
+  | "worker-panel"
+  | "merge-panel"
+  | "conflict-panel";
 
 export interface TuiContext {
   renderer: Awaited<ReturnType<typeof import("@opentui/core")["createCliRenderer"]>>;

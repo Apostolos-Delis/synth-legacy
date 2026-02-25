@@ -16,11 +16,11 @@ function calcHeaderHeight(task: Task, width: number, terminalHeight: number, pan
   // Usable text width inside bordered box
   const innerWidth = Math.max(1, width - 6);
 
-  // Lines: border(2) + title(1) + description(N) + blank separator(1) + section header(0|1) + criteria(M)
+  // Lines: border(2) + title(1) + blank(1) + description(N) + blank(1) + section header(0|1) + criteria(M)
   const descLines = wrapLineCount(task.description, innerWidth);
   const criteriaLines = task.acceptanceCriteria.length;
   const sectionHeaderHeight = criteriaLines > 0 ? 1 : 0;
-  const contentHeight = 2 + 1 + descLines + 1 + sectionHeaderHeight + criteriaLines;
+  const contentHeight = 2 + 1 + 1 + descLines + 1 + sectionHeaderHeight + criteriaLines;
 
   const maxFromTerminal = Math.floor(terminalHeight * 0.5);
   const maxFromPane = paneHeight - MIN_OUTPUT_HEIGHT;
@@ -37,10 +37,26 @@ interface OutputPaneProps {
   phaseStartTime?: number | null;
   task?: Task | null;
   outputScrollFocused?: boolean;
+  outputFocused?: boolean;
+  taskDetailFocused?: boolean;
+  taskDetailScrollFocused?: boolean;
   autoScroll?: boolean;
 }
 
-export const OutputPane = memo(function OutputPane({ output, width, height, isThinking = false, currentPhase, phaseStartTime, task, outputScrollFocused = false, autoScroll = true }: OutputPaneProps): ReactNode {
+export const OutputPane = memo(function OutputPane({
+  output,
+  width,
+  height,
+  isThinking = false,
+  currentPhase,
+  phaseStartTime,
+  task,
+  outputScrollFocused = false,
+  outputFocused = false,
+  taskDetailFocused = false,
+  taskDetailScrollFocused = false,
+  autoScroll = true,
+}: OutputPaneProps): ReactNode {
   // Output is pre-stripped of ANSI codes in the event handler for minimal render-path latency.
 
   const { height: terminalHeight } = useTerminalDimensions();
@@ -52,12 +68,20 @@ export const OutputPane = memo(function OutputPane({ output, width, height, isTh
 
   return (
     <box width={width} height={height} flexDirection="column" overflow="hidden">
-      {task && <TaskDetailHeader task={task} width={width} height={headerHeight} />}
+      {task && (
+        <TaskDetailHeader
+          task={task}
+          width={width}
+          height={headerHeight}
+          focused={taskDetailFocused}
+          scrollFocused={taskDetailScrollFocused}
+        />
+      )}
       <box
         width={width}
         flexGrow={1}
         border={true}
-        borderColor={outputScrollFocused ? colors.border.active : colors.border.normal}
+        borderColor={(outputScrollFocused || outputFocused) ? colors.border.active : colors.border.normal}
         title={outputScrollFocused ? "Output (scrolling \u2014 Esc to exit)" : "Output"}
         flexDirection="column"
         overflow="hidden"

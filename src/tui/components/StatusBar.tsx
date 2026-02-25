@@ -57,15 +57,23 @@ export const StatusBar = memo(function StatusBar({
     ? isParallel
       ? "j/k:scroll  w:workers  m:merge  tab:next  esc:back  q:quit"
       : "j/k:scroll  esc:back  q:quit"
-    : navMode === "worker-panel"
-      ? "w:output  m:merge  tab:next  esc:back  q:quit"
-      : navMode === "merge-panel"
-        ? "m:back  w:workers  tab:next  esc:back  q:quit"
-        : navMode === "conflict-panel"
-          ? "tab:next  esc:back  q:quit"
-          : isParallel
-            ? "j/k:tasks  enter:scroll  w:workers  m:merge  p:pause  d:dashboard  q:quit"
-            : "j/k:tasks  enter:scroll  h:history  p:pause  d:dashboard  q:quit";
+    : navMode === "task-detail-scroll"
+      ? isParallel
+        ? "j/k:scroll  w:workers  m:merge  tab:next  esc:back  q:quit"
+        : "j/k:scroll  esc:back  q:quit"
+      : navMode === "detail-select"
+        ? isParallel
+          ? "j/k:focus  enter:scroll  w:workers  m:merge  tab:next  esc:back  q:quit"
+          : "j/k:focus  enter:scroll  esc:back  q:quit"
+        : navMode === "worker-panel"
+          ? "w:output  m:merge  tab:next  esc:back  q:quit"
+          : navMode === "merge-panel"
+            ? "m:back  w:workers  tab:next  esc:back  q:quit"
+            : navMode === "conflict-panel"
+              ? "tab:next  esc:back  q:quit"
+              : isParallel
+                ? "j/k:tasks  enter:scroll  w:workers  m:merge  p:pause  d:dashboard  q:quit"
+                : "j/k:tasks  enter:scroll  h:history  p:pause  d:dashboard  q:quit";
 
   const tokenDisplay = currentTaskTokens != null && currentTaskTokens > 0
     ? `${formatTokenCount(currentTaskTokens)} tok`

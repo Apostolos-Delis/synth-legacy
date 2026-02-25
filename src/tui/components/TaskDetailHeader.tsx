@@ -27,12 +27,16 @@ interface TaskDetailHeaderProps {
   task: Task;
   width: number;
   height?: number;
+  focused?: boolean;
+  scrollFocused?: boolean;
 }
 
 export const TaskDetailHeader = memo(function TaskDetailHeader({
   task,
   width,
   height = 10,
+  focused = true,
+  scrollFocused = false,
 }: TaskDetailHeaderProps): ReactNode {
   const statusIcon = statusIndicators[task.status] ?? "?";
   const statusColor = STATUS_COLORS_HEX[task.status] ?? colors.fg.muted;
@@ -50,23 +54,11 @@ export const TaskDetailHeader = memo(function TaskDetailHeader({
   const titleLineText = `${titlePrefix}${displayTitle}${titleSuffix}`;
   const titlePad = padLine("", Math.max(0, innerWidth - titleLineText.length));
 
-  // Cap visible description lines to available space: border(2) + title(1) + blank sep(1)
-  const maxDescLines = Math.max(1, height - 2 - 1 - 1);
-  const visibleDescLines = descLines
-    .slice(0, maxDescLines)
-    .map((line) => truncateText(line, innerWidth));
-
-  // Build acceptance criteria rows, respecting height limit.
-  // Reserve 2 for border, 1 for title, visibleDescLines for description, 1 blank separator,
-  // and 1 for the section header line when criteria exist.
   const criteria = task.acceptanceCriteria;
-  const sectionHeaderCost = criteria.length > 0 ? 1 : 0;
-  const maxCriteriaRows = Math.max(0, height - 2 - 1 - visibleDescLines.length - 1 - sectionHeaderCost);
   const completed = task.criteriaCompleted;
 
   const criteriaRows: ReactNode[] = [];
-  const visibleCount = Math.min(criteria.length, maxCriteriaRows);
-  for (let i = 0; i < visibleCount; i++) {
+  for (let i = 0; i < criteria.length; i++) {
     const done = completed?.[i] ?? false;
     const icon = done ? "\u2713" : "\u25CB";
     const iconColor = done ? colors.status.success : colors.fg.muted;
@@ -85,15 +77,36 @@ export const TaskDetailHeader = memo(function TaskDetailHeader({
     );
   }
 
-  if (criteria.length > visibleCount) {
-    const moreText = `  +${criteria.length - visibleCount} more...`;
-    const morePad = padLine("", Math.max(0, innerWidth - moreText.length));
-    criteriaRows.push(
-      <text key="ac-more">
-        <span fg={colors.fg.muted}>{moreText}</span>
-        <span>{morePad}</span>
+  const contentRows: ReactNode[] = [];
+  contentRows.push(
+    <text key="desc-gap-top">
+      <span>{padLine("", innerWidth)}</span>
+    </text>,
+  );
+  for (let i = 0; i < descLines.length; i++) {
+    const line = truncateText(descLines[i], innerWidth);
+    const pad = padLine("", Math.max(0, innerWidth - line.length));
+    contentRows.push(
+      <text key={`desc-${i}`}>
+        <span fg={colors.fg.secondary}>{line}</span>
+        <span>{pad}</span>
       </text>,
     );
+  }
+  contentRows.push(
+    <text key="desc-gap-bottom">
+      <span>{padLine("", innerWidth)}</span>
+    </text>,
+  );
+  if (criteria.length > 0) {
+    contentRows.push(
+      <text key="ac-header">
+        <span fg={colors.accent.primary} attributes={boldAttr()}>{"\u2500"} Acceptance Criteria</span>
+        <span fg={colors.fg.muted}> ({criteria.length})</span>
+        <span>{padLine("", Math.max(0, innerWidth - `\u2500 Acceptance Criteria (${criteria.length})`.length))}</span>
+      </text>,
+    );
+    contentRows.push(...criteriaRows);
   }
 
   return (
@@ -101,43 +114,34 @@ export const TaskDetailHeader = memo(function TaskDetailHeader({
       width={width}
       height={height}
       border={true}
-      borderColor={colors.border.active}
+      borderColor={focused ? colors.border.active : colors.border.normal}
       flexDirection="column"
       overflow="hidden"
     >
       <text>
         <span fg={statusColor} attributes={boldAttr()}>{statusIcon} </span>
         <span fg={colors.fg.secondary} attributes={boldAttr()}>[{task.id}]</span>
+        {" "}
         <span fg={colors.fg.primary} attributes={boldAttr()}>{displayTitle}</span>
         {"  "}
         <span fg={priorityColor} attributes={boldAttr()}>[{priorityLabel}]</span>
         <span fg={statusColor}> [{task.status}]</span>
         <span>{titlePad}</span>
       </text>
-      {visibleDescLines.map((line, i) => {
-        const pad = padLine("", Math.max(0, innerWidth - line.length));
-        return (
-        <text key={`desc-${i}`}>
-          <span fg={colors.fg.muted}>{line}</span>
-          <span>{pad}</span>
-        </text>
-        );
-      })}
-      <text>
-        <span>{padLine("", innerWidth)}</span>
-      </text>
-      {criteria.length > 0 && visibleCount > 0 && (
-        <text>
-          <span fg={colors.accent.primary} attributes={boldAttr()}>{"\u2500"} Acceptance Criteria</span>
-          <span fg={colors.fg.muted}> ({criteria.length})</span>
-          <span>{padLine("", Math.max(0, innerWidth - `\u2500 Acceptance Criteria (${criteria.length})`.length))}</span>
-        </text>
-      )}
-      {criteriaRows}
+      <scrollbox
+        flexGrow={1}
+        focused={scrollFocused}
+        stickyScroll={false}
+        style={{ flexDirection: "column" }}
+      >
+        {contentRows}
+      </scrollbox>
     </box>
   );
 }, (prev, next) =>
   prev.width === next.width &&
   prev.height === next.height &&
-  prev.task === next.task,
+  prev.task === next.task &&
+  prev.focused === next.focused &&
+  prev.scrollFocused === next.scrollFocused,
 );

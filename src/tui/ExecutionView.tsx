@@ -13,12 +13,13 @@ interface ExecutionViewProps {
   state: TuiState;
   selectedTaskIndex: number;
   navMode: NavMode;
+  detailFocus: "task" | "output";
   parallel?: ParallelHeaderInfo | null;
   parallelCompletion?: ParallelCompletionInfo | null;
   parallelStatus?: ParallelStatusInfo | null;
 }
 
-export function ExecutionView({ state, selectedTaskIndex, navMode, parallel, parallelCompletion, parallelStatus }: ExecutionViewProps): ReactNode {
+export function ExecutionView({ state, selectedTaskIndex, navMode, detailFocus, parallel, parallelCompletion, parallelStatus }: ExecutionViewProps): ReactNode {
   const [, tick] = useState(0);
   useEffect(() => {
     if (state.engineState !== "executing" && state.engineState !== "reviewing") return;
@@ -58,6 +59,8 @@ export function ExecutionView({ state, selectedTaskIndex, navMode, parallel, par
   const showThinking = isSelectedTaskActive && state.isThinking;
   const showPhase = isSelectedTaskActive ? state.currentPhase : null;
   const showPhaseStartTime = isSelectedTaskActive ? state.phaseStartTime : null;
+  const taskDetailFocused = navMode === "task-detail-scroll" || (navMode === "detail-select" && detailFocus === "task");
+  const outputFocused = navMode === "output-scroll" || (navMode === "detail-select" && detailFocus === "output");
 
   return (
     <box width={width} height={height} flexDirection="column">
@@ -92,6 +95,9 @@ export function ExecutionView({ state, selectedTaskIndex, navMode, parallel, par
           phaseStartTime={showPhaseStartTime}
           task={selectedTask}
           outputScrollFocused={navMode === "output-scroll"}
+          outputFocused={outputFocused}
+          taskDetailFocused={taskDetailFocused}
+          taskDetailScrollFocused={navMode === "task-detail-scroll"}
           autoScroll={isSelectedTaskActive && navMode === "task-scroll"}
         />
       </box>
