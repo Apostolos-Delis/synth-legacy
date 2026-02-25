@@ -7,12 +7,19 @@ import { PhaseIndicator } from "./PhaseIndicator.js";
 import { TaskDetailHeader } from "./TaskDetailHeader.js";
 
 const MIN_OUTPUT_HEIGHT = 10;
+const MIN_EMPTY_OUTPUT_HEIGHT = 4;
 
 function wrapLineCount(text: string, width: number): number {
   return wrapText(text, width).length;
 }
 
-function calcHeaderHeight(task: Task, width: number, terminalHeight: number, paneHeight: number): number {
+function calcHeaderHeight(
+  task: Task,
+  width: number,
+  terminalHeight: number,
+  paneHeight: number,
+  minOutputHeight: number,
+): number {
   // Usable text width inside bordered box
   const innerWidth = Math.max(1, width - 6);
 
@@ -23,7 +30,7 @@ function calcHeaderHeight(task: Task, width: number, terminalHeight: number, pan
   const contentHeight = 2 + 1 + 1 + descLines + 1 + sectionHeaderHeight + criteriaLines;
 
   const maxFromTerminal = Math.floor(terminalHeight * 0.5);
-  const maxFromPane = paneHeight - MIN_OUTPUT_HEIGHT;
+  const maxFromPane = paneHeight - minOutputHeight;
 
   return Math.max(4, Math.min(contentHeight, maxFromTerminal, maxFromPane));
 }
@@ -60,9 +67,11 @@ export const OutputPane = memo(function OutputPane({
   // Output is pre-stripped of ANSI codes in the event handler for minimal render-path latency.
 
   const { height: terminalHeight } = useTerminalDimensions();
+  const outputIsEmpty = output.trim().length === 0 || output === "No output recorded";
+  const minOutputHeight = outputIsEmpty && !isThinking ? MIN_EMPTY_OUTPUT_HEIGHT : MIN_OUTPUT_HEIGHT;
   const headerHeight = useMemo(
-    () => (task ? calcHeaderHeight(task, width, terminalHeight, height) : 0),
-    [task, width, terminalHeight, height],
+    () => (task ? calcHeaderHeight(task, width, terminalHeight, height, minOutputHeight) : 0),
+    [task, width, terminalHeight, height, minOutputHeight],
   );
   const waiting = isThinking && !output;
 
