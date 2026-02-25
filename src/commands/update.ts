@@ -36,9 +36,12 @@ async function downloadAndInstall(
   let received = 0;
 
   const chunks: Uint8Array[] = [];
-  for await (const chunk of res.body) {
-    chunks.push(chunk);
-    received += chunk.length;
+  const reader = res.body.getReader();
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    chunks.push(value);
+    received += value.length;
     onProgress?.(received, total);
   }
 
