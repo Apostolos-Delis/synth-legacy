@@ -1,5 +1,6 @@
 import type { AgentAdapter, AgentToolEvent } from "../agents/types.js";
 import type { ConversationMessage } from "./types.js";
+import { getLogger } from "../logging/logger.js";
 
 export interface ConversationEngineConfig {
   agent: AgentAdapter;
@@ -85,6 +86,16 @@ export class ConversationEngine {
     }
     if (result.exitCode !== 0) {
       throw new Error(`Agent exited with code ${result.exitCode}: ${result.stderr}`);
+    }
+    if (!result.stdout.trim()) {
+      if (this.agent.name === "claude") {
+        getLogger().error("agent:empty-response", "Agent returned empty response", {
+          agent: this.agent.name,
+          rawStdout: result.rawStdout ?? result.stdout,
+          stderr: result.stderr,
+        });
+      }
+      throw new Error("Agent returned empty response");
     }
     return result.stdout;
   }

@@ -49,6 +49,7 @@ export abstract class BaseAgentAdapter implements AgentAdapter {
       cmd,
       cwd: options.cwd,
       timeout: options.timeout,
+      stdin: options.stdin,
       onStdout: options.onStdout,
       onStderr: options.onStderr,
     });

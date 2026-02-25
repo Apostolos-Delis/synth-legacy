@@ -5,6 +5,7 @@ export interface SpawnOptions {
   cwd?: string;
   env?: Record<string, string>;
   timeout?: number;
+  stdin?: string;
   onStdout?: (chunk: string) => void;
   onStderr?: (chunk: string) => void;
 }
@@ -32,12 +33,13 @@ export interface SpawnHandle {
 }
 
 export function spawn(options: SpawnOptions): SpawnHandle {
-  const { cmd, cwd, env, timeout, onStdout, onStderr } = options;
+  const { cmd, cwd, env, timeout, stdin, onStdout, onStderr } = options;
 
   const spawnStart = performance.now();
   const proc = Bun.spawn(cmd, {
     cwd,
     env: { ...process.env, ...env },
+    stdin: stdin !== undefined ? "pipe" : "inherit",
     stdout: "pipe",
     stderr: "pipe",
   });
@@ -47,6 +49,18 @@ export function spawn(options: SpawnOptions): SpawnHandle {
   let timeoutId: ReturnType<typeof setTimeout> | undefined;
   let firstStdoutMs: number | null = null;
   let firstStderrMs: number | null = null;
+
+  if (stdin !== undefined) {
+    try {
+      const writer = proc.stdin?.getWriter();
+      if (writer) {
+        const encoder = new TextEncoder();
+        writer.write(encoder.encode(stdin));
+        writer.close();
+      }
+    } catch {
+    }
+  }
 
   const promise = (async (): Promise<SpawnResult> => {
     const stdoutChunks: string[] = [];

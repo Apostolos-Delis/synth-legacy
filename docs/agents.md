@@ -88,15 +88,20 @@ claude -p <prompt> --verbose --output-format stream-json [--dangerously-skip-per
 **Execution command**:
 
 ```
-codex --quiet --approval-mode full-auto <prompt>
+codex exec --json [--full-auto] [--model <model>] --sandbox <mode> -
 ```
 
 | Flag | Purpose |
 |------|---------|
-| `--quiet` | Minimal output |
-| `--approval-mode full-auto` | No interactive approval prompts |
+| `exec` | Non-interactive execution mode |
+| `--json` | Structured output for streaming/tool parsing |
+| `--full-auto` | No interactive approval prompts (used for write-enabled runs) |
+| `--model <model>` | Select OpenAI model (optional) |
+| `--sandbox <mode>` | `read-only` or `workspace-write` depending on run mode |
+| `-a on-request` | Used for read-only runs where `--full-auto` is not allowed |
+| `-` | Read prompt from stdin |
 
-**Stream handling**: Codex output is plain text — stdout and stderr are passed through directly without JSON parsing.
+**Stream handling**: Codex JSONL output is parsed into text/tool events for streaming.
 
 ## Agent Registry
 

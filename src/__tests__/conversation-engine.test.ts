@@ -299,7 +299,7 @@ describe("ConversationEngine", () => {
       expect(persist).toHaveBeenCalledTimes(0);
     });
 
-    test("agent returning empty output is stored as-is", async () => {
+    test("agent returning empty output throws and does not append assistant message", async () => {
       const agent: AgentAdapter = {
         name: "silent-agent",
         detect: async () => ({ available: true }),
@@ -317,13 +317,8 @@ describe("ConversationEngine", () => {
       };
 
       const engine = makeEngine({ agent });
-      const result = await engine.send("hello");
-
-      expect(result).toBe("");
-      expect(engine.getHistory()).toEqual([
-        { role: "user", content: "hello" },
-        { role: "assistant", content: "" },
-      ]);
+      await expect(engine.send("hello")).rejects.toThrow("Agent returned empty response");
+      expect(engine.getHistory()).toEqual([{ role: "user", content: "hello" }]);
     });
 
     test("onChunk receives streamed output", async () => {

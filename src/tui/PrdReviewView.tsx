@@ -4,6 +4,7 @@ import type { TextareaRenderable } from "@opentui/core";
 import type { AgentAdapter } from "../agents/types.js";
 import { boldAttr, colors, markdownSyntaxStyle } from "./theme.js";
 import { PhaseIndicator } from "./components/PhaseIndicator.js";
+import { AgentStreamingBody } from "./components/AgentStreamingBody.js";
 import { ToastContainer } from "./components/Toast.js";
 import { useToast } from "./hooks/useToast.js";
 import { openInEditor } from "../utils/editor.js";
@@ -11,7 +12,8 @@ import { isAffirmative } from "../utils/text.js";
 import { useDestroyedRef } from "./hooks/useDestroyedRef.js";
 import { useSyncLineCount } from "./hooks/useSyncLineCount.js";
 import { calcInputSizing } from "./hooks/useInputSizing.js";
-import { formatToolEvent } from "../utils/tool-format.js";
+import { useAgentStreaming } from "./hooks/useAgentStreaming.js";
+import { useExitConfirm } from "./hooks/useExitConfirm.js";
 
 interface PrdReviewViewProps {
   prdMarkdown: string;
@@ -35,7 +37,14 @@ export function PrdReviewView({
   const [prdContent, setPrdContent] = useState(prdMarkdown);
   const [isLoading, setIsLoading] = useState(false);
   const [loadingStartTime, setLoadingStartTime] = useState(0);
-  const [streamingText, setStreamingText] = useState("");
+  const {
+    streamingText,
+    toolEvents,
+    hasStreaming,
+    appendChunk,
+    appendTool,
+    reset: resetStreaming,
+  } = useAgentStreaming();
   const [revision, setRevision] = useState(0);
   const textareaRef = useRef<TextareaRenderable>(null);
   const { height: termHeight } = useTerminalDimensions();
@@ -45,6 +54,7 @@ export function PrdReviewView({
   const { toasts, showError } = useToast();
   const destroyedRef = useDestroyedRef();
   const { inputLineCount, setInputLineCount, syncLineCount } = useSyncLineCount(textareaRef, destroyedRef);
+  const { exitArmed, requestQuit } = useExitConfirm();
 
   const handleSubmit = useCallback(async () => {
     if (isLoading) return;
@@ -65,14 +75,14 @@ export function PrdReviewView({
     setIsLoading(true);
     const startTime = Date.now();
     setLoadingStartTime(startTime);
-    setStreamingText("");
+    resetStreaming();
 
     const prompt = buildRevisionPrompt(prdContent, value);
 
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
         let output = "";
-        if (attempt > 0 && !destroyedRef.current) setStreamingText("");
+        if (attempt > 0 && !destroyedRef.current) resetStreaming();
         const handle = agent.execute(prompt, {
           cwd,
           model,
@@ -80,16 +90,11 @@ export function PrdReviewView({
           skipPermissions: false,
           onStdout: (chunk) => {
             output += chunk;
-            if (!destroyedRef.current) setStreamingText((prev) => prev + chunk);
+            if (!destroyedRef.current) appendChunk(chunk);
           },
           onTool: showToolLogs
             ? (event) => {
-              if (!destroyedRef.current) {
-                setStreamingText((prev) => {
-                  const prefix = prev ? "\n" : "";
-                  return `${prev}${prefix}${formatToolEvent(event)}\n`;
-                });
-              }
+              if (!destroyedRef.current) appendTool(event);
             }
             : undefined,
         });
@@ -106,7 +111,7 @@ export function PrdReviewView({
           const revisedPrd = extractMarkdownPrd(output) || output;
           setPrdContent(revisedPrd);
           setRevision((r) => r + 1);
-          setStreamingText("");
+          resetStreaming();
           setIsLoading(false);
         }
         return;
@@ -122,10 +127,10 @@ export function PrdReviewView({
 
     if (!destroyedRef.current) {
       showError("Revision failed — try again or edit manually", { duration: 5000 });
-      setStreamingText("");
+      resetStreaming();
       setIsLoading(false);
     }
-  }, [isLoading, prdContent, agent, cwd, model, showError, onApprove]);
+  }, [isLoading, prdContent, agent, cwd, model, showToolLogs, showError, onApprove, appendChunk, appendTool, resetStreaming]);
 
   useKeyboard(useCallback((key: { name: string; shift?: boolean; ctrl?: boolean; meta?: boolean; option?: boolean; preventDefault?: () => void }) => {
     const textarea = textareaRef.current;
@@ -150,11 +155,11 @@ export function PrdReviewView({
 
     // Escape or Ctrl+C to quit
     if (key.name === "escape") {
-      onQuit();
+      if (requestQuit()) onQuit();
       return;
     }
     if (key.name === "c" && key.ctrl) {
-      onQuit();
+      if (requestQuit()) onQuit();
       return;
     }
 
@@ -229,7 +234,7 @@ export function PrdReviewView({
       if (key.name === "up") { key.preventDefault?.(); textarea.moveCursorUp({ select: true }); return; }
       if (key.name === "down") { key.preventDefault?.(); textarea.moveCursorDown({ select: true }); return; }
     }
-  }, [handleSubmit, onQuit, isLoading, syncLineCount, renderer]));
+  }, [handleSubmit, onQuit, isLoading, syncLineCount, renderer, requestQuit]));
 
   const { inputHeight, textareaHeight } = calcInputSizing(termHeight, inputLineCount);
   const headerHeight = 3;
@@ -274,10 +279,11 @@ export function PrdReviewView({
         }}
       >
         <scrollbox height={scrollHeight} stickyScroll={true} stickyStart="top">
-          {isLoading && streamingText ? (
-            <box style={{ paddingLeft: 2 }}>
-              <markdown content={streamingText} syntaxStyle={markdownSyntaxStyle()} streaming={true} />
-            </box>
+          {isLoading && hasStreaming ? (
+            <AgentStreamingBody
+              streamingText={streamingText}
+              toolEvents={toolEvents}
+            />
           ) : (
             <markdown content={prdContent} syntaxStyle={markdownSyntaxStyle()} />
           )}
@@ -285,7 +291,7 @@ export function PrdReviewView({
       </box>
 
       {/* Input area */}
-      {isLoading && !streamingText ? (
+      {isLoading && !hasStreaming ? (
         <box
           style={{
             width: "100%",
@@ -300,7 +306,7 @@ export function PrdReviewView({
         >
           <PhaseIndicator phase="Revising PRD..." startTime={loadingStartTime} />
         </box>
-      ) : isLoading && streamingText ? (
+      ) : isLoading && hasStreaming ? (
         <box
           style={{
             width: "100%",
@@ -361,7 +367,9 @@ export function PrdReviewView({
           paddingRight: 2,
         }}
       >
-        {isLoading ? (
+        {exitArmed ? (
+          <text fg={colors.status.warning}>Press Esc again to quit</text>
+        ) : isLoading ? (
           <text fg={colors.fg.muted}>Esc:cancel</text>
         ) : (
           <text fg={colors.fg.muted}>Enter:approve  Type feedback to revise  Ctrl+G:editor  Esc:quit</text>

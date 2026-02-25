@@ -6,14 +6,16 @@ import type { AgentToolEvent } from "../agents/types.js";
 import { WELCOME_MESSAGE } from "../interview/interviewer.js";
 import { boldAttr, colors, markdownSyntaxStyle } from "./theme.js";
 import { PhaseIndicator } from "./components/PhaseIndicator.js";
+import { AgentStreamingBubble } from "./components/AgentStreamingBubble.js";
 import { openInEditor } from "../utils/editor.js";
 import { copyToClipboard } from "../utils/clipboard.js";
 import { formatDuration } from "../utils/format.js";
-import { formatToolEvent } from "../utils/tool-format.js";
 
 import { useDestroyedRef } from "./hooks/useDestroyedRef.js";
 import { useSyncLineCount } from "./hooks/useSyncLineCount.js";
 import { calcInputSizing } from "./hooks/useInputSizing.js";
+import { useAgentStreaming } from "./hooks/useAgentStreaming.js";
+import { useExitConfirm } from "./hooks/useExitConfirm.js";
 
 interface InterviewAppProps {
   onSendMessage: (msg: string, onChunk: (chunk: string) => void, onTool?: (event: AgentToolEvent) => void) => Promise<{ response: string; done: boolean }>;
@@ -47,7 +49,14 @@ export function InterviewApp({ onSendMessage, onComplete, onQuit, initialMessage
   );
   const [isLoading, setIsLoading] = useState(false);
   const [loadingStartTime, setLoadingStartTime] = useState(0);
-  const [streamingText, setStreamingText] = useState("");
+  const {
+    streamingText,
+    toolEvents,
+    hasStreaming,
+    appendChunk,
+    appendTool,
+    reset: resetStreaming,
+  } = useAgentStreaming();
 
   const textareaRef = useRef<TextareaRenderable>(null);
   const { height: termHeight } = useTerminalDimensions();
@@ -56,6 +65,7 @@ export function InterviewApp({ onSendMessage, onComplete, onQuit, initialMessage
 
   const destroyedRef = useDestroyedRef();
   const { inputLineCount, setInputLineCount, syncLineCount } = useSyncLineCount(textareaRef, destroyedRef);
+  const { exitArmed, requestQuit } = useExitConfirm();
 
   const handleSubmit = useCallback(async () => {
     if (isLoading) return;
@@ -80,22 +90,11 @@ export function InterviewApp({ onSendMessage, onComplete, onQuit, initialMessage
     setIsLoading(true);
     const startTime = Date.now();
     setLoadingStartTime(startTime);
-    setStreamingText("");
+    resetStreaming();
 
     try {
-      const { response, done } = await onSendMessage(
-        value,
-        (chunk) => {
-          setStreamingText((prev) => prev + chunk);
-        },
-        (event) => {
-          setStreamingText((prev) => {
-            const prefix = prev ? "\n" : "";
-            return `${prev}${prefix}${formatToolEvent(event)}\n`;
-          });
-        },
-      );
-      setStreamingText("");
+      const { response, done } = await onSendMessage(value, appendChunk, appendTool);
+      resetStreaming();
       const elapsed = Date.now() - startTime;
       const durationLabel = elapsed > 0 ? `\n\n_Generated in ${formatDuration(elapsed)}_` : "";
       const assistantMsg: InterviewMessage = { role: "assistant", content: `${response}${durationLabel}` };
@@ -107,7 +106,7 @@ export function InterviewApp({ onSendMessage, onComplete, onQuit, initialMessage
         return;
       }
     } catch (err) {
-      setStreamingText("");
+      resetStreaming();
       setMessages((prev) => [
         ...prev,
         { role: "assistant", content: `Error: ${err instanceof Error ? err.message : "Agent failed to respond"}` },
@@ -162,11 +161,11 @@ export function InterviewApp({ onSendMessage, onComplete, onQuit, initialMessage
 
     // Escape or Ctrl+C to quit
     if (key.name === "escape") {
-      onQuit();
+      if (requestQuit()) onQuit();
       return;
     }
     if (key.name === "c" && key.ctrl) {
-      onQuit();
+      if (requestQuit()) onQuit();
       return;
     }
 
@@ -266,7 +265,7 @@ export function InterviewApp({ onSendMessage, onComplete, onQuit, initialMessage
         return;
       }
     }
-  }, [handleSubmit, onComplete, onQuit, isLoading, syncLineCount, renderer, messages]));
+  }, [handleSubmit, onComplete, onQuit, isLoading, syncLineCount, renderer, messages, requestQuit]));
 
   const { inputHeight, textareaHeight } = calcInputSizing(termHeight, inputLineCount);
   const headerHeight = 3;
@@ -314,24 +313,13 @@ export function InterviewApp({ onSendMessage, onComplete, onQuit, initialMessage
           {messages.map((msg, i) => (
             <MessageBubble key={i} message={msg} />
           ))}
-          {isLoading && (
-            <box style={{ width: "100%", flexDirection: "column", marginBottom: 1 }}>
-              <box style={{ flexDirection: "row", gap: 1 }}>
-                <text fg={colors.accent.secondary} attributes={boldAttr()}>Synth</text>
-                {!streamingText && (
-                  <PhaseIndicator
-                    phase="Generating response..."
-                    startTime={loadingStartTime}
-                  />
-                )}
-              </box>
-              {streamingText && (
-                <box style={{ paddingLeft: 2 }}>
-                  <markdown content={streamingText} syntaxStyle={markdownSyntaxStyle()} streaming={true} />
-                </box>
-              )}
-            </box>
-          )}
+          <AgentStreamingBubble
+            isLoading={isLoading}
+            loadingStartTime={loadingStartTime}
+            streamingText={streamingText}
+            toolEvents={toolEvents}
+            phaseLabel="Generating response..."
+          />
 
 
         </scrollbox>
@@ -383,13 +371,15 @@ export function InterviewApp({ onSendMessage, onComplete, onQuit, initialMessage
           paddingRight: 2,
         }}
       >
-        {isLoading ? (
+        {exitArmed ? (
+          <text fg={colors.status.warning}>Press Esc again to quit</text>
+        ) : isLoading ? (
           <PhaseIndicator
-            phase={streamingText ? "Streaming response..." : "Generating response..."}
+            phase={hasStreaming ? "Streaming response..." : "Generating response..."}
             startTime={loadingStartTime}
           />
         ) : (
-          <text fg={colors.fg.muted}>Enter:send  Shift+Enter:newline  Ctrl+G:editor  Ctrl+W:del word  Esc:quit</text>
+          <text fg={colors.fg.muted}>Enter:send  Shift+Enter:newline  Ctrl+E:proceed  Ctrl+G:editor  Ctrl+W:del word  Esc:quit</text>
         )}
       </box>
     </box>

@@ -5,7 +5,7 @@ import type { SessionMetadata, SessionPaths } from "./types.js";
 import { generateSessionId } from "./id.js";
 import { ensureDir, fileExists, dirExists, readJson, writeJson } from "../utils/fs.js";
 import { spawn } from "../utils/process.js";
-import { getLogger } from "../logging/logger.js";
+import { getLogger, initLogger } from "../logging/logger.js";
 
 const SYNTH_HOME = join(homedir(), ".synth");
 const LEGACY_PLANS_DIR = join(SYNTH_HOME, "plans");
@@ -157,6 +157,7 @@ export async function createSession(
 
   await ensureDir(paths.root);
   await ensureDir(paths.logs);
+  initLogger(paths.sessionLog);
 
   const now = new Date().toISOString();
   const metadata: SessionMetadata = {
@@ -193,6 +194,7 @@ export async function getSession(
   if (!(await fileExists(metaPath))) return null;
 
   const metadata = await readJson<SessionMetadata>(metaPath);
+  initLogger(paths.sessionLog);
   return { paths, metadata };
 }
 

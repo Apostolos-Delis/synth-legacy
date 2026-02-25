@@ -30,6 +30,7 @@ export interface AgentExecuteOptions {
   model?: string;
   skipPermissions?: boolean;
   readOnly?: boolean;
+  stdin?: string;
   onStdout?: (chunk: string) => void;
   onStderr?: (chunk: string) => void;
   onTool?: (event: AgentToolEvent) => void;

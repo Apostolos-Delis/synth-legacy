@@ -38,20 +38,31 @@ describe("buildCodexCmd", () => {
     expect(cmd).toContain("--sandbox");
     const idx = cmd.indexOf("--sandbox");
     expect(cmd[idx + 1]).toBe("read-only");
+    expect(cmd).toContain("-a");
+    expect(cmd).toContain("on-request");
+    expect(cmd).not.toContain("--full-auto");
   });
 
-  test("omits --sandbox when readOnly is false", () => {
+  test("uses workspace-write sandbox when readOnly is false", () => {
     const cmd = buildCodexCmd("test prompt", { readOnly: false });
-    expect(cmd).not.toContain("--sandbox");
+    expect(cmd).toContain("--sandbox");
+    const idx = cmd.indexOf("--sandbox");
+    expect(cmd[idx + 1]).toBe("workspace-write");
+    expect(cmd).toContain("--full-auto");
+    expect(cmd).not.toContain("-a");
   });
 
-  test("omits --sandbox when readOnly is not set", () => {
+  test("uses workspace-write sandbox when readOnly is not set", () => {
     const cmd = buildCodexCmd("test prompt", {});
-    expect(cmd).not.toContain("--sandbox");
+    expect(cmd).toContain("--sandbox");
+    const idx = cmd.indexOf("--sandbox");
+    expect(cmd[idx + 1]).toBe("workspace-write");
+    expect(cmd).toContain("--full-auto");
   });
 
-  test("prompt is always the last argument", () => {
+  test("stdin sentinel is always the last argument", () => {
     const cmd = buildCodexCmd("my prompt", { readOnly: true });
-    expect(cmd[cmd.length - 1]).toBe("my prompt");
+    expect(cmd[cmd.length - 1]).toBe("-");
+    expect(cmd).not.toContain("my prompt");
   });
 });

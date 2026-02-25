@@ -66,6 +66,7 @@ function extractTextBlocks(content: unknown): string[] {
 }
 
 function extractTextFromRecord(record: Record<string, unknown>): string[] {
+  if (typeof record.result === "string") return [record.result];
   const candidates = [
     record.content,
     (record.message as { content?: unknown } | undefined)?.content,
@@ -201,6 +202,66 @@ class ClaudeStreamParser {
           this.emitToolResult(toolState);
         }
         return;
+      }
+      return;
+    }
+
+    if (type === "assistant") {
+      const message = record.message as Record<string, unknown> | undefined;
+      const content = message?.content;
+      if (Array.isArray(content)) {
+        for (const item of content) {
+          if (!item || typeof item !== "object") continue;
+          const block = item as Record<string, unknown>;
+          const blockType = block.type;
+          if (blockType === "text") {
+            if (this.sawTextDelta) continue;
+            const text = (block as { text?: unknown }).text;
+            if (typeof text === "string") this.appendText(text);
+            continue;
+          }
+          if (blockType === "thinking") {
+            const thinking = (block as { thinking?: unknown }).thinking;
+            if (typeof thinking === "string" && thinking.trim()) {
+              this.callbacks.onTool?.({ kind: "use", name: "thinking", input: thinking });
+            }
+            continue;
+          }
+          if (blockType === "tool_use") {
+            const id = typeof block.id === "string" ? block.id : `tool-${this.toolUsesById.size + 1}`;
+            const name = typeof block.name === "string" ? block.name : "tool";
+            const toolState: ToolUseState = {
+              id,
+              name,
+              inputValue: "input" in block ? block.input : undefined,
+              inputText: "",
+              emitted: false,
+            };
+            if (!this.toolUsesById.has(id)) {
+              this.toolUsesById.set(id, toolState);
+            }
+            this.emitToolUse(toolState);
+            continue;
+          }
+          if (blockType === "tool_result") {
+            const id =
+              (typeof block.tool_use_id === "string" && block.tool_use_id) ||
+              (typeof block.id === "string" && block.id) ||
+              `tool-${this.toolResultsByIndex.size + 1}`;
+            const name = typeof block.name === "string"
+              ? block.name
+              : (this.toolUsesById.get(id)?.name ?? "tool");
+            const toolState: ToolResultState = {
+              id,
+              name,
+              outputValue: extractToolOutput(block),
+              outputText: "",
+              emitted: false,
+            };
+            this.emitToolResult(toolState);
+            continue;
+          }
+        }
       }
       return;
     }

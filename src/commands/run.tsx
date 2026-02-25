@@ -15,6 +15,8 @@ import { formatToolEvent } from "../utils/tool-format.js";
 import type { TuiEngineData, TuiContext, CompletionSummary } from "../tui/types.js";
 import type { FinalizeUiOptions } from "./finalize.js";
 import type { BackgroundAuditController, BackgroundAuditState, BackgroundAuditStatus } from "../finalize/chat-types.js";
+import { createEngineLogBridge } from "../logging/engine-bridge.js";
+import { getLogger } from "../logging/logger.js";
 import {
   applyTaskStatus,
   resetTaskOutput,
@@ -100,6 +102,7 @@ export async function cmdRun(
 
   const config = await applyTheme(cwd);
   const showToolLogs = config.tui?.show_tool_logs !== false;
+  const logger = getLogger();
 
   // Apply parallel default from config if not explicitly set via CLI flags
   if (!ctx.parallelMode && parallelWorkers === undefined) {
@@ -120,6 +123,12 @@ export async function cmdRun(
     logError("No session found. Run 'synth start' first.");
     process.exit(1);
   }
+
+  logger.info("run:start", "Run started", {
+    sessionId: plan.metadata.id,
+    startIteration,
+    parallelMode,
+  });
 
   if (!(await import("../utils/fs.js").then((m) => m.fileExists(plan!.paths.tasks)))) {
     logError(`Session ${plan.metadata.id} has no tasks. Run 'synth start' to generate them.`);
@@ -388,6 +397,7 @@ export async function cmdRun(
       }
 
       try {
+        logger.info("parallel:run-start", "Parallel execution started", { sessionId: plan.metadata.id });
         const result = await coordinator.run();
         if (!tuiEnabled) {
           log(
@@ -396,6 +406,10 @@ export async function cmdRun(
             ),
           );
         }
+        logger.info("parallel:run-complete", "Parallel execution completed", {
+          merged: result.mergedTaskIds.length,
+          failed: result.failedTaskIds.length,
+        });
         finalState = result.failedTaskIds.length > 0 || result.error ? "paused" : "completed";
       } finally {
         parallelDestroyed = true;
@@ -406,6 +420,7 @@ export async function cmdRun(
 
   if (!usedParallel) {
     engine = new EngineClass(config, agent, fallbackAgent, plan.paths, cwd);
+    engine.on(createEngineLogBridge(logger));
     stopExecution = () => engine!.stop();
 
     if (tuiEnabled) {

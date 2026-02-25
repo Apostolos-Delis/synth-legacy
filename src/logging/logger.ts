@@ -66,11 +66,23 @@ export class Logger {
       }
       await appendFile(this.path, line);
     };
-    this.writeChain = this.writeChain.then(write).catch((err: unknown) => {
-      process.stderr.write(
-        `[synth-logger] write error: ${err instanceof Error ? err.message : String(err)}\n`,
-      );
-    });
+    this.writeChain = this.writeChain
+      .then(write)
+      .catch(async (err: unknown) => {
+        if (!this.dirEnsured) {
+          try {
+            await mkdir(dirname(this.path), { recursive: true });
+            this.dirEnsured = true;
+            await appendFile(this.path, line);
+            return;
+          } catch {
+            // fall through to stderr logging
+          }
+        }
+        process.stderr.write(
+          `[synth-logger] write error: ${err instanceof Error ? err.message : String(err)}\n`,
+        );
+      });
   }
 }
 

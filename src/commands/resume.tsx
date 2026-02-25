@@ -15,6 +15,7 @@ import type { TuiContext, TuiEngineData, CompletionSummary } from "../tui/types.
 import type { BackgroundAuditController, BackgroundAuditState, BackgroundAuditStatus, FinalizeMessage, OrchestratorState } from "../finalize/chat-types.js";
 import { spawn } from "../utils/process.js";
 import { formatToolEvent } from "../utils/tool-format.js";
+import { getLogger } from "../logging/logger.js";
 
 import {
   log,
@@ -102,6 +103,7 @@ async function resumeInterview(
 ): Promise<void> {
   const config = await applyTheme(cwd);
   const showToolLogs = config.tui?.show_tool_logs !== false;
+  const logger = getLogger();
 
   const [{ getAgent }, interviewMod, { generateTasks }] = await Promise.all([
     loadAgentRegistry(),
@@ -145,15 +147,29 @@ async function resumeInterview(
     process.on("SIGINT", sigintHandler);
 
     // Resume interview with saved messages
+    logger.info("interview:resume", "Interview resumed", { sessionId: id });
     const interviewResult = await new Promise<boolean>((resolve) => {
       planRoot.render(
         <tui.InterviewApp
           initialMessages={savedState.interviewerHistory}
           onSendMessage={async (msg, onChunk, onTool) => {
-            const response = await interviewer.respond(msg, onChunk, showToolLogs ? onTool : undefined);
-            const extractedMd = interviewer.extractPrdMarkdown(response);
-            if (extractedMd) prdMarkdown = extractedMd;
-            return { response, done: !!extractedMd };
+            logger.info("interview:prompt", "User message", { length: msg.length });
+            try {
+              const response = await interviewer.respond(msg, onChunk, showToolLogs ? onTool : undefined);
+              logger.info("interview:response", "Assistant response", { length: response.length });
+              if (!response.trim()) {
+                logger.warn("interview:empty-response", "Assistant returned empty response");
+              }
+              const extractedMd = interviewer.extractPrdMarkdown(response);
+              if (extractedMd) {
+                prdMarkdown = extractedMd;
+                logger.info("prd:extracted", "PRD detected in interview response", { length: extractedMd.length });
+              }
+              return { response, done: !!extractedMd };
+            } catch (err) {
+              logger.error("interview:error", "Interview failed", { error: err instanceof Error ? err.message : String(err) });
+              throw err;
+            }
           }}
           onComplete={() => resolve(true)}
           onQuit={() => resolve(false)}
@@ -162,6 +178,7 @@ async function resumeInterview(
     });
 
     if (!interviewResult) {
+      logger.info("interview:quit", "Interview quit", { sessionId: id });
       process.off("SIGINT", sigintHandler);
       cleanup();
       agent.dispose();
@@ -169,6 +186,7 @@ async function resumeInterview(
     }
 
     if (!prdMarkdown) {
+      logger.warn("prd:missing", "No PRD extracted from interview");
       process.off("SIGINT", sigintHandler);
       cleanup();
       agent.dispose();
@@ -178,6 +196,7 @@ async function resumeInterview(
     // Phase 2: PRD Review (same flow as cmdPlan)
     const taskPrefix = await setSessionSlugAndPrefix(cwd, id, interviewMod.extractPrdTitle(prdMarkdown));
 
+    logger.info("prd:review-start", "PRD review started", { sessionId: id });
     let approvedPrdContent: string | null = null;
     const prdApproved = await new Promise<boolean>((resolve) => {
       planRoot.render(
@@ -189,14 +208,19 @@ async function resumeInterview(
           showToolLogs={showToolLogs}
           onApprove={(finalizedPrd) => {
             approvedPrdContent = finalizedPrd;
+            logger.info("prd:approved", "PRD approved", { length: finalizedPrd.length });
             resolve(true);
           }}
-          onQuit={() => resolve(false)}
+          onQuit={() => {
+            logger.info("prd:review-quit", "PRD review quit", { sessionId: id });
+            resolve(false);
+          }}
         />,
       );
     });
 
     if (!prdApproved || !approvedPrdContent) {
+      logger.info("prd:review-cancelled", "PRD review cancelled", { sessionId: id });
       process.off("SIGINT", sigintHandler);
       cleanup();
       agent.dispose();
@@ -214,6 +238,7 @@ async function resumeInterview(
     planRoot.render(<tui.GeneratingView output={streamOutput} phaseStartTime={phaseStartTime} />);
 
     let taskFile;
+    logger.info("tasks:generate-start", "Generating tasks from PRD", { sessionId: id });
     try {
       taskFile = await generateTasks(
         agent, paths.prd, config.project.name, config.project.branch || `synth/${id}`, cwd,
@@ -235,11 +260,13 @@ async function resumeInterview(
         },
       );
     } catch (err) {
+      logger.error("tasks:generate-error", "Task generation failed", { error: err instanceof Error ? err.message : String(err) });
       process.off("SIGINT", sigintHandler);
       cleanup();
       agent.dispose();
       throw err;
     }
+    logger.info("tasks:generate-complete", "Task generation complete", { count: taskFile.tasks.length });
 
     await saveTasks(paths.tasks, taskFile);
     await writeText(paths.progress, "## Codebase Patterns\n\n---\n\n");
@@ -254,8 +281,14 @@ async function resumeInterview(
         <tui.ReviewView
           tasks={taskFile.tasks}
           sessionId={id}
-          onConfirm={() => resolve(true)}
-          onDecline={() => resolve(false)}
+          onConfirm={() => {
+            logger.info("tasks:review-confirmed", "Task review confirmed", { sessionId: id });
+            resolve(true);
+          }}
+          onDecline={() => {
+            logger.info("tasks:review-declined", "Task review declined", { sessionId: id });
+            resolve(false);
+          }}
         />,
       );
     });
@@ -263,6 +296,7 @@ async function resumeInterview(
     process.off("SIGINT", sigintHandler);
 
     if (!confirmed) {
+      logger.info("tasks:review-cancelled", "Task review cancelled", { sessionId: id });
       cleanup();
       agent.dispose();
       log(`\nSession saved. Resume later with: ${fmt.bold(`synth resume ${id}`)}`);
@@ -286,6 +320,7 @@ async function resumeInterview(
 
     log(`${ansi.magenta}Synth:${ansi.reset}`);
     log("Continuing the interview from where we left off. What else would you like to add?\n");
+    logger.info("interview:resume", "Interview resumed", { sessionId: id });
 
     const readline = await import("node:readline");
     const askQuestion = (): Promise<string | null> => {
@@ -305,14 +340,23 @@ async function resumeInterview(
     while (!prdMarkdown) {
       const userInput = await askQuestion();
       if (userInput === null) {
+        logger.info("interview:quit", "Interview quit", { sessionId: id });
         agent.dispose();
         return;
       }
 
+      logger.info("interview:prompt", "User message", { length: userInput.length });
       const response = await interviewer.respond(userInput);
+      logger.info("interview:response", "Assistant response", { length: response.length });
+      if (!response.trim()) {
+        logger.warn("interview:empty-response", "Assistant returned empty response");
+      }
       log(`\n${ansi.magenta}Synth:${ansi.reset}`);
       log(response);
       prdMarkdown = interviewer.extractPrdMarkdown(response);
+      if (prdMarkdown) {
+        logger.info("prd:extracted", "PRD detected in interview response", { length: prdMarkdown.length });
+      }
 
       if (prdMarkdown) {
         log(`\n${ansi.primary}Does this all look good? Press Enter to generate the PRD, or type feedback to refine.${ansi.reset}`);
@@ -323,30 +367,47 @@ async function resumeInterview(
         }
         if (confirmation.trim()) {
           prdMarkdown = null;
+          logger.info("interview:prompt", "User message", { length: confirmation.length });
           const refinement = await interviewer.respond(confirmation);
+          logger.info("interview:response", "Assistant response", { length: refinement.length });
+          if (!refinement.trim()) {
+            logger.warn("interview:empty-response", "Assistant returned empty response");
+          }
           log(`\n${ansi.magenta}Synth:${ansi.reset}`);
           log(refinement);
           prdMarkdown = interviewer.extractPrdMarkdown(refinement);
+          if (prdMarkdown) {
+            logger.info("prd:extracted", "PRD detected in interview response", { length: prdMarkdown.length });
+          }
         }
       }
     }
 
     // Continue with task generation
+    logger.info("prd:approved", "PRD confirmed", { length: prdMarkdown.length });
     await writeText(paths.prd, prdMarkdown);
     const taskPrefix = await setSessionSlugAndPrefix(cwd, id, interviewMod.extractPrdTitle(prdMarkdown));
 
     logSuccess(`PRD saved to ${paths.prd}`);
 
     log("Generating tasks...\n");
-    const taskFile = await generateTasks(agent, paths.prd, config.project.name, config.project.branch || `synth/${id}`, cwd, {
-      model: config.agent.model,
-      taskPrefix,
-      onTool: showToolLogs
-        ? (event) => {
-          log(formatToolEvent(event));
-        }
-        : undefined,
-    });
+    logger.info("tasks:generate-start", "Generating tasks from PRD", { sessionId: id });
+    let taskFile;
+    try {
+      taskFile = await generateTasks(agent, paths.prd, config.project.name, config.project.branch || `synth/${id}`, cwd, {
+        model: config.agent.model,
+        taskPrefix,
+        onTool: showToolLogs
+          ? (event) => {
+            log(formatToolEvent(event));
+          }
+          : undefined,
+      });
+    } catch (err) {
+      logger.error("tasks:generate-error", "Task generation failed", { error: err instanceof Error ? err.message : String(err) });
+      throw err;
+    }
+    logger.info("tasks:generate-complete", "Task generation complete", { count: taskFile.tasks.length });
 
     await saveTasks(paths.tasks, taskFile);
     await writeText(paths.progress, "## Codebase Patterns\n\n---\n\n");
@@ -370,8 +431,10 @@ async function resumeInterview(
     agent.dispose();
 
     if (!answer || answer.toLowerCase() === "y" || answer.toLowerCase() === "yes") {
+      logger.info("run:auto-start", "Execution requested", { sessionId: id });
       await localCmdRun(id);
     } else {
+      logger.info("run:deferred", "Execution deferred", { sessionId: id });
       log(`\nSession saved. Resume later with: ${fmt.bold(`synth resume ${id}`)}`);
     }
   }

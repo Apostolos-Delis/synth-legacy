@@ -8,11 +8,13 @@ import type { SynthConfig } from "../config/types.js";
 import type { SessionPaths } from "../sessions/types.js";
 import { boldAttr, colors, markdownSyntaxStyle } from "./theme.js";
 import { PhaseIndicator } from "./components/PhaseIndicator.js";
+import { AgentStreamingBubble } from "./components/AgentStreamingBubble.js";
 import { OptionSelector } from "./components/OptionSelector.js";
 import { openInEditor } from "../utils/editor.js";
 import { copyToClipboard } from "../utils/clipboard.js";
 import { readText, fileExists } from "../utils/fs.js";
-import { formatToolEvent } from "../utils/tool-format.js";
+import { useAgentStreaming } from "./hooks/useAgentStreaming.js";
+import { useExitConfirm } from "./hooks/useExitConfirm.js";
 import { useDestroyedRef } from "./hooks/useDestroyedRef.js";
 import { useSyncLineCount } from "./hooks/useSyncLineCount.js";
 import { calcInputSizing } from "./hooks/useInputSizing.js";
@@ -91,8 +93,16 @@ export function FinalizeApp({
   const [messages, setMessages] = useState<FinalizeMessage[]>(() => orchestrator.getMessages());
   const [currentPhase, setCurrentPhase] = useState<FinalizePhase>(() => orchestrator.getCurrentPhase());
   const [isLoading, setIsLoading] = useState(true);
-  const [streamingText, setStreamingText] = useState("");
   const [loadingStartTime, setLoadingStartTime] = useState(0);
+  const {
+    streamingText,
+    toolEvents,
+    hasStreaming,
+    appendChunk,
+    appendTool,
+    reset: resetStreaming,
+    setStreaming,
+  } = useAgentStreaming();
   const showToolLogs = config.tui?.show_tool_logs !== false;
 
   const textareaRef = useRef<TextareaRenderable>(null);
@@ -107,6 +117,7 @@ export function FinalizeApp({
 
   const destroyedRef = useDestroyedRef();
   const { inputLineCount, setInputLineCount, syncLineCount } = useSyncLineCount(textareaRef, destroyedRef);
+  const { exitArmed, requestQuit } = useExitConfirm();
 
   // Subscribe to orchestrator phase changes and sync messages
   useEffect(() => {
@@ -152,17 +163,17 @@ export function FinalizeApp({
         if (state.status === "running") {
           setIsLoading(true);
           setLoadingStartTime(Date.now());
-          setStreamingText(state.buffer);
+          setStreaming(state.buffer);
           return;
         }
         if (state.status === "done") {
-          setStreamingText("");
+          resetStreaming();
           setMessages([...orchestrator.getMessages()]);
           setIsLoading(false);
           return;
         }
         if (state.status === "error") {
-          setStreamingText("");
+          resetStreaming();
           setMessages((prev) => [
             ...prev,
             { role: "system", content: `Audit error: ${state.error ?? "Unknown error"}` },
@@ -185,6 +196,7 @@ export function FinalizeApp({
 
     setIsLoading(true);
     setLoadingStartTime(Date.now());
+    resetStreaming();
 
     orchestrator.start(
       agent,
@@ -192,24 +204,21 @@ export function FinalizeApp({
       sessionPaths,
       cwd,
       (chunk) => {
-        if (!destroyedRef.current) setStreamingText((prev) => prev + chunk);
+        if (!destroyedRef.current) appendChunk(chunk);
       },
       (event) => {
         if (!showToolLogs || destroyedRef.current) return;
-        setStreamingText((prev) => {
-          const prefix = prev ? "\n" : "";
-          return `${prev}${prefix}${formatToolEvent(event)}\n`;
-        });
+        appendTool(event);
       },
     ).then(() => {
       if (!destroyedRef.current) {
-        setStreamingText("");
+        resetStreaming();
         setMessages([...orchestrator.getMessages()]);
         setIsLoading(false);
       }
     }).catch((err) => {
       if (!destroyedRef.current) {
-        setStreamingText("");
+        resetStreaming();
         setMessages((prev) => [
           ...prev,
           { role: "system", content: `Audit error: ${err instanceof Error ? err.message : String(err)}` },
@@ -217,7 +226,7 @@ export function FinalizeApp({
         setIsLoading(false);
       }
     });
-  }, [orchestrator, agent, config, sessionPaths, cwd, mode, backgroundAudit]);
+  }, [orchestrator, agent, config, sessionPaths, cwd, mode, backgroundAudit, showToolLogs, appendChunk, appendTool, resetStreaming, setStreaming]);
 
   // Execute fixes when phase transitions to "executing-fixes"
   const activeExecRef = useRef<string | null>(null);
@@ -332,7 +341,7 @@ export function FinalizeApp({
 
     setIsLoading(true);
     setLoadingStartTime(Date.now());
-    setStreamingText("");
+    resetStreaming();
 
     // For single-question, use the first answer directly
     // For multi-question, concatenate selections into a user message
@@ -355,14 +364,11 @@ export function FinalizeApp({
             answer,
             agent,
             (chunk) => {
-              if (!destroyedRef.current) setStreamingText((prev) => prev + chunk);
+              if (!destroyedRef.current) appendChunk(chunk);
             },
             (event) => {
               if (!showToolLogs || destroyedRef.current) return;
-              setStreamingText((prev) => {
-                const prefix = prev ? "\n" : "";
-                return `${prev}${prefix}${formatToolEvent(event)}\n`;
-              });
+              appendTool(event);
             },
           );
         }
@@ -371,20 +377,17 @@ export function FinalizeApp({
           option,
           agent,
           (chunk) => {
-            if (!destroyedRef.current) setStreamingText((prev) => prev + chunk);
+            if (!destroyedRef.current) appendChunk(chunk);
           },
           (event) => {
             if (!showToolLogs || destroyedRef.current) return;
-            setStreamingText((prev) => {
-              const prefix = prev ? "\n" : "";
-              return `${prev}${prefix}${formatToolEvent(event)}\n`;
-            });
+            appendTool(event);
           },
         );
       }
 
       if (!destroyedRef.current) {
-        setStreamingText("");
+        resetStreaming();
         setMessages(orchestrator.getMessages());
 
         // If phase is creating-pr after option select, the user chose "retry" —
@@ -398,7 +401,7 @@ export function FinalizeApp({
       }
     } catch (err) {
       if (!destroyedRef.current) {
-        setStreamingText("");
+        resetStreaming();
         setMessages((prev) => [
           ...prev,
           { role: "system", content: `Error: ${err instanceof Error ? err.message : "Agent failed to respond"}` },
@@ -406,7 +409,7 @@ export function FinalizeApp({
         setIsLoading(false);
       }
     }
-  }, [isLoading, orchestrator, agent, runPrCreation]);
+  }, [isLoading, orchestrator, agent, runPrCreation, showToolLogs, appendChunk, appendTool, resetStreaming]);
 
   const handleSubmit = useCallback(async () => {
     if (isLoading || showOptions) return;
@@ -423,32 +426,29 @@ export function FinalizeApp({
     setMessages((prev) => [...prev, { role: "user", content: value }]);
     setIsLoading(true);
     setLoadingStartTime(Date.now());
-    setStreamingText("");
+    resetStreaming();
 
     try {
       await orchestrator.handleUserMessage(
         value,
         agent,
         (chunk) => {
-          if (!destroyedRef.current) setStreamingText((prev) => prev + chunk);
+          if (!destroyedRef.current) appendChunk(chunk);
         },
         (event) => {
           if (!showToolLogs || destroyedRef.current) return;
-          setStreamingText((prev) => {
-            const prefix = prev ? "\n" : "";
-            return `${prev}${prefix}${formatToolEvent(event)}\n`;
-          });
+          appendTool(event);
         },
       );
 
       if (!destroyedRef.current) {
-        setStreamingText("");
+        resetStreaming();
         setMessages(orchestrator.getMessages());
         setIsLoading(false);
       }
     } catch (err) {
       if (!destroyedRef.current) {
-        setStreamingText("");
+        resetStreaming();
         setMessages((prev) => [
           ...prev,
           { role: "system", content: `Error: ${err instanceof Error ? err.message : "Agent failed to respond"}` },
@@ -456,7 +456,7 @@ export function FinalizeApp({
         setIsLoading(false);
       }
     }
-  }, [isLoading, showOptions, orchestrator, agent]);
+  }, [isLoading, showOptions, orchestrator, agent, showToolLogs, appendChunk, appendTool, resetStreaming]);
 
   useKeyboard(useCallback((key: { name: string; shift?: boolean; ctrl?: boolean; meta?: boolean; option?: boolean; preventDefault?: () => void }) => {
     const textarea = textareaRef.current;
@@ -501,11 +501,11 @@ export function FinalizeApp({
 
     // Escape or Ctrl+C to quit
     if (key.name === "escape") {
-      onQuit();
+      if (requestQuit()) onQuit();
       return;
     }
     if (key.name === "c" && key.ctrl) {
-      onQuit();
+      if (requestQuit()) onQuit();
       return;
     }
 
@@ -576,7 +576,7 @@ export function FinalizeApp({
       if (key.name === "up") { key.preventDefault?.(); textarea.moveCursorUp({ select: true }); return; }
       if (key.name === "down") { key.preventDefault?.(); textarea.moveCursorDown({ select: true }); return; }
     }
-  }, [handleSubmit, onQuit, isLoading, isComplete, showOptions, syncLineCount, renderer, messages]));
+  }, [handleSubmit, onQuit, isLoading, isComplete, showOptions, syncLineCount, renderer, messages, requestQuit]));
 
   const { inputHeight, textareaHeight } = calcInputSizing(termHeight, inputLineCount);
   const headerHeight = 3;
@@ -625,24 +625,13 @@ export function FinalizeApp({
           {messages.map((msg, i) => (
             <MessageBubble key={i} message={msg} />
           ))}
-          {isLoading && (
-            <box style={{ width: "100%", flexDirection: "column", marginBottom: 1 }}>
-              <box style={{ flexDirection: "row", gap: 1 }}>
-                <text fg={colors.accent.secondary} attributes={boldAttr()}>Synth</text>
-                {!streamingText && (
-                  <PhaseIndicator
-                    phase={PHASE_LABELS[currentPhase]}
-                    startTime={loadingStartTime}
-                  />
-                )}
-              </box>
-              {streamingText && (
-                <box style={{ paddingLeft: 2 }}>
-                  <markdown content={streamingText} syntaxStyle={markdownSyntaxStyle()} streaming={true} />
-                </box>
-              )}
-            </box>
-          )}
+          <AgentStreamingBubble
+            isLoading={isLoading}
+            loadingStartTime={loadingStartTime}
+            streamingText={streamingText}
+            toolEvents={toolEvents}
+            phaseLabel={PHASE_LABELS[currentPhase]}
+          />
           {isComplete && completionSummary && (
             <box style={{ width: "100%", flexDirection: "column", marginBottom: 1 }}>
               <box style={{ flexDirection: "row", gap: 1, marginBottom: 1 }}>
@@ -740,11 +729,13 @@ export function FinalizeApp({
           paddingRight: 2,
         }}
       >
-        {isComplete ? (
+        {exitArmed ? (
+          <text fg={colors.status.warning}>Press Esc again to quit</text>
+        ) : isComplete ? (
           <text fg={colors.status.success}>Finalization complete</text>
         ) : isLoading ? (
           <PhaseIndicator
-            phase={streamingText ? "Streaming response..." : PHASE_LABELS[currentPhase]}
+            phase={hasStreaming ? "Streaming response..." : PHASE_LABELS[currentPhase]}
             startTime={loadingStartTime}
           />
         ) : showOptions ? (
