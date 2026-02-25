@@ -1,6 +1,6 @@
 import { describe, test, expect } from "bun:test";
 import { formatDuration } from "../utils/format.js";
-import { buildSummaryMarkdown } from "../cli.js";
+import { buildSummaryMarkdown } from "../commands/helpers.js";
 import type { Task } from "../tasks/types.js";
 
 describe("formatDuration", () => {
