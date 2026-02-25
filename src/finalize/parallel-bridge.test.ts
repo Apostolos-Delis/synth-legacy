@@ -52,6 +52,7 @@ describe("buildWorkerInfos", () => {
 
     expect(infos).toHaveLength(1);
     expect(infos[0].id).toBe("w1");
+    expect(infos[0].taskId).toBe("FIX-001");
     expect(infos[0].taskTitle).toBe("Fix something");
     expect(infos[0].iteration).toBe(1);
     expect(infos[0].maxIterations).toBe(3);

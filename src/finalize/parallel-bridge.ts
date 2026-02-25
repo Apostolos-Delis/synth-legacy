@@ -28,6 +28,7 @@ const WORKER_STATUS_MAP: Record<WorkerDisplayState["status"], WorkerStatus> = {
 export function buildWorkerInfos(displayStates: WorkerDisplayState[]): WorkerInfo[] {
   return displayStates.map((ws) => ({
     id: ws.id,
+    taskId: ws.task.id,
     taskTitle: ws.task.title,
     iteration: ws.currentIteration,
     maxIterations: ws.maxIterations,

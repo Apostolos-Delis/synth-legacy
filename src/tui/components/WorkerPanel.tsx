@@ -5,6 +5,7 @@ export type WorkerStatus = "running" | "completed" | "failed";
 
 export interface WorkerInfo {
   id: string;
+  taskId: string;
   taskTitle: string;
   iteration: number;
   maxIterations: number;
@@ -189,6 +190,7 @@ export const WorkerPanel = memo(function WorkerPanel({
     const nw = next.workers[i];
     return (
       w.id === nw.id &&
+      w.taskId === nw.taskId &&
       w.status === nw.status &&
       w.iteration === nw.iteration &&
       w.lastOutput === nw.lastOutput &&
