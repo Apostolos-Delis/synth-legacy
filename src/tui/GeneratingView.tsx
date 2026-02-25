@@ -7,9 +7,10 @@ import { Footer } from "./components/Footer.js";
 interface GeneratingViewProps {
   output: string;
   taskCount?: number;
+  phase?: string;
 }
 
-export function GeneratingView({ output, taskCount }: GeneratingViewProps): ReactNode {
+export function GeneratingView({ output, taskCount, phase }: GeneratingViewProps): ReactNode {
   const { width, height } = useTerminalDimensions();
 
   return (
@@ -18,7 +19,7 @@ export function GeneratingView({ output, taskCount }: GeneratingViewProps): Reac
         <text>
           <span fg={colors.accent.primary} attributes={boldAttr()}>synth session</span>
           <span fg={colors.fg.muted}>{" │ "}</span>
-          <span fg={colors.status.info}>Generating tasks...</span>
+          <span fg={colors.status.info}>{phase ?? "Generating tasks..."}</span>
         </text>
       </box>
 
