@@ -770,7 +770,10 @@ const startCommand: CommandModule = {
         alias: "worktree",
         type: "string",
         describe: "Run in a git worktree",
-      }),
+      })
+      .example("synth start", "Start a new interactive session")
+      .example("synth start --prd spec.md", "Start from an existing PRD")
+      .example("synth start -w my-feature --prd spec.md", "Start in a worktree from PRD"),
   async handler(argv) {
     const cwd = process.cwd();
     const tuiEnabled = process.stdout.isTTY === true && !process.argv.includes("--no-tui");
@@ -805,12 +808,6 @@ const startCommand: CommandModule = {
       parallelWorkers,
     });
   },
-  // @ts-expect-error — yargs CommandModule doesn't have examples in the type, but it's used in this codebase
-  examples: [
-    ["synth start", "Start a new interactive session"],
-    ["synth start --prd spec.md", "Start from an existing PRD"],
-    ["synth start -w my-feature --prd spec.md", "Start in a worktree from PRD"],
-  ],
 };
 
 export default startCommand;

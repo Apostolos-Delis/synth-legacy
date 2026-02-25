@@ -2,18 +2,20 @@ import { loadConfig } from "../config/loader.js";
 import type { DoctorCheckResult } from "../doctor/doctor.js";
 import { ansi } from "../tui/theme.js";
 
+import type { Argv } from "yargs";
+
 interface CommandModule {
   command: string;
   describe: string;
-  builder?: Record<string, never>;
+  builder: (yargs: Argv) => Argv;
   handler: () => void | Promise<void>;
-  examples?: Array<[string, string]>;
 }
 
 const doctorCommand: CommandModule = {
   command: "doctor",
   describe: "Validate environment setup and dependencies",
-  builder: {},
+  builder: (yargs) =>
+    yargs.example("synth doctor", "Validate environment setup and dependencies"),
   handler: async () => {
     const cwd = process.cwd();
     const { runDoctorChecks } = await import("../doctor/doctor.js");
@@ -46,7 +48,6 @@ const doctorCommand: CommandModule = {
 
     if (failed > 0) process.exit(1);
   },
-  examples: [["synth doctor", "Validate environment setup and dependencies"]],
 };
 
 export default doctorCommand;
