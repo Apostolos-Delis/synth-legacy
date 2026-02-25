@@ -49,26 +49,31 @@ export function ParallelExecutionView({
   const bodyHeight = height - layout.header.height - layout.footer.height - 1;
   const done = state.tasks.filter((t) => t.status === "done").length;
 
-  // Top row: workers panel (left) + output pane (right)
-  const workerPanelWidth = Math.max(
+  // Top row: left column + output pane (right)
+  const sidebarWidth = Math.max(
     layout.sidebar.minWidth,
     Math.min(layout.sidebar.maxWidth, Math.floor(width * layout.sidebar.defaultWidthPercent / 100)),
   );
-  const outputWidth = width - workerPanelWidth;
+  const outputWidth = width - sidebarWidth;
 
-  // Bottom row for merge queue + conflict resolution
+  // Bottom row for workers + conflict resolution
   const hasConflict = conflict !== null;
   const bottomHeight = Math.max(6, Math.min(12, Math.floor(bodyHeight * 0.3)));
   const topHeight = bodyHeight - bottomHeight;
 
-  // Split left column: TaskSidebar on top, WorkerPanel below (hide sidebar when no tasks)
+  // Split left column: TaskSidebar on top, MergeQueuePanel below (hide sidebar when no tasks)
   const showTaskSidebar = state.tasks.length > 0;
-  const taskSidebarHeight = showTaskSidebar ? Math.min(state.tasks.length + 2, Math.floor(topHeight / 2)) : 0;
-  const workerPanelHeight = topHeight - taskSidebarHeight;
+  const minTaskSidebarHeight = showTaskSidebar ? 3 : 0;
+  const desiredMergePanelHeight = Math.max(6, mergeItems.length + 2);
+  const maxMergePanelHeight = showTaskSidebar ? Math.max(0, topHeight - minTaskSidebarHeight) : topHeight;
+  const mergePanelHeight = showTaskSidebar
+    ? Math.min(desiredMergePanelHeight, maxMergePanelHeight)
+    : topHeight;
+  const taskSidebarHeight = showTaskSidebar ? Math.max(0, topHeight - mergePanelHeight) : 0;
 
-  // Bottom row widths: merge queue gets more space when no conflict
-  const mergeWidth = hasConflict ? Math.floor(width * 0.55) : width;
-  const conflictWidth = hasConflict ? width - mergeWidth : 0;
+  // Bottom row widths: workers panel gets more space when no conflict
+  const workersWidth = hasConflict ? Math.floor(width * 0.55) : width;
+  const conflictWidth = hasConflict ? width - workersWidth : 0;
 
   // Determine selected task for output pane
   const clampedIndex = Math.min(selectedTaskIndex, Math.max(0, state.tasks.length - 1));
@@ -108,20 +113,20 @@ export function ParallelExecutionView({
       />
       <box flexDirection="column" height={bodyHeight}>
         <box flexDirection="row" height={topHeight}>
-          <box flexDirection="column" width={workerPanelWidth} height={topHeight}>
+          <box flexDirection="column" width={sidebarWidth} height={topHeight}>
             {showTaskSidebar && (
               <TaskSidebar
                 tasks={state.tasks}
                 currentTaskId={state.currentTaskId}
                 selectedTaskIndex={clampedIndex}
-                width={workerPanelWidth}
+                width={sidebarWidth}
                 height={taskSidebarHeight}
               />
             )}
-            <WorkerPanel
-              workers={workers}
-              width={workerPanelWidth}
-              height={workerPanelHeight}
+            <MergeQueuePanel
+              items={mergeItems}
+              width={sidebarWidth}
+              height={mergePanelHeight}
             />
           </box>
           <OutputPane
@@ -137,9 +142,9 @@ export function ParallelExecutionView({
           />
         </box>
         <box flexDirection="row" height={bottomHeight}>
-          <MergeQueuePanel
-            items={mergeItems}
-            width={mergeWidth}
+          <WorkerPanel
+            workers={workers}
+            width={workersWidth}
             height={bottomHeight}
           />
           {hasConflict && (

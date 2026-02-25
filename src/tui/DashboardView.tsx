@@ -35,6 +35,7 @@ export function DashboardView({ state }: DashboardViewProps): ReactNode {
   const tasks = state.tasks;
   const done = tasks.filter((t) => t.status === "done").length;
   const failed = tasks.filter((t) => t.status === "failed").length;
+  const inProgress = tasks.filter((t) => t.status === "in_progress");
   const total = tasks.length;
   const pct = total > 0 ? Math.round((done / total) * 100) : 0;
 
@@ -68,7 +69,12 @@ export function DashboardView({ state }: DashboardViewProps): ReactNode {
           )}
         </text>
       </box>
-      <box height={1}><text>{""}</text></box>
+      <box height={1} style={{ paddingLeft: 1 }}>
+        <text>
+          <span fg={colors.fg.muted}>Active:</span>
+          <span fg={colors.status.info}> {inProgress.length > 0 ? inProgress.map((t) => t.id).join(", ") : "none"}</span>
+        </text>
+      </box>
       <box height={1} style={{ paddingLeft: 1 }}>
         <text>
           <span fg={colors.fg.muted} attributes={boldAttr()}>
@@ -87,6 +93,7 @@ export function DashboardView({ state }: DashboardViewProps): ReactNode {
           const statusColor = STATUS_COLORS_HEX[task.status] ?? colors.fg.muted;
           const priorityColor = PRIORITY_COLORS_HEX[task.priority] ?? colors.fg.muted;
           const resultIcon = RESULT_ICONS[task.status] ?? "?";
+          const isActive = task.status === "in_progress";
           const resultColor = task.status === "done" ? colors.status.success
             : task.status === "failed" ? colors.status.error
             : colors.fg.muted;
@@ -99,9 +106,11 @@ export function DashboardView({ state }: DashboardViewProps): ReactNode {
 
           return (
             <text key={task.id}>
-              <span fg={colors.fg.secondary}>{task.id.padEnd(8)}</span>
+              <span fg={isActive ? colors.status.info : colors.fg.secondary} attributes={isActive ? boldAttr() : undefined}>
+                {task.id.padEnd(8)}
+              </span>
               {" "}
-              <span fg={colors.fg.primary}>{title}</span>
+              <span fg={colors.fg.primary} attributes={isActive ? boldAttr() : undefined}>{title}</span>
               {" "}
               <span fg={statusColor}>{icon} {task.status.padEnd(10)}</span>
               {" "}
