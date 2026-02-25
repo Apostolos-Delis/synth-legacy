@@ -5,10 +5,6 @@ import { commands } from "./commands/index.js";
 import { VERSION } from "./commands/helpers.js";
 import { globalTrace, formatProfileReport, formatProfileReportJson } from "./utils/perf.js";
 
-// Re-export for backward compatibility (used by tests)
-export { parseWorktreeFlag } from "./commands/start.js";
-export { buildSummaryMarkdown } from "./commands/helpers.js";
-
 // ── Profile report ──
 
 let profileJson = false;

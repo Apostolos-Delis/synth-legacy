@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import { parseWorktreeFlag } from "../cli.js";
+import { parseWorktreeFlag } from "../commands/start.js";
 
 describe("parseWorktreeFlag", () => {
   test("returns false when no -w or --worktree flag", () => {
