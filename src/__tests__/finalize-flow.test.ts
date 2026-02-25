@@ -58,19 +58,23 @@ const mockTaskFile = {
 
 function makeMockAgent() {
   return {
-    execute: (_prompt: string, _opts?: unknown) => ({
-      promise: Promise.resolve({ exitCode: 0, stdout: "", stderr: "" }),
+    name: "mock-agent",
+    installHint: "",
+    detect: async () => ({ available: true }),
+    execute: () => ({
+      promise: Promise.resolve({ exitCode: 0, stdout: "", stderr: "", timedOut: false }),
       interrupt: () => {},
       pid: 0,
-      process: null as unknown,
     }),
-  } as any; // eslint-disable-line @typescript-eslint/no-explicit-any
+    dispose: () => {},
+    checkAuth: async () => null,
+  };
 }
 
 function makeOrchestrator(branch = "feature-branch") {
   return new FinalizeOrchestrator({
     gitOps: { getCurrentBranch: async () => branch },
-    spawn: (opts: any) => spawnImpl(opts),
+    spawn: spawnImpl,
     loadTasks: async () => ({ ...mockTaskFile }),
   });
 }
@@ -437,11 +441,26 @@ describe("Retry-pr flow: failure then success", () => {
     // handleOptionSelect with "collect-fixes" in discussing phase triggers
     // transitionToCollectingFixes, which auto-skips to creating-pr when no fixes exist.
     // But we need to be in "discussing" first — use internal state since start() needs a real agent.
-    (orch as any).phase = "discussing";
+    const agent = makeMockAgent();
+    orch.restore(
+      agent,
+      config,
+      sessionPaths,
+      "/tmp/test",
+      [],
+      {
+        phase: "discussing",
+        fixes: [],
+        confirmedFixes: [],
+        reviewIndex: 0,
+        fixCounter: 0,
+        messages: [],
+      },
+    );
 
     await orch.handleOptionSelect(
       { label: "Collect fixes", description: "", value: "collect-fixes" },
-      makeMockAgent(),
+      agent,
     );
     expect(orch.getCurrentPhase()).toBe("creating-pr");
 
