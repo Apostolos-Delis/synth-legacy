@@ -472,7 +472,24 @@ export async function cmdStart(
       }
     } else {
       log("Generating tasks from PRD...");
-      taskFile = await generateTasks(agent, paths.prd, config.project.name, config.project.branch, sessionCwd, { model: config.agent.model, taskPrefix });
+      let streamOutput = "";
+      let lastLogTime = 0;
+      taskFile = await generateTasks(agent, paths.prd, config.project.name, config.project.branch, sessionCwd, {
+        model: config.agent.model,
+        taskPrefix,
+        onProgress: (chunk) => {
+          streamOutput += chunk;
+          const ids = streamOutput.match(/\b[A-Z]{2,5}-\d{3}\b/g);
+          if (ids) {
+            const count = new Set(ids).size;
+            const now = Date.now();
+            if (now - lastLogTime >= 3000) {
+              lastLogTime = now;
+              log(fmt.info(`Found ${count} task(s) so far...`));
+            }
+          }
+        },
+      });
     }
 
     await saveTasks(paths.tasks, taskFile);
