@@ -43,17 +43,18 @@ export const TaskDetailHeader = memo(function TaskDetailHeader({
   const descLines = wrapText(task.description, innerWidth);
 
   // Pre-truncate title to fit within the box alongside fixed-width elements
-  const titleOverhead = 2 + 1 + task.id.length + 1 + 2 + priorityLabel.length + 2 + 2 + task.status.length + 1;
-  const titleMaxLen = Math.max(10, innerWidth - titleOverhead);
+  const titlePrefix = `${statusIcon} [${task.id}] `;
+  const titleSuffix = `  [${priorityLabel}] [${task.status}]`;
+  const titleMaxLen = Math.max(10, innerWidth - titlePrefix.length - titleSuffix.length);
   const displayTitle = truncateText(task.title, titleMaxLen);
-  const titleLineText = `${statusIcon} ${task.id} ${displayTitle}  [${priorityLabel}] [${task.status}]`;
+  const titleLineText = `${titlePrefix}${displayTitle}${titleSuffix}`;
   const titlePad = padLine("", Math.max(0, innerWidth - titleLineText.length));
 
   // Cap visible description lines to available space: border(2) + title(1) + blank sep(1)
   const maxDescLines = Math.max(1, height - 2 - 1 - 1);
-  const visibleDescLines = descLines.slice(0, maxDescLines).map(
-    (line) => padLine(truncateText(line, innerWidth), innerWidth),
-  );
+  const visibleDescLines = descLines
+    .slice(0, maxDescLines)
+    .map((line) => truncateText(line, innerWidth));
 
   // Build acceptance criteria rows, respecting height limit.
   // Reserve 2 for border, 1 for title, visibleDescLines for description, 1 blank separator,
@@ -106,19 +107,22 @@ export const TaskDetailHeader = memo(function TaskDetailHeader({
     >
       <text>
         <span fg={statusColor} attributes={boldAttr()}>{statusIcon} </span>
-        <span fg={colors.fg.secondary} attributes={boldAttr()}>{task.id}</span>
-        {" "}
+        <span fg={colors.fg.secondary} attributes={boldAttr()}>[{task.id}]</span>
         <span fg={colors.fg.primary} attributes={boldAttr()}>{displayTitle}</span>
         {"  "}
         <span fg={priorityColor} attributes={boldAttr()}>[{priorityLabel}]</span>
         <span fg={statusColor}> [{task.status}]</span>
         <span>{titlePad}</span>
       </text>
-      {visibleDescLines.map((line, i) => (
+      {visibleDescLines.map((line, i) => {
+        const pad = padLine("", Math.max(0, innerWidth - line.length));
+        return (
         <text key={`desc-${i}`}>
           <span fg={colors.fg.muted}>{line}</span>
+          <span>{pad}</span>
         </text>
-      ))}
+        );
+      })}
       <text>
         <span>{padLine("", innerWidth)}</span>
       </text>

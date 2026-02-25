@@ -22,6 +22,12 @@ export const TaskSidebar = memo(function TaskSidebar({
   const borderFg = currentTaskId ? colors.border.active : colors.border.normal;
   const scrollRef = useRef<ScrollBoxRenderable>(null);
 
+  const innerWidth = Math.max(1, width - 2);
+  const padLine = (text: string): string => {
+    if (text.length >= innerWidth) return text.slice(0, innerWidth);
+    return text + " ".repeat(innerWidth - text.length);
+  };
+
   // 2 rows for top+bottom border
   const innerHeight = height - 2;
   const needsScroll = tasks.length > innerHeight;
@@ -44,13 +50,6 @@ export const TaskSidebar = memo(function TaskSidebar({
     const selected = index === selectedTaskIndex;
     const inProgress = task.status === "in_progress";
     const highlighted = active || selected || inProgress;
-    const titleMaxLen = width - 14;
-    const title =
-      task.title.length > titleMaxLen
-        ? task.title.slice(0, titleMaxLen - 3) + "..."
-        : task.title;
-
-    // Selected indicator: ▸ for selected, › for executing (not selected), space otherwise
     const indicator = selected ? "\u25B8" : active ? "\u203A" : inProgress ? "\u2022" : " ";
     const indicatorColor = selected
       ? colors.accent.secondary
@@ -59,6 +58,16 @@ export const TaskSidebar = memo(function TaskSidebar({
         : inProgress
           ? colors.status.info
           : colors.fg.dim;
+    const prefix = `${indicator}${icon} P${task.priority} ${task.id} `;
+    const titleMaxLen = Math.max(0, innerWidth - prefix.length);
+    const title =
+      task.title.length > titleMaxLen
+        ? titleMaxLen <= 3
+          ? task.title.slice(0, titleMaxLen)
+          : task.title.slice(0, titleMaxLen - 3) + "..."
+        : task.title;
+    const rowText = `${prefix}${title}`;
+    const rowPad = padLine(rowText).slice(rowText.length);
 
     return (
       <text key={task.id} truncate={true}>
@@ -72,6 +81,7 @@ export const TaskSidebar = memo(function TaskSidebar({
         </span>
         {" "}
         <span fg={highlighted ? colors.fg.primary : colors.fg.muted}>{title}</span>
+        <span>{rowPad}</span>
       </text>
     );
   });
@@ -98,6 +108,11 @@ export const TaskSidebar = memo(function TaskSidebar({
       ) : (
         <box flexGrow={1} style={{ flexDirection: "column" }}>
           {taskRows}
+          {Array.from({ length: Math.max(0, innerHeight - taskRows.length) }).map((_, i) => (
+            <text key={`empty-${i}`}>
+              <span>{padLine("")}</span>
+            </text>
+          ))}
         </box>
       )}
     </box>
