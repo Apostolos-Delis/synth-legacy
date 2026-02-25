@@ -18,6 +18,9 @@ import type { Task } from "../../../tasks/types.js";
  * The component is an @opentui React component that cannot be rendered in
  * unit tests, so we verify the data-driven logic it relies on: depth-level
  * grouping, status icon/colour mapping, and cyclic task detection.
+ *
+ * TODO: When @opentui adds a test renderer, add snapshot/structural tests for
+ * ConnectorRow box-drawing logic and the absolute-positioned overlay layout.
  */
 
 // ---------------------------------------------------------------------------
