@@ -632,10 +632,13 @@ const resumeCommand: CommandModule<object, { "session-id"?: string }> = {
   command: "resume [session-id]",
   describe: "Resume a paused or interrupted session",
   builder: (yargs) =>
-    yargs.positional("session-id", {
-      type: "string",
-      describe: "Session ID, slug, or numeric index to resume",
-    }),
+    yargs
+      .positional("session-id", {
+        type: "string",
+        describe: "Session ID, slug, or numeric index to resume",
+      })
+      .example("synth resume", "Resume the most recent session")
+      .example("synth resume 2", "Resume session #2"),
   async handler(argv) {
     const cwd = process.cwd();
     const tuiEnabled = process.stdout.isTTY === true && !process.argv.includes("--no-tui");
