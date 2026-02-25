@@ -68,6 +68,7 @@ The loader performs a deep merge, so you only need to specify the fields you wan
 |-------|------|---------|-------------|
 | `theme` | string | `"tokyonight"` | Built-in theme name, custom theme name, or absolute path to a `.toml` theme file |
 | `spinner` | string | _(theme default)_ | Spinner preset: `dots`, `braille`, `line`, `moon`, `bounce`, `arc`, `box`, `arrows` |
+| `show_tool_logs` | boolean | `true` | Show tool inputs/outputs in TUI output panes |
 
 ## Example Configuration
 
@@ -104,6 +105,7 @@ create_pr = true
 [tui]
 theme = "tokyonight"
 spinner = "braille"
+show_tool_logs = true
 ```
 
 ## AGENTS.md

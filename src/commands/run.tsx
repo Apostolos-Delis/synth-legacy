@@ -11,6 +11,7 @@ import { loadTaskOutput, buildIterationMap } from "../engine/output-index.js";
 import { ansi, fmt } from "../tui/theme.js";
 import { globalTrace } from "../utils/perf.js";
 import { stripAnsi } from "../tui/utils.js";
+import { formatToolEvent } from "../utils/tool-format.js";
 import type { TuiEngineData, TuiContext, CompletionSummary } from "../tui/types.js";
 import type { FinalizeUiOptions } from "./finalize.js";
 import type { BackgroundAuditController, BackgroundAuditState, BackgroundAuditStatus } from "../finalize/chat-types.js";
@@ -98,6 +99,7 @@ export async function cmdRun(
   let { parallelMode } = ctx;
 
   const config = await applyTheme(cwd);
+  const showToolLogs = config.tui?.show_tool_logs !== false;
 
   // Apply parallel default from config if not explicitly set via CLI flags
   if (!ctx.parallelMode && parallelWorkers === undefined) {
@@ -608,6 +610,21 @@ export async function cmdRun(
             }
           }
           break;
+        case "agent:tool": {
+          if (!showToolLogs) break;
+          if (!event.tool) break;
+          const formatted = formatToolEvent(event.tool);
+          const suffix = `\n${formatted}\n`;
+          tuiData.output += suffix;
+          if (tuiData.output.length > MAX_OUTPUT_LENGTH) {
+            tuiData.output = tuiData.output.slice(-MAX_OUTPUT_LENGTH);
+          }
+          if (tuiData.currentTaskId && tuiData.currentTaskId in tuiData.taskOutputMap) {
+            appendTaskOutput(tuiData, tuiData.currentTaskId, suffix, MAX_OUTPUT_LENGTH);
+          }
+          renderTuiThrottled();
+          return;
+        }
         case "iteration:end": {
           const iterData = event.data as IterationResult | undefined;
           if (event.taskId && event.iteration != null) {
@@ -672,6 +689,9 @@ export async function cmdRun(
           break;
         case "agent:stdout":
           if (event.message) process.stdout.write(event.message);
+          break;
+        case "agent:tool":
+          if (showToolLogs && event.tool) log(formatToolEvent(event.tool));
           break;
       }
     });
@@ -866,6 +886,9 @@ export async function cmdRun(
               break;
             case "agent:stdout":
               if (event.message) process.stdout.write(event.message);
+              break;
+            case "agent:tool":
+              if (showToolLogs && event.tool) log(formatToolEvent(event.tool));
               break;
           }
         });

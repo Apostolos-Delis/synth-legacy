@@ -1,5 +1,5 @@
 import { join } from "node:path";
-import type { AgentAdapter, AgentExecuteOptions } from "../agents/types.js";
+import type { AgentAdapter, AgentExecuteOptions, AgentToolEvent } from "../agents/types.js";
 import type { SynthConfig } from "../config/types.js";
 import type { SessionPaths, SessionMetadata } from "../sessions/types.js";
 import type { TaskFile } from "../tasks/types.js";
@@ -372,6 +372,7 @@ export class FinalizeOrchestrator {
     sessionPaths: SessionPaths,
     cwd: string,
     onChunk?: (chunk: string) => void,
+    onTool?: (event: AgentToolEvent) => void,
   ): Promise<OrchestratorResponse> {
     this.cwd = cwd;
     this.startTime = Date.now();
@@ -402,7 +403,7 @@ export class FinalizeOrchestrator {
     const userPrompt = buildInitialAuditPrompt(auditContext);
 
     // Send to AI and get the initial review
-    const response = await this.engine.send(userPrompt, onChunk);
+    const response = await this.engine.send(userPrompt, onChunk, onTool);
     const parsed = parseAIResponse(response);
 
     // Extract any fix proposals from the initial audit
@@ -425,6 +426,7 @@ export class FinalizeOrchestrator {
     text: string,
     agent: AgentAdapter,
     onChunk?: (chunk: string) => void,
+    onTool?: (event: AgentToolEvent) => void,
   ): Promise<OrchestratorResponse> {
     const userMsg: FinalizeMessage = { role: "user", content: text };
     this.messages.push(userMsg);
@@ -432,18 +434,18 @@ export class FinalizeOrchestrator {
     let response: OrchestratorResponse;
     switch (this.phase) {
       case "discussing":
-        response = await this.handleDiscussing(agent, text, onChunk);
+        response = await this.handleDiscussing(agent, text, onChunk, onTool);
         break;
       case "collecting-fixes":
-        response = await this.handleCollectingFixes(agent, text, onChunk);
+        response = await this.handleCollectingFixes(agent, text, onChunk, onTool);
         break;
       case "executing-fixes":
       case "creating-pr":
       case "complete":
-        response = await this.handleGenericResponse(agent, text, onChunk);
+        response = await this.handleGenericResponse(agent, text, onChunk, onTool);
         break;
       default:
-        response = await this.handleGenericResponse(agent, text, onChunk);
+        response = await this.handleGenericResponse(agent, text, onChunk, onTool);
         break;
     }
     await this.persistState();
@@ -454,6 +456,7 @@ export class FinalizeOrchestrator {
     option: ChatOption,
     agent: AgentAdapter,
     onChunk?: (chunk: string) => void,
+    onTool?: (event: AgentToolEvent) => void,
   ): Promise<OrchestratorResponse> {
     // Record the selection as a user message
     const userMsg: FinalizeMessage = {
@@ -464,9 +467,9 @@ export class FinalizeOrchestrator {
 
     let response: OrchestratorResponse;
     if (this.phase === "discussing") {
-      response = await this.handleDiscussionOption(agent, option, onChunk);
+      response = await this.handleDiscussionOption(agent, option, onChunk, onTool);
     } else if (this.phase === "collecting-fixes") {
-      response = await this.handleFixOption(agent, option, onChunk);
+      response = await this.handleFixOption(agent, option, onChunk, onTool);
     } else if (this.phase === "executing-fixes") {
       response = this.handleExecutingFixesOption(option);
     } else if (this.phase === "creating-pr") {
@@ -476,6 +479,7 @@ export class FinalizeOrchestrator {
         agent,
         `The user selected: "${option.label}" — ${option.description}`,
         onChunk,
+        onTool,
       );
     }
     await this.persistState();
@@ -490,6 +494,7 @@ export class FinalizeOrchestrator {
     _agent: AgentAdapter,
     text: string,
     onChunk?: (chunk: string) => void,
+    onTool?: (event: AgentToolEvent) => void,
   ): Promise<OrchestratorResponse> {
     // Check for user shortcut to skip remaining Q&A
     if (PROCEED_COMMANDS.has(text.trim().toLowerCase())) {
@@ -505,7 +510,7 @@ export class FinalizeOrchestrator {
       `If you want to propose a fix, use [FIX]description of fix[/FIX] markers. ` +
       `If you have no more concerns, end with [REVIEW_COMPLETE]. Be concise.`;
 
-    const response = await this.engine!.send(instruction, onChunk);
+    const response = await this.engine!.send(instruction, onChunk, onTool);
     return this.processDiscussingResponse(response);
   }
 
@@ -513,6 +518,7 @@ export class FinalizeOrchestrator {
     _agent: AgentAdapter,
     option: ChatOption,
     onChunk?: (chunk: string) => void,
+    onTool?: (event: AgentToolEvent) => void,
   ): Promise<OrchestratorResponse> {
     if (option.value === "collect-fixes" || option.value === "fix") {
       return this.transitionToCollectingFixes();
@@ -527,7 +533,7 @@ export class FinalizeOrchestrator {
       `If you want to propose a fix, use [FIX]description of fix[/FIX] markers. ` +
       `If you have no more concerns, end with [REVIEW_COMPLETE]. Be concise.`;
 
-    const response = await this.engine!.send(instruction, onChunk);
+    const response = await this.engine!.send(instruction, onChunk, onTool);
     return this.processDiscussingResponse(response);
   }
 
@@ -576,6 +582,7 @@ export class FinalizeOrchestrator {
     _agent: AgentAdapter,
     text: string,
     _onChunk?: (chunk: string) => void,
+    _onTool?: (event: AgentToolEvent) => void,
   ): Promise<OrchestratorResponse> {
     // Check if we're in modify mode for the current review fix
     if (
@@ -615,6 +622,7 @@ export class FinalizeOrchestrator {
     _agent: AgentAdapter,
     option: ChatOption,
     _onChunk?: (chunk: string) => void,
+    _onTool?: (event: AgentToolEvent) => void,
   ): Promise<OrchestratorResponse> {
     switch (option.value) {
       case "accept-all": {
@@ -1126,12 +1134,13 @@ export class FinalizeOrchestrator {
     agent: AgentAdapter,
     text: string,
     onChunk?: (chunk: string) => void,
+    onTool?: (event: AgentToolEvent) => void,
   ): Promise<OrchestratorResponse> {
     const instruction = `The user said:\n\n"${text}"\n\nRespond helpfully in the context of the code review.`;
 
     const response = this.engine
-      ? await this.engine.send(instruction, onChunk)
-      : await this.sendToAgentDirect(agent, instruction, onChunk);
+      ? await this.engine.send(instruction, onChunk, onTool)
+      : await this.sendToAgentDirect(agent, instruction, onChunk, onTool);
 
     const assistantMsg: FinalizeMessage = {
       role: "assistant",
@@ -1211,14 +1220,16 @@ export class FinalizeOrchestrator {
     agent: AgentAdapter,
     prompt: string,
     onChunk?: (chunk: string) => void,
+    onTool?: (event: AgentToolEvent) => void,
   ): Promise<string> {
-    let output = "";
     const options: AgentExecuteOptions = {
       cwd: this.cwd,
       skipPermissions: false,
       onStdout: (chunk) => {
-        output += chunk;
         onChunk?.(chunk);
+      },
+      onTool: (event) => {
+        onTool?.(event);
       },
     };
 
@@ -1230,7 +1241,7 @@ export class FinalizeOrchestrator {
     if (result.exitCode !== 0) {
       throw new Error(`Agent exited with code ${result.exitCode}: ${result.stderr}`);
     }
-    return output;
+    return result.stdout;
   }
 }
 

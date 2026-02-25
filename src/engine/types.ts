@@ -1,3 +1,5 @@
+import type { AgentToolEvent } from "../agents/types.js";
+
 export type EngineState =
   | "idle"
   | "executing"
@@ -15,6 +17,7 @@ export type EngineEventType =
   | "task:failed"
   | "agent:stdout"
   | "agent:stderr"
+  | "agent:tool"
   | "backpressure:start"
   | "backpressure:pass"
   | "backpressure:fail"
@@ -38,6 +41,7 @@ export interface EngineEvent {
   timestamp?: number;
   isFirstChunk?: boolean;
   criterionIndex?: number;
+  tool?: AgentToolEvent;
 }
 
 export interface IterationResult {

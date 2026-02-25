@@ -1,4 +1,4 @@
-import type { AgentAdapter } from "../agents/types.js";
+import type { AgentAdapter, AgentToolEvent } from "../agents/types.js";
 import type { InterviewMessage } from "./types.js";
 import type { ConversationMessage } from "../conversation/types.js";
 import { ConversationEngine } from "../conversation/engine.js";
@@ -36,9 +36,9 @@ export class Interviewer {
     this.engine.setSystemPrompt(result.template);
   }
 
-  async respond(userMessage: string, onChunk?: (chunk: string) => void): Promise<string> {
+  async respond(userMessage: string, onChunk?: (chunk: string) => void, onTool?: (event: AgentToolEvent) => void): Promise<string> {
     await this.templateReady;
-    return this.engine.send(userMessage, onChunk);
+    return this.engine.send(userMessage, onChunk, onTool);
   }
 
   extractPrdMarkdown(response: string): string | null {

@@ -50,16 +50,13 @@ export async function prdAudit(
   const templateResult = await loadTemplate(agent.name, cwd, { phase: "audit" });
   const prompt = `${templateResult.template}\n\nPRD:\n\`\`\`\n${prd.slice(0, 30000)}\n\`\`\`\n\nGit diff:\n\`\`\`\n${truncateDiff(diff)}\n\`\`\``;
 
-  let output = "";
   const handle = agent.execute(prompt, {
     cwd,
     model,
     skipPermissions: false,
-    onStdout: (chunk) => {
-      output += chunk;
-    },
   });
   const result = await handle.promise;
+  const output = result.stdout;
   if (result.timedOut) {
     throw new Error("Audit agent timed out");
   }

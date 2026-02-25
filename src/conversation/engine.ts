@@ -1,4 +1,4 @@
-import type { AgentAdapter } from "../agents/types.js";
+import type { AgentAdapter, AgentToolEvent } from "../agents/types.js";
 import type { ConversationMessage } from "./types.js";
 
 export interface ConversationEngineConfig {
@@ -35,11 +35,11 @@ export class ConversationEngine {
     this.systemPrompt = prompt;
   }
 
-  async send(userMessage: string, onChunk?: (chunk: string) => void): Promise<string> {
+  async send(userMessage: string, onChunk?: (chunk: string) => void, onTool?: (event: AgentToolEvent) => void): Promise<string> {
     this.messages.push({ role: "user", content: userMessage });
 
     const prompt = this.buildPrompt();
-    const response = await this.sendToAgent(prompt, onChunk);
+    const response = await this.sendToAgent(prompt, onChunk, onTool);
     this.messages.push({ role: "assistant", content: response });
 
     await this.persist?.(this.getHistory());
@@ -66,16 +66,17 @@ export class ConversationEngine {
     return `${prefix}${turns}${suffix}`;
   }
 
-  private async sendToAgent(prompt: string, onChunk?: (chunk: string) => void): Promise<string> {
-    let output = "";
+  private async sendToAgent(prompt: string, onChunk?: (chunk: string) => void, onTool?: (event: AgentToolEvent) => void): Promise<string> {
     const handle = this.agent.execute(prompt, {
       cwd: this.cwd,
       model: this.model,
       readOnly: this.readOnly,
       skipPermissions: false,
       onStdout: (chunk) => {
-        output += chunk;
         onChunk?.(chunk);
+      },
+      onTool: (event) => {
+        onTool?.(event);
       },
     });
     const result = await handle.promise;
@@ -85,6 +86,6 @@ export class ConversationEngine {
     if (result.exitCode !== 0) {
       throw new Error(`Agent exited with code ${result.exitCode}: ${result.stderr}`);
     }
-    return output;
+    return result.stdout;
   }
 }

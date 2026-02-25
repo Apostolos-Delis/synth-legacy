@@ -10,6 +10,7 @@ import { deriveSessionSlug, deriveTaskPrefix } from "../sessions/slug.js";
 import { saveTasks, loadTasks, getProgress } from "../tasks/store.js";
 import { writeText, readText, fileExists, writeJson } from "../utils/fs.js";
 import { spawn } from "../utils/process.js";
+import { formatToolEvent } from "../utils/tool-format.js";
 import { ansi, fmt, PRIORITY_COLORS } from "../tui/theme.js";
 import { createSpinner } from "../tui/spinner.js";
 
@@ -120,6 +121,7 @@ export async function resumeInterview(
 ): Promise<void> {
   const { cwd, tuiEnabled } = ctx;
   const config = await applyTheme(cwd);
+  const showToolLogs = config.tui?.show_tool_logs !== false;
 
   const [{ getAgent }, interviewMod, { generateTasks }] = await Promise.all([
     loadAgentRegistry(),
@@ -167,8 +169,8 @@ export async function resumeInterview(
       planRoot.render(
         <tui.InterviewApp
           initialMessages={savedState.interviewerHistory}
-          onSendMessage={async (msg, onChunk) => {
-            const response = await interviewer.respond(msg, onChunk);
+          onSendMessage={async (msg, onChunk, onTool) => {
+            const response = await interviewer.respond(msg, onChunk, showToolLogs ? onTool : undefined);
             const extractedMd = interviewer.extractPrdMarkdown(response);
             if (extractedMd) prdMarkdown = extractedMd;
             return { response, done: !!extractedMd };
@@ -204,6 +206,7 @@ export async function resumeInterview(
           agent={agent}
           cwd={cwd}
           model={config.agent.model}
+          showToolLogs={showToolLogs}
           onApprove={(finalizedPrd) => {
             approvedPrdContent = finalizedPrd;
             resolve(true);
@@ -227,7 +230,8 @@ export async function resumeInterview(
     // Pipeline: generate tasks only after PRD is finalized and persisted
     let streamOutput = "";
     let taskCount = 0;
-    planRoot.render(<tui.GeneratingView output={streamOutput} />);
+    let phaseStartTime = Date.now();
+    planRoot.render(<tui.GeneratingView output={streamOutput} phaseStartTime={phaseStartTime} />);
 
     let taskFile;
     try {
@@ -240,8 +244,14 @@ export async function resumeInterview(
             streamOutput += chunk;
             const ids = streamOutput.match(/\b[A-Z]{2,5}-\d{3}\b/g);
             taskCount = ids ? new Set(ids).size : 0;
-            planRoot.render(<tui.GeneratingView output={streamOutput} taskCount={taskCount} />);
+            planRoot.render(<tui.GeneratingView output={streamOutput} taskCount={taskCount} phaseStartTime={phaseStartTime} />);
           },
+          onTool: showToolLogs
+            ? (event) => {
+              streamOutput += `\n${formatToolEvent(event)}\n`;
+              planRoot.render(<tui.GeneratingView output={streamOutput} taskCount={taskCount} phaseStartTime={phaseStartTime} />);
+            }
+            : undefined,
         },
       );
     } catch (err) {
@@ -348,7 +358,15 @@ export async function resumeInterview(
     logSuccess(`PRD saved to ${paths.prd}`);
 
     log("Generating tasks...\n");
-    const taskFile = await generateTasks(agent, paths.prd, config.project.name, config.project.branch || `synth/${id}`, cwd, { model: config.agent.model, taskPrefix });
+    const taskFile = await generateTasks(agent, paths.prd, config.project.name, config.project.branch || `synth/${id}`, cwd, {
+      model: config.agent.model,
+      taskPrefix,
+      onTool: showToolLogs
+        ? (event) => {
+          log(formatToolEvent(event));
+        }
+        : undefined,
+    });
 
     await saveTasks(paths.tasks, taskFile);
     await writeText(paths.progress, "## Codebase Patterns\n\n---\n\n");
@@ -387,6 +405,7 @@ export async function cmdStart(
 ): Promise<void> {
   const { cwd, tuiEnabled } = ctx;
   const config = await applyTheme(cwd);
+  const showToolLogs = config.tui?.show_tool_logs !== false;
   const repoRoot = cwd;
   let sessionCwd = cwd;
 
@@ -442,7 +461,8 @@ export async function cmdStart(
       let streamOutput = "";
       let taskCount = 0;
       let phase = "Analyzing PRD";
-      prdRoot.render(<tui.GeneratingView output={streamOutput} phase={phase} />);
+      let phaseStartTime = Date.now();
+      prdRoot.render(<tui.GeneratingView output={streamOutput} phase={phase} phaseStartTime={phaseStartTime} />);
 
       try {
         taskFile = await generateTasks(
@@ -455,13 +475,25 @@ export async function cmdStart(
               const ids = streamOutput.match(/\b[A-Z]{2,5}-\d{3}\b/g);
               if (ids) {
                 taskCount = new Set(ids).size;
-                if (phase !== "Validating dependencies") phase = "Generating tasks";
+                if (phase !== "Validating dependencies" && phase !== "Generating tasks") {
+                  phase = "Generating tasks";
+                  phaseStartTime = Date.now();
+                }
               }
               if (streamOutput.includes("```json") || streamOutput.includes('"tasks"')) {
-                phase = "Validating dependencies";
+                if (phase !== "Validating dependencies") {
+                  phase = "Validating dependencies";
+                  phaseStartTime = Date.now();
+                }
               }
-              prdRoot!.render(<tui.GeneratingView output={streamOutput} taskCount={taskCount} phase={phase} />);
+              prdRoot!.render(<tui.GeneratingView output={streamOutput} taskCount={taskCount} phase={phase} phaseStartTime={phaseStartTime} />);
             },
+            onTool: showToolLogs
+              ? (event) => {
+                streamOutput += `\n${formatToolEvent(event)}\n`;
+                prdRoot!.render(<tui.GeneratingView output={streamOutput} taskCount={taskCount} phase={phase} phaseStartTime={phaseStartTime} />);
+              }
+              : undefined,
           },
         );
       } catch (err) {
@@ -489,6 +521,11 @@ export async function cmdStart(
             }
           }
         },
+        onTool: showToolLogs
+          ? (event) => {
+            log(formatToolEvent(event));
+          }
+          : undefined,
       });
     }
 
@@ -590,8 +627,8 @@ export async function cmdStart(
     const interviewResult = await new Promise<boolean>((resolve) => {
       planRoot.render(
         <tui.InterviewApp
-          onSendMessage={async (msg, onChunk) => {
-            const response = await interviewer.respond(msg, onChunk);
+          onSendMessage={async (msg, onChunk, onTool) => {
+            const response = await interviewer.respond(msg, onChunk, showToolLogs ? onTool : undefined);
             const extractedMd = interviewer.extractPrdMarkdown(response);
             if (extractedMd) prdMarkdown = extractedMd;
             return { response, done: !!extractedMd };
@@ -632,6 +669,7 @@ export async function cmdStart(
           agent={agent}
           cwd={sessionCwd}
           model={config.agent.model}
+          showToolLogs={showToolLogs}
           onApprove={(finalizedPrd) => {
             approvedPrdContent = finalizedPrd;
             resolve(true);
@@ -655,7 +693,8 @@ export async function cmdStart(
     // Pipeline: generate tasks only after PRD is finalized and persisted
     let streamOutput = "";
     let taskCount = 0;
-    planRoot.render(<tui.GeneratingView output={streamOutput} />);
+    let phaseStartTime = Date.now();
+    planRoot.render(<tui.GeneratingView output={streamOutput} phaseStartTime={phaseStartTime} />);
 
     let taskFile;
     try {
@@ -668,8 +707,14 @@ export async function cmdStart(
             streamOutput += chunk;
             const ids = streamOutput.match(/\b[A-Z]{2,5}-\d{3}\b/g);
             taskCount = ids ? new Set(ids).size : 0;
-            planRoot.render(<tui.GeneratingView output={streamOutput} taskCount={taskCount} />);
+            planRoot.render(<tui.GeneratingView output={streamOutput} taskCount={taskCount} phaseStartTime={phaseStartTime} />);
           },
+          onTool: showToolLogs
+            ? (event) => {
+              streamOutput += `\n${formatToolEvent(event)}\n`;
+              planRoot.render(<tui.GeneratingView output={streamOutput} taskCount={taskCount} phaseStartTime={phaseStartTime} />);
+            }
+            : undefined,
         },
       );
     } catch (err) {
@@ -778,7 +823,15 @@ export async function cmdStart(
   logSuccess(`PRD saved to ${paths.prd}`);
 
   log("Generating tasks...\n");
-  const taskFile = await generateTasks(agent, paths.prd, config.project.name, config.project.branch || `synth/${id}`, sessionCwd, { model: config.agent.model, taskPrefix });
+  const taskFile = await generateTasks(agent, paths.prd, config.project.name, config.project.branch || `synth/${id}`, sessionCwd, {
+    model: config.agent.model,
+    taskPrefix,
+    onTool: showToolLogs
+      ? (event) => {
+        log(formatToolEvent(event));
+      }
+      : undefined,
+  });
 
   await saveTasks(paths.tasks, taskFile);
   await writeText(paths.progress, "## Codebase Patterns\n\n---\n\n");

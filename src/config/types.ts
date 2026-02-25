@@ -33,6 +33,7 @@ export interface SynthConfig {
   tui?: {
     theme?: string;
     spinner?: string;
+    show_tool_logs?: boolean;
   };
   parallel?: {
     enabled?: boolean;

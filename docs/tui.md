@@ -131,6 +131,7 @@ Scrollable task list with:
 ### OutputPane
 
 Tail view of agent stdout. Shows the last N lines that fit within the available terminal height. Content scrolls automatically as new output arrives.
+Tool calls and results are surfaced inline when the agent supports structured tool events.
 
 ### StatusBar
 

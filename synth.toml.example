@@ -19,3 +19,7 @@ auto_format = true
 split_commits = true
 self_review = true
 create_pr = true
+
+[tui]
+theme = "tokyonight"
+show_tool_logs = true

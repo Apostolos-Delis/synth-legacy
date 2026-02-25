@@ -14,6 +14,7 @@ import { deriveSessionSlug, deriveTaskPrefix } from "../sessions/slug.js";
 import type { TuiContext, TuiEngineData, CompletionSummary } from "../tui/types.js";
 import type { BackgroundAuditController, BackgroundAuditState, BackgroundAuditStatus, FinalizeMessage, OrchestratorState } from "../finalize/chat-types.js";
 import { spawn } from "../utils/process.js";
+import { formatToolEvent } from "../utils/tool-format.js";
 
 import {
   log,
@@ -100,6 +101,7 @@ async function resumeInterview(
   localCmdRun: (sessionId?: string, startIteration?: number, tuiContext?: TuiContext) => Promise<void>,
 ): Promise<void> {
   const config = await applyTheme(cwd);
+  const showToolLogs = config.tui?.show_tool_logs !== false;
 
   const [{ getAgent }, interviewMod, { generateTasks }] = await Promise.all([
     loadAgentRegistry(),
@@ -147,8 +149,8 @@ async function resumeInterview(
       planRoot.render(
         <tui.InterviewApp
           initialMessages={savedState.interviewerHistory}
-          onSendMessage={async (msg, onChunk) => {
-            const response = await interviewer.respond(msg, onChunk);
+          onSendMessage={async (msg, onChunk, onTool) => {
+            const response = await interviewer.respond(msg, onChunk, showToolLogs ? onTool : undefined);
             const extractedMd = interviewer.extractPrdMarkdown(response);
             if (extractedMd) prdMarkdown = extractedMd;
             return { response, done: !!extractedMd };
@@ -184,6 +186,7 @@ async function resumeInterview(
           agent={agent}
           cwd={cwd}
           model={config.agent.model}
+          showToolLogs={showToolLogs}
           onApprove={(finalizedPrd) => {
             approvedPrdContent = finalizedPrd;
             resolve(true);
@@ -207,7 +210,8 @@ async function resumeInterview(
     // Pipeline: generate tasks only after PRD is finalized and persisted
     let streamOutput = "";
     let taskCount = 0;
-    planRoot.render(<tui.GeneratingView output={streamOutput} />);
+    let phaseStartTime = Date.now();
+    planRoot.render(<tui.GeneratingView output={streamOutput} phaseStartTime={phaseStartTime} />);
 
     let taskFile;
     try {
@@ -220,8 +224,14 @@ async function resumeInterview(
             streamOutput += chunk;
             const ids = streamOutput.match(/\b[A-Z]{2,5}-\d{3}\b/g);
             taskCount = ids ? new Set(ids).size : 0;
-            planRoot.render(<tui.GeneratingView output={streamOutput} taskCount={taskCount} />);
+            planRoot.render(<tui.GeneratingView output={streamOutput} taskCount={taskCount} phaseStartTime={phaseStartTime} />);
           },
+          onTool: showToolLogs
+            ? (event) => {
+              streamOutput += `\n${formatToolEvent(event)}\n`;
+              planRoot.render(<tui.GeneratingView output={streamOutput} taskCount={taskCount} phaseStartTime={phaseStartTime} />);
+            }
+            : undefined,
         },
       );
     } catch (err) {
@@ -328,7 +338,15 @@ async function resumeInterview(
     logSuccess(`PRD saved to ${paths.prd}`);
 
     log("Generating tasks...\n");
-    const taskFile = await generateTasks(agent, paths.prd, config.project.name, config.project.branch || `synth/${id}`, cwd, { model: config.agent.model, taskPrefix });
+    const taskFile = await generateTasks(agent, paths.prd, config.project.name, config.project.branch || `synth/${id}`, cwd, {
+      model: config.agent.model,
+      taskPrefix,
+      onTool: showToolLogs
+        ? (event) => {
+          log(formatToolEvent(event));
+        }
+        : undefined,
+    });
 
     await saveTasks(paths.tasks, taskFile);
     await writeText(paths.progress, "## Codebase Patterns\n\n---\n\n");
@@ -368,6 +386,8 @@ export async function cmdResumeInternal(
   parallelMode: boolean,
   parallelWorkers: number | undefined,
 ): Promise<void> {
+  const baseConfig = await applyTheme(cwd);
+  const showToolLogs = baseConfig.tui?.show_tool_logs !== false;
   // Build local cmdFinalize wrapper
   const localCmdFinalize = (
     sid?: string,
@@ -723,6 +743,9 @@ export async function cmdResumeInternal(
               case "agent:stdout":
                 if (event.message) process.stdout.write(event.message);
                 break;
+              case "agent:tool":
+                if (showToolLogs && event.tool) log(formatToolEvent(event.tool));
+                break;
             }
           });
 
@@ -780,6 +803,9 @@ export async function cmdResumeInternal(
                   break;
                 case "agent:stdout":
                   if (event.message) process.stdout.write(event.message);
+                  break;
+                case "agent:tool":
+                  if (showToolLogs && event.tool) log(formatToolEvent(event.tool));
                   break;
               }
             });

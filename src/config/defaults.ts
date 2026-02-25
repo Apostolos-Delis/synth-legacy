@@ -36,6 +36,7 @@ export const DEFAULT_CONFIG: SynthConfig = {
   },
   tui: {
     theme: "tokyonight",
+    show_tool_logs: true,
   },
   notifications: {
     enabled: true,
@@ -53,6 +54,7 @@ timeout = 600000             # 10 min per iteration
 [tui]
 # theme = "tokyonight"      # Built-in: tokyonight, onedark, catppuccin, dracula, solarized, nord, gruvbox
 # spinner = "dots"           # Presets: dots, braille, line, moon, bounce, arc, box, arrows
+# show_tool_logs = true      # Show tool inputs/outputs in TUI output panes
 
 [parallel]
 enabled = true

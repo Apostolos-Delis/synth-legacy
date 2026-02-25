@@ -11,12 +11,14 @@ import { isAffirmative } from "../utils/text.js";
 import { useDestroyedRef } from "./hooks/useDestroyedRef.js";
 import { useSyncLineCount } from "./hooks/useSyncLineCount.js";
 import { calcInputSizing } from "./hooks/useInputSizing.js";
+import { formatToolEvent } from "../utils/tool-format.js";
 
 interface PrdReviewViewProps {
   prdMarkdown: string;
   agent: AgentAdapter;
   cwd: string;
   model?: string;
+  showToolLogs?: boolean;
   onApprove: (finalizedPrd: string) => void;
   onQuit: () => void;
 }
@@ -26,6 +28,7 @@ export function PrdReviewView({
   agent,
   cwd,
   model,
+  showToolLogs = true,
   onApprove,
   onQuit,
 }: PrdReviewViewProps): ReactNode {
@@ -79,8 +82,19 @@ export function PrdReviewView({
             output += chunk;
             if (!destroyedRef.current) setStreamingText((prev) => prev + chunk);
           },
+          onTool: showToolLogs
+            ? (event) => {
+              if (!destroyedRef.current) {
+                setStreamingText((prev) => {
+                  const prefix = prev ? "\n" : "";
+                  return `${prev}${prefix}${formatToolEvent(event)}\n`;
+                });
+              }
+            }
+            : undefined,
         });
         const result = await handle.promise;
+        output = result.stdout;
         if (result.timedOut) {
           throw new Error("PRD revision agent timed out");
         }

@@ -1,5 +1,5 @@
 import type { TaskFile } from "./types.js";
-import type { AgentAdapter } from "../agents/types.js";
+import type { AgentAdapter, AgentToolEvent } from "../agents/types.js";
 import { readText, fileExists } from "../utils/fs.js";
 import { loadTemplate, renderTemplate } from "../templates/index.js";
 import type { TemplateVariables } from "../templates/index.js";
@@ -8,6 +8,7 @@ export interface GenerateTasksOptions {
   model?: string;
   taskPrefix?: string;
   onProgress?: (chunk: string) => void;
+  onTool?: (event: AgentToolEvent) => void;
 }
 
 export async function generateTasks(
@@ -18,7 +19,7 @@ export async function generateTasks(
   cwd: string,
   options?: GenerateTasksOptions,
 ): Promise<TaskFile> {
-  const { model, taskPrefix, onProgress } = options ?? {};
+  const { model, taskPrefix, onProgress, onTool } = options ?? {};
   if (!(await fileExists(prdPath))) {
     throw new Error(`PRD file not found: ${prdPath}. Run 'synth start' to generate one.`);
   }
@@ -47,18 +48,20 @@ Branch: ${branchName}
 PRD:
 ${prd}`;
 
-  let output = "";
   const handle = agent.execute(prompt, {
     cwd,
     model,
     readOnly: true,
     skipPermissions: false,
     onStdout: (chunk) => {
-      output += chunk;
       onProgress?.(chunk);
+    },
+    onTool: (event) => {
+      onTool?.(event);
     },
   });
   const result = await handle.promise;
+  const output = result.stdout;
   if (result.timedOut) {
     throw new Error("Planner agent timed out");
   }

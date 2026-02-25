@@ -15,7 +15,7 @@ function makeMockAgent(stdout = "{}") {
       const handle = {
         promise: Promise.resolve().then(() => {
           onStdout?.(stdout);
-          return { exitCode: 0, stdout: "", stderr: "" };
+          return { exitCode: 0, stdout, stderr: "" };
         }),
         interrupt: () => {},
         pid: 0,
@@ -195,7 +195,7 @@ describe("pipeline ordering — generateTasks requires finalized PRD", () => {
           });
           onStdout?.(validJson);
           return {
-            promise: Promise.resolve({ exitCode: 0, stdout: "", stderr: "" }),
+            promise: Promise.resolve({ exitCode: 0, stdout: validJson, stderr: "" }),
             interrupt: () => {},
             pid: 0,
             process: null as unknown,

@@ -307,6 +307,7 @@ export class Engine {
       const startTime = Date.now();
       let output = "";
       let firstChunkReceived = false;
+      const emitToolLogs = this.config.tui?.show_tool_logs !== false;
       const currentAgent =
         this.rateLimitAttempts > 0 && this.fallbackAgent
           ? this.fallbackAgent
@@ -348,6 +349,11 @@ export class Engine {
         onStderr: (chunk) => {
           this.emit({ type: "agent:stderr", message: chunk, taskId: task.id });
         },
+        onTool: emitToolLogs
+          ? (event) => {
+            this.emit({ type: "agent:tool", taskId: task.id, tool: event });
+          }
+          : undefined,
       });
 
       this.activeInterrupt = () => handle.interrupt();
@@ -428,7 +434,7 @@ export class Engine {
         trace.recordPhase("engine:first-token", result.firstTokenMs);
       }
 
-      const tokenUsage = parseTokenUsageFromOutput(output);
+      const tokenUsage = parseTokenUsageFromOutput(result.rawStdout ?? output);
       const iterResult: IterationResult = {
         iteration: this.iteration,
         taskId: task.id,

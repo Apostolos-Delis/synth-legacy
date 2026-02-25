@@ -10,6 +10,7 @@ import type { ParallelEventListener, ParallelEvent } from "./events.js";
 import { Engine } from "../engine/engine.js";
 import { saveTasks } from "../tasks/store.js";
 import { stripAnsi } from "../tui/utils.js";
+import { formatToolEvent } from "../utils/tool-format.js";
 
 export type WorkerStatus =
   | "idle"
@@ -290,6 +291,19 @@ export class Worker {
             timestamp: new Date().toISOString(),
             workerId: this.id,
             message: event.message,
+            taskId: this.config.task.id,
+          });
+        }
+        break;
+      case "agent:tool":
+        if (this.synthConfig.tui?.show_tool_logs !== false && event.tool) {
+          const formatted = formatToolEvent(event.tool);
+          this.lastOutput = formatted.trim().slice(-200);
+          this.emitParallel({
+            type: "worker:output",
+            timestamp: new Date().toISOString(),
+            workerId: this.id,
+            message: formatted,
             taskId: this.config.task.id,
           });
         }

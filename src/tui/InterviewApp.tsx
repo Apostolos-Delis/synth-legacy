@@ -2,19 +2,21 @@ import { useState, useCallback, useRef, type ReactNode } from "react";
 import { useKeyboard, useTerminalDimensions, useRenderer } from "@opentui/react";
 import type { TextareaRenderable } from "@opentui/core";
 import type { InterviewMessage } from "../interview/types.js";
+import type { AgentToolEvent } from "../agents/types.js";
 import { WELCOME_MESSAGE } from "../interview/interviewer.js";
 import { boldAttr, colors, markdownSyntaxStyle } from "./theme.js";
 import { PhaseIndicator } from "./components/PhaseIndicator.js";
 import { openInEditor } from "../utils/editor.js";
 import { copyToClipboard } from "../utils/clipboard.js";
 import { formatDuration } from "../utils/format.js";
+import { formatToolEvent } from "../utils/tool-format.js";
 
 import { useDestroyedRef } from "./hooks/useDestroyedRef.js";
 import { useSyncLineCount } from "./hooks/useSyncLineCount.js";
 import { calcInputSizing } from "./hooks/useInputSizing.js";
 
 interface InterviewAppProps {
-  onSendMessage: (msg: string, onChunk: (chunk: string) => void) => Promise<{ response: string; done: boolean }>;
+  onSendMessage: (msg: string, onChunk: (chunk: string) => void, onTool?: (event: AgentToolEvent) => void) => Promise<{ response: string; done: boolean }>;
   onComplete: () => void;
   onQuit: () => void;
   initialMessages?: InterviewMessage[];
@@ -81,9 +83,18 @@ export function InterviewApp({ onSendMessage, onComplete, onQuit, initialMessage
     setStreamingText("");
 
     try {
-      const { response, done } = await onSendMessage(value, (chunk) => {
-        setStreamingText((prev) => prev + chunk);
-      });
+      const { response, done } = await onSendMessage(
+        value,
+        (chunk) => {
+          setStreamingText((prev) => prev + chunk);
+        },
+        (event) => {
+          setStreamingText((prev) => {
+            const prefix = prev ? "\n" : "";
+            return `${prev}${prefix}${formatToolEvent(event)}\n`;
+          });
+        },
+      );
       setStreamingText("");
       const elapsed = Date.now() - startTime;
       const durationLabel = elapsed > 0 ? `\n\n_Generated in ${formatDuration(elapsed)}_` : "";

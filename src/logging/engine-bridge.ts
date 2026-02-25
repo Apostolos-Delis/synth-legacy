@@ -4,6 +4,7 @@ import type { EngineEvent, EngineEventListener } from "../engine/types.js";
 const levelMap: Record<string, "debug" | "info" | "warn" | "error"> = {
   "agent:stdout": "debug",
   "agent:stderr": "debug",
+  "agent:tool": "debug",
   "backpressure:start": "debug",
   "backpressure:pass": "debug",
   "iteration:start": "info",

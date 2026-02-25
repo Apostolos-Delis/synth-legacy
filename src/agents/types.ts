@@ -11,8 +11,17 @@ export interface AgentExecutionResult {
   exitCode: number;
   stdout: string;
   stderr: string;
+  rawStdout?: string;
   timedOut: boolean;
   firstTokenMs?: number | null;
+}
+
+export interface AgentToolEvent {
+  kind: "use" | "result";
+  name: string;
+  id?: string;
+  input?: unknown;
+  output?: unknown;
 }
 
 export interface AgentExecuteOptions {
@@ -23,6 +32,7 @@ export interface AgentExecuteOptions {
   readOnly?: boolean;
   onStdout?: (chunk: string) => void;
   onStderr?: (chunk: string) => void;
+  onTool?: (event: AgentToolEvent) => void;
 }
 
 export interface AgentExecutionHandle {

@@ -17,16 +17,13 @@ export async function selfReview(
   const templateResult = await loadTemplate("self-review", cwd, { phase: "audit" });
   const prompt = `${templateResult.template}\n\nGit diff:\n\`\`\`\n${truncateDiff(diff)}\n\`\`\``;
 
-  let output = "";
   const handle = agent.execute(prompt, {
     cwd,
     model,
     skipPermissions: false,
-    onStdout: (chunk) => {
-      output += chunk;
-    },
   });
   const result = await handle.promise;
+  const output = result.stdout;
   if (result.timedOut) {
     throw new Error("Review agent timed out");
   }

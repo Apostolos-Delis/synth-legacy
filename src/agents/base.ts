@@ -74,6 +74,7 @@ export abstract class BaseAgentAdapter implements AgentAdapter {
           exitCode: result.exitCode,
           stdout: result.stdout,
           stderr: result.stderr,
+          rawStdout: result.stdout,
           timedOut: result.timedOut,
           firstTokenMs: timings.firstStdoutMs,
         };

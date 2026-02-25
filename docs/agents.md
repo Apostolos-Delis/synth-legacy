@@ -76,7 +76,7 @@ claude -p <prompt> --output-format stream-json [--dangerously-skip-permissions]
 | `--output-format stream-json` | Structured output for parsing |
 | `--dangerously-skip-permissions` | Skip file/command permission prompts (when `agent.skip_permissions: true`) |
 
-**Stream parsing**: Claude's `stream-json` format emits one JSON object per line. The adapter extracts text content from `assistant` message blocks and the final `result` message. Non-JSON lines and system messages are ignored.
+**Stream parsing**: Claude's `stream-json` format emits one JSON object per line. The adapter extracts text content from `assistant` message blocks and the final `result` message, and surfaces tool use/results for TUI logging. Non-JSON lines and system messages are ignored.
 
 ## Codex Adapter
 

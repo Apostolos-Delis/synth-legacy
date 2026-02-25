@@ -6,6 +6,7 @@ export class Logger {
   private readonly path: string;
   private readonly subscribers: LogSubscriber[] = [];
   private dirEnsured = false;
+  private writeChain: Promise<void> = Promise.resolve();
 
   constructor(path: string) {
     this.path = path;
@@ -65,7 +66,7 @@ export class Logger {
       }
       await appendFile(this.path, line);
     };
-    write().catch((err: unknown) => {
+    this.writeChain = this.writeChain.then(write).catch((err: unknown) => {
       process.stderr.write(
         `[synth-logger] write error: ${err instanceof Error ? err.message : String(err)}\n`,
       );

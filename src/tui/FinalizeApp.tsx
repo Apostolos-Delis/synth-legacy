@@ -12,6 +12,7 @@ import { OptionSelector } from "./components/OptionSelector.js";
 import { openInEditor } from "../utils/editor.js";
 import { copyToClipboard } from "../utils/clipboard.js";
 import { readText, fileExists } from "../utils/fs.js";
+import { formatToolEvent } from "../utils/tool-format.js";
 import { useDestroyedRef } from "./hooks/useDestroyedRef.js";
 import { useSyncLineCount } from "./hooks/useSyncLineCount.js";
 import { calcInputSizing } from "./hooks/useInputSizing.js";
@@ -92,6 +93,7 @@ export function FinalizeApp({
   const [isLoading, setIsLoading] = useState(true);
   const [streamingText, setStreamingText] = useState("");
   const [loadingStartTime, setLoadingStartTime] = useState(0);
+  const showToolLogs = config.tui?.show_tool_logs !== false;
 
   const textareaRef = useRef<TextareaRenderable>(null);
   const { height: termHeight } = useTerminalDimensions();
@@ -184,9 +186,22 @@ export function FinalizeApp({
     setIsLoading(true);
     setLoadingStartTime(Date.now());
 
-    orchestrator.start(agent, config, sessionPaths, cwd, (chunk) => {
-      if (!destroyedRef.current) setStreamingText((prev) => prev + chunk);
-    }).then(() => {
+    orchestrator.start(
+      agent,
+      config,
+      sessionPaths,
+      cwd,
+      (chunk) => {
+        if (!destroyedRef.current) setStreamingText((prev) => prev + chunk);
+      },
+      (event) => {
+        if (!showToolLogs || destroyedRef.current) return;
+        setStreamingText((prev) => {
+          const prefix = prev ? "\n" : "";
+          return `${prev}${prefix}${formatToolEvent(event)}\n`;
+        });
+      },
+    ).then(() => {
       if (!destroyedRef.current) {
         setStreamingText("");
         setMessages([...orchestrator.getMessages()]);
@@ -336,14 +351,36 @@ export function FinalizeApp({
         // For multi-question, route each answer through handleOptionSelect for phase-aware handling,
         // then send a combined summary for the AI to respond to
         for (const answer of selectedAnswers) {
-          await orchestrator.handleOptionSelect(answer, agent, (chunk) => {
-            if (!destroyedRef.current) setStreamingText((prev) => prev + chunk);
-          });
+          await orchestrator.handleOptionSelect(
+            answer,
+            agent,
+            (chunk) => {
+              if (!destroyedRef.current) setStreamingText((prev) => prev + chunk);
+            },
+            (event) => {
+              if (!showToolLogs || destroyedRef.current) return;
+              setStreamingText((prev) => {
+                const prefix = prev ? "\n" : "";
+                return `${prev}${prefix}${formatToolEvent(event)}\n`;
+              });
+            },
+          );
         }
       } else {
-        await orchestrator.handleOptionSelect(option, agent, (chunk) => {
-          if (!destroyedRef.current) setStreamingText((prev) => prev + chunk);
-        });
+        await orchestrator.handleOptionSelect(
+          option,
+          agent,
+          (chunk) => {
+            if (!destroyedRef.current) setStreamingText((prev) => prev + chunk);
+          },
+          (event) => {
+            if (!showToolLogs || destroyedRef.current) return;
+            setStreamingText((prev) => {
+              const prefix = prev ? "\n" : "";
+              return `${prev}${prefix}${formatToolEvent(event)}\n`;
+            });
+          },
+        );
       }
 
       if (!destroyedRef.current) {
@@ -389,9 +426,20 @@ export function FinalizeApp({
     setStreamingText("");
 
     try {
-      await orchestrator.handleUserMessage(value, agent, (chunk) => {
-        if (!destroyedRef.current) setStreamingText((prev) => prev + chunk);
-      });
+      await orchestrator.handleUserMessage(
+        value,
+        agent,
+        (chunk) => {
+          if (!destroyedRef.current) setStreamingText((prev) => prev + chunk);
+        },
+        (event) => {
+          if (!showToolLogs || destroyedRef.current) return;
+          setStreamingText((prev) => {
+            const prefix = prev ? "\n" : "";
+            return `${prev}${prefix}${formatToolEvent(event)}\n`;
+          });
+        },
+      );
 
       if (!destroyedRef.current) {
         setStreamingText("");
