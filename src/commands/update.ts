@@ -68,7 +68,10 @@ async function downloadAndInstall(
 const updateCommand: CommandModule = {
   command: "update",
   describe: "Update synth to the latest version",
-  builder: {},
+  builder: (yargs) =>
+    yargs
+      .example("synth update", "Update synth to the latest release")
+      .example("synth update", "Check for and install available updates"),
   async handler() {
     const tuiEnabled = process.stdout.isTTY === true && !process.argv.includes("--no-tui");
 

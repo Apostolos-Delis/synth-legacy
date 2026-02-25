@@ -8,7 +8,10 @@ import { ansi, fmt, initTheme } from "../tui/theme.js";
 const themesCommand: CommandModule = {
   command: "themes",
   describe: "List available themes and spinner presets",
-  builder: {},
+  builder: (yargs) =>
+    yargs
+      .example("synth themes", "List all available themes and spinners")
+      .example("synth themes", "See which theme is currently active"),
   handler: async () => {
     const config = await loadConfig(process.cwd());
     const { theme, spinnerFrames } = await resolveTheme(config);
