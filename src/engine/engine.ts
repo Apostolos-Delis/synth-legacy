@@ -13,7 +13,7 @@ import { parseAcDoneMarkers, stripAcDoneMarkers } from "./ac-done.js";
 import { CircuitBreaker } from "./circuit-breaker.js";
 import { detectRateLimit, getBackoffDelay } from "./rate-limit.js";
 import { runBackpressure } from "./backpressure.js";
-import { loadTasks, saveTasks, updateTaskStatus, allTasksDone } from "../tasks/store.js";
+import { loadTasks, saveTasks, updateTaskStatus, allTasksDone, persistTaskStatus } from "../tasks/store.js";
 import { selectNextTask } from "../tasks/selector.js";
 import { buildPrompt } from "../prompts/build.js";
 import { appendText, writeText, ensureDir } from "../utils/fs.js";
@@ -109,9 +109,7 @@ export class Engine {
       type: "rate-limit:detected",
       message: `Rate limited, backing off ${delay / 1000}s`,
     });
-    const freshFile = await loadTasks(this.sessionPaths.tasks);
-    const reverted = updateTaskStatus(freshFile, taskId, "open");
-    await saveTasks(this.sessionPaths.tasks, reverted);
+    await persistTaskStatus(this.sessionPaths, taskId, "open");
     return { rateLimited: true, delay };
   }
 
@@ -284,8 +282,7 @@ export class Engine {
       });
       this.emit({ type: "task:start", taskId: task.id, message: task.title });
 
-      const updatedFile = updateTaskStatus(taskFile, task.id, "in_progress");
-      await saveTasks(this.sessionPaths.tasks, updatedFile);
+      await persistTaskStatus(this.sessionPaths, task.id, "in_progress");
 
       this.emit({ type: "phase:building-prompt", timestamp: Date.now() });
       trace.startPhase("engine:prompt-build");

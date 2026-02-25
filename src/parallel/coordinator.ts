@@ -16,7 +16,7 @@ import {
   reconcileTasksFromGitLog,
   type ParallelSessionState,
 } from "./session.js";
-import { loadTasks, saveTasks, updateTaskStatus } from "../tasks/store.js";
+import { persistTaskStatus } from "../tasks/store.js";
 import {
   getCurrentBranch,
   checkoutBranch,
@@ -69,6 +69,7 @@ export class ParallelCoordinator {
   private readonly fallbackAgent: AgentAdapter | null;
   private readonly listeners: ParallelEventListener[] = [];
   private readonly resourceMonitor: ResourceMonitor;
+  private statusWriteChain: Promise<void> = Promise.resolve();
 
   private worktreeManager: WorktreeManager | null = null;
   private mergeEngine: MergeEngine | null = null;
@@ -196,6 +197,7 @@ export class ParallelCoordinator {
           }
           const hasCommits = await this.branchHasNewCommits(result.branch);
           if (!hasCommits) {
+            await this.queueTaskStatus(result.taskId, "failed");
             this.emit({
               type: "merge:skipped",
               timestamp: this.timestamp(),
@@ -283,6 +285,7 @@ export class ParallelCoordinator {
               this.handleFailedMerge(processed, failedTaskIds);
             }
           } else {
+            await this.queueTaskStatus(processed.taskId, "failed");
             this.emit({
               type: "merge:failed",
               timestamp: this.timestamp(),
@@ -442,6 +445,7 @@ export class ParallelCoordinator {
     if (count < this.maxRequeueCount) {
       this.requeueCounts.set(operation.taskId, count + 1);
       this.pendingRequeue.add(operation.taskId);
+      void this.queueTaskStatus(operation.taskId, "open");
       this.emit({
         type: "task:requeued",
         timestamp: this.timestamp(),
@@ -451,6 +455,7 @@ export class ParallelCoordinator {
       });
     } else {
       failedTaskIds.push(operation.taskId);
+      void this.queueTaskStatus(operation.taskId, "failed");
       this.emit({
         type: "merge:failed",
         timestamp: this.timestamp(),
@@ -532,6 +537,9 @@ export class ParallelCoordinator {
           );
 
           worker.on((event) => {
+            if (event.type === "worker:started") {
+              void this.queueTaskStatus(task.id, "in_progress");
+            }
             if (event.type === "worker:started" || event.type === "worker:progress" || event.type === "worker:output") {
               this.emit(event);
             }
@@ -548,6 +556,7 @@ export class ParallelCoordinator {
             });
             return result;
           } catch {
+            await this.queueTaskStatus(task.id, "failed");
             this.emit({
               type: "worker:failed",
               timestamp: this.timestamp(),
@@ -722,14 +731,31 @@ export class ParallelCoordinator {
     }
   }
 
-  private async persistTaskDone(taskId: string, durationMs?: number): Promise<void> {
+  private async tryPersistTaskStatus(
+    taskId: string,
+    status: Task["status"],
+    options?: { durationMs?: number; notes?: string },
+  ): Promise<void> {
     try {
-      const taskFile = await loadTasks(this.sessionPaths.tasks);
-      const updated = updateTaskStatus(taskFile, taskId, "done", { durationMs });
-      await saveTasks(this.sessionPaths.tasks, updated);
+      await persistTaskStatus(this.sessionPaths, taskId, status, options);
     } catch {
       // Best effort — don't fail the merge over a status write
     }
+  }
+
+  private queueTaskStatus(
+    taskId: string,
+    status: Task["status"],
+    options?: { durationMs?: number; notes?: string },
+  ): Promise<void> {
+    this.statusWriteChain = this.statusWriteChain
+      .then(() => this.tryPersistTaskStatus(taskId, status, options))
+      .catch(() => {});
+    return this.statusWriteChain;
+  }
+
+  private async persistTaskDone(taskId: string, durationMs?: number): Promise<void> {
+    await this.queueTaskStatus(taskId, "done", { durationMs });
   }
 
   private async persistState(

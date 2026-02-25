@@ -1,4 +1,5 @@
 import type { Task, TaskFile } from "./types.js";
+import type { SessionPaths } from "../sessions/types.js";
 import { readJson, writeJson } from "../utils/fs.js";
 
 export async function loadTasks(path: string): Promise<TaskFile> {
@@ -10,6 +11,17 @@ export async function saveTasks(
   taskFile: TaskFile,
 ): Promise<void> {
   await writeJson(path, taskFile);
+}
+
+export async function persistTaskStatus(
+  sessionPaths: SessionPaths,
+  taskId: string,
+  status: Task["status"],
+  options?: { notes?: string; durationMs?: number },
+): Promise<void> {
+  const taskFile = await loadTasks(sessionPaths.tasks);
+  const updated = updateTaskStatus(taskFile, taskId, status, options);
+  await saveTasks(sessionPaths.tasks, updated);
 }
 
 export function updateTaskStatus(

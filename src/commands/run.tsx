@@ -12,8 +12,18 @@ import { ansi, fmt } from "../tui/theme.js";
 import { globalTrace } from "../utils/perf.js";
 import { stripAnsi } from "../tui/utils.js";
 import type { TuiEngineData, TuiContext, CompletionSummary } from "../tui/types.js";
+import {
+  applyTaskStatus,
+  resetTaskOutput,
+  setTaskStartTime,
+  setTaskElapsedMs,
+  addTaskElapsedMs,
+  appendTaskOutput,
+} from "../tui/task-state.js";
 import { TokenAccumulator } from "../engine/tokens.js";
 import type { IterationResult } from "../engine/types.js";
+
+const MAX_OUTPUT_LENGTH = 100_000;
 
 import {
   log,
@@ -256,31 +266,34 @@ export async function cmdRun(
             const worker = workers.find((w) => w.id === event.workerId);
             if (worker) {
               const taskId = worker.task.id;
-              const task = parallelTuiData.tasks.find((t) => t.id === taskId);
-              if (task && task.status !== "done" && task.status !== "failed") {
-                task.status = "in_progress";
+              if (event.type === "worker:started") {
+                const task = parallelTuiData.tasks.find((t) => t.id === taskId);
+                if (task && task.status !== "done" && task.status !== "failed" && task.status !== "in_progress") {
+                  applyTaskStatus(parallelTuiData, taskId, "in_progress");
+                }
               }
               const startTime = Date.now() - worker.elapsedMs;
-              parallelTuiData.taskStartTimes[taskId] = startTime;
-              parallelTuiData.taskElapsedMs[taskId] = worker.elapsedMs;
+              setTaskStartTime(parallelTuiData, taskId, startTime);
+              setTaskElapsedMs(parallelTuiData, taskId, worker.elapsedMs);
               workerElapsedByTaskId.set(taskId, worker.elapsedMs);
             }
           }
           if (event.type === "worker:output" && "taskId" in event) {
             const taskId = (event as { taskId: string }).taskId;
-            parallelTuiData.taskOutputMap[taskId] = (parallelTuiData.taskOutputMap[taskId] ?? "") + (event as { message: string }).message;
+            appendTaskOutput(parallelTuiData, taskId, (event as { message: string }).message, MAX_OUTPUT_LENGTH);
           }
           if (event.type === "merge:completed") {
-            const task = parallelTuiData.tasks.find((t) => t.id === event.taskId);
-            if (task) task.status = "done";
+            applyTaskStatus(parallelTuiData, event.taskId, "done");
             const elapsed = workerElapsedByTaskId.get(event.taskId);
             if (elapsed != null) {
-              parallelTuiData.taskElapsedMs[event.taskId] = elapsed;
+              setTaskElapsedMs(parallelTuiData, event.taskId, elapsed);
             }
           }
           if (event.type === "merge:failed" || event.type === "merge:skipped") {
-            const task = parallelTuiData.tasks.find((t) => t.id === event.taskId);
-            if (task) task.status = "failed";
+            applyTaskStatus(parallelTuiData, event.taskId, "failed");
+          }
+          if (event.type === "task:requeued") {
+            applyTaskStatus(parallelTuiData, event.taskId, "open");
           }
           notifyParallelTuiThrottled();
         });
@@ -477,8 +490,6 @@ export async function cmdRun(
     }, 16);
   };
 
-  const MAX_OUTPUT_LENGTH = 100_000;
-
   const taskStartTimes = new Map<string, number>();
   const tokenAccumulator = new TokenAccumulator();
 
@@ -497,15 +508,11 @@ export async function cmdRun(
           tuiData.currentPhase = "Starting task...";
           tuiData.phaseStartTime = event.timestamp ?? Date.now();
           if (event.taskId) {
-            tuiData.taskOutputMap[event.taskId] = "";
+            resetTaskOutput(tuiData, event.taskId);
             const now = Date.now();
             taskStartTimes.set(event.taskId, now);
-            tuiData.taskStartTimes[event.taskId] = now;
-            const task = tuiData.tasks.find((t) => t.id === event.taskId);
-            if (task) {
-              task.iterationCount++;
-              task.status = "in_progress";
-            }
+            setTaskStartTime(tuiData, event.taskId, now);
+            applyTaskStatus(tuiData, event.taskId, "in_progress");
           }
           break;
         case "task:complete":
@@ -513,17 +520,18 @@ export async function cmdRun(
           tuiData.isThinking = false;
           tuiData.currentPhase = null;
           tuiData.phaseStartTime = null;
-          const task = tuiData.tasks.find((t) => t.id === event.taskId);
-          if (task) task.status = event.type === "task:complete" ? "done" : "failed";
+          if (event.taskId) {
+            applyTaskStatus(tuiData, event.taskId, event.type === "task:complete" ? "done" : "failed");
+          }
           if (event.taskId) {
             const startTime = taskStartTimes.get(event.taskId);
             if (startTime) {
               const taskElapsed = Date.now() - startTime;
               const elapsedSecs = Math.floor(taskElapsed / 1000);
-              tuiData.taskElapsedMs[event.taskId] = (tuiData.taskElapsedMs[event.taskId] ?? 0) + taskElapsed;
+              addTaskElapsedMs(tuiData, event.taskId, taskElapsed);
               const label = event.type === "task:complete" ? "Completed" : "Failed";
               const suffix = `\n${label} in ${elapsedSecs}s`;
-              tuiData.taskOutputMap[event.taskId] = (tuiData.taskOutputMap[event.taskId] ?? "") + suffix;
+              appendTaskOutput(tuiData, event.taskId, suffix, MAX_OUTPUT_LENGTH);
               if (tuiData.currentTaskId === event.taskId) {
                 tuiData.output += suffix;
               }
@@ -566,10 +574,7 @@ export async function cmdRun(
               tuiData.output = tuiData.output.slice(-MAX_OUTPUT_LENGTH);
             }
             if (tuiData.currentTaskId && tuiData.currentTaskId in tuiData.taskOutputMap) {
-              tuiData.taskOutputMap[tuiData.currentTaskId] += stripped;
-              if (tuiData.taskOutputMap[tuiData.currentTaskId].length > MAX_OUTPUT_LENGTH) {
-                tuiData.taskOutputMap[tuiData.currentTaskId] = tuiData.taskOutputMap[tuiData.currentTaskId].slice(-MAX_OUTPUT_LENGTH);
-              }
+              appendTaskOutput(tuiData, tuiData.currentTaskId, stripped, MAX_OUTPUT_LENGTH);
             }
           }
           renderTuiThrottled();
@@ -757,18 +762,18 @@ export async function cmdRun(
               tuiData.currentPhase = "Executing review task...";
               tuiData.phaseStartTime = event.timestamp ?? Date.now();
               if (event.taskId) {
-                tuiData.taskOutputMap[event.taskId] = "";
-                tuiData.taskStartTimes[event.taskId] = Date.now();
-                const task = tuiData.tasks.find((t) => t.id === event.taskId);
-                if (task) task.iterationCount++;
+                resetTaskOutput(tuiData, event.taskId);
+                setTaskStartTime(tuiData, event.taskId, Date.now());
+                applyTaskStatus(tuiData, event.taskId, "in_progress");
               }
               break;
             case "task:complete":
             case "task:failed": {
               tuiData.isThinking = false;
               tuiData.currentPhase = null;
-              const task = tuiData.tasks.find((t) => t.id === event.taskId);
-              if (task) task.status = event.type === "task:complete" ? "done" : "failed";
+              if (event.taskId) {
+                applyTaskStatus(tuiData, event.taskId, event.type === "task:complete" ? "done" : "failed");
+              }
               break;
             }
             case "agent:stdout": {
@@ -776,7 +781,7 @@ export async function cmdRun(
               if (stripped) {
                 tuiData.output += stripped;
                 if (tuiData.currentTaskId && tuiData.currentTaskId in tuiData.taskOutputMap) {
-                  tuiData.taskOutputMap[tuiData.currentTaskId] += stripped;
+                  appendTaskOutput(tuiData, tuiData.currentTaskId, stripped, MAX_OUTPUT_LENGTH);
                 }
               }
               renderTui();

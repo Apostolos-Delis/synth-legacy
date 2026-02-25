@@ -36,13 +36,8 @@ export function ParallelBridge({ tuiData, parallelState, taskGraphAnalysis, onQu
     for (const task of tuiData.tasks) {
       statuses[task.id] = task.status;
     }
-    for (const worker of parallelState.workers) {
-      if (worker.taskId && worker.status === "running") {
-        statuses[worker.taskId] = "in_progress";
-      }
-    }
     return statuses;
-  }, [tuiData.tasks, parallelState.workers]);
+  }, [tuiData.tasks]);
 
   useKeyboard(
     useCallback((key: { name: string }) => {
