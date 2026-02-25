@@ -30,12 +30,16 @@ export const TaskDetailHeader = memo(function TaskDetailHeader({
   const innerWidth = Math.max(1, width - 6);
   const descLines = wrapText(task.description, innerWidth);
 
+  // Cap visible description lines to available space: border(2) + title(1) + blank sep(1)
+  const maxDescLines = Math.max(1, height - 2 - 1 - 1);
+  const visibleDescLines = descLines.slice(0, maxDescLines);
+
   // Build acceptance criteria rows, respecting height limit.
-  // Reserve 2 for border, 1 for title, descLines for description, 1 blank separator,
+  // Reserve 2 for border, 1 for title, visibleDescLines for description, 1 blank separator,
   // and 1 for the section header line when criteria exist.
   const criteria = task.acceptanceCriteria;
   const sectionHeaderCost = criteria.length > 0 ? 1 : 0;
-  const maxCriteriaRows = Math.max(0, height - 2 - 1 - descLines.length - 1 - sectionHeaderCost);
+  const maxCriteriaRows = Math.max(0, height - 2 - 1 - visibleDescLines.length - 1 - sectionHeaderCost);
   const completed = task.criteriaCompleted;
 
   const criteriaRows: ReactNode[] = [];
@@ -48,7 +52,7 @@ export const TaskDetailHeader = memo(function TaskDetailHeader({
     const text = criteria[i].length > maxLen ? criteria[i].slice(0, maxLen - 3) + "..." : criteria[i];
 
     criteriaRows.push(
-      <text key={`ac-${i}`}>
+      <text key={`ac-${i}`} truncate={true}>
         <span fg={iconColor}> {icon}</span>
         <span fg={colors.fg.secondary}> #{i + 1} </span>
         <span fg={colors.fg.primary}>{text}</span>
@@ -58,7 +62,7 @@ export const TaskDetailHeader = memo(function TaskDetailHeader({
 
   if (criteria.length > visibleCount) {
     criteriaRows.push(
-      <text key="ac-more">
+      <text key="ac-more" truncate={true}>
         <span fg={colors.fg.muted}>  +{criteria.length - visibleCount} more...</span>
       </text>,
     );
@@ -71,22 +75,23 @@ export const TaskDetailHeader = memo(function TaskDetailHeader({
       border={true}
       borderColor={colors.border.active}
       flexDirection="column"
+      overflow="hidden"
     >
-      <text>
+      <text truncate={true}>
         <span fg={statusColor} attributes={boldAttr()}>{statusIcon} </span>
         <span fg={colors.fg.primary} attributes={boldAttr()}>{task.title}</span>
         {"  "}
         <span fg={priorityColor} attributes={boldAttr()}>[{priorityLabel}]</span>
         <span fg={statusColor}> [{task.status}]</span>
       </text>
-      {descLines.map((line, i) => (
-        <text key={`desc-${i}`}>
+      {visibleDescLines.map((line, i) => (
+        <text key={`desc-${i}`} truncate={true}>
           <span fg={colors.fg.muted}>{line}</span>
         </text>
       ))}
       <text />
       {criteria.length > 0 && visibleCount > 0 && (
-        <text>
+        <text truncate={true}>
           <span fg={colors.accent.primary} attributes={boldAttr()}>{"\u2500"} Acceptance Criteria</span>
           <span fg={colors.fg.muted}> ({criteria.length})</span>
         </text>

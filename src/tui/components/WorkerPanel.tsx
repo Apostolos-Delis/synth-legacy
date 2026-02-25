@@ -75,7 +75,7 @@ function WorkerRow({
       : STATUS_ICON[worker.status];
 
   return (
-    <text>
+    <text truncate={true}>
       <span fg={STATUS_COLOR[worker.status]}>{icon}</span>
       {" "}
       <span fg={colors.fg.primary} attributes={boldAttr()}>{paddedId}</span>

@@ -1,4 +1,5 @@
-import { memo, type ReactNode } from "react";
+import { memo, useRef, useEffect, type ReactNode } from "react";
+import type { ScrollBoxRenderable } from "@opentui/core";
 import type { Task } from "../../tasks/types.js";
 import { boldAttr, statusIndicators, colors, STATUS_COLORS_HEX, PRIORITY_COLORS_HEX } from "../theme.js";
 
@@ -19,10 +20,21 @@ export const TaskSidebar = memo(function TaskSidebar({
 }: TaskSidebarProps): ReactNode {
   const isCurrent = (id: string) => id === currentTaskId;
   const borderFg = currentTaskId ? colors.border.active : colors.border.normal;
+  const scrollRef = useRef<ScrollBoxRenderable>(null);
 
   // 2 rows for top+bottom border
   const innerHeight = height - 2;
   const needsScroll = tasks.length > innerHeight;
+
+  useEffect(() => {
+    if (!scrollRef.current || !needsScroll) return;
+    const top = scrollRef.current.scrollTop;
+    if (selectedTaskIndex < top) {
+      scrollRef.current.scrollTop = selectedTaskIndex;
+    } else if (selectedTaskIndex >= top + innerHeight) {
+      scrollRef.current.scrollTop = selectedTaskIndex - innerHeight + 1;
+    }
+  }, [selectedTaskIndex, needsScroll, innerHeight]);
 
   const taskRows = tasks.map((task, index) => {
     const icon = statusIndicators[task.status] ?? "?";
@@ -42,7 +54,7 @@ export const TaskSidebar = memo(function TaskSidebar({
     const indicatorColor = selected ? colors.accent.secondary : active ? colors.accent.primary : colors.fg.dim;
 
     return (
-      <text key={task.id}>
+      <text key={task.id} truncate={true}>
         <span fg={indicatorColor}>{indicator}</span>
         <span fg={statusColor}>{icon}</span>
         {" "}
@@ -68,9 +80,9 @@ export const TaskSidebar = memo(function TaskSidebar({
     >
       {needsScroll ? (
         <scrollbox
+          ref={scrollRef}
           flexGrow={1}
-          stickyScroll={true}
-          stickyStart="top"
+          stickyScroll={false}
           style={{ flexDirection: "column" }}
         >
           {taskRows}

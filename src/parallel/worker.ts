@@ -44,6 +44,7 @@ export class Worker {
   private engine: Engine | null = null;
   private status: WorkerStatus = "idle";
   private startTime = 0;
+  private endTime = 0;
   private currentIteration = 0;
   private maxIterations: number;
   private lastOutput = "";
@@ -140,6 +141,7 @@ export class Worker {
       }
 
       this.status = "completed";
+      this.endTime = Date.now();
 
       const result: WorkerResult = {
         workerId: this.id,
@@ -162,6 +164,7 @@ export class Worker {
       return result;
     } catch (err) {
       this.status = "failed";
+      this.endTime = Date.now();
       const error = err instanceof Error ? err.message : String(err);
 
       const result: WorkerResult = {
@@ -189,6 +192,7 @@ export class Worker {
 
   stop(): void {
     this.status = "cancelled";
+    this.endTime = Date.now();
     if (this.engine) {
       this.engine.stop();
     }
@@ -202,7 +206,9 @@ export class Worker {
       currentIteration: this.currentIteration,
       maxIterations: this.maxIterations,
       lastOutput: this.lastOutput,
-      elapsedMs: this.startTime > 0 ? Date.now() - this.startTime : 0,
+      elapsedMs: this.endTime > 0
+        ? this.endTime - this.startTime
+        : (this.startTime > 0 ? Date.now() - this.startTime : 0),
       worktreePath: this.config.worktreePath,
       branchName: this.config.branchName,
     };
