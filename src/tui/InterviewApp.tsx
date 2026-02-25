@@ -18,6 +18,7 @@ import { useAgentStreaming } from "./hooks/useAgentStreaming.js";
 import { useExitConfirm } from "./hooks/useExitConfirm.js";
 
 interface InterviewAppProps {
+  sessionId?: string;
   onSendMessage: (msg: string, onChunk: (chunk: string) => void, onTool?: (event: AgentToolEvent) => void) => Promise<{ response: string; done: boolean }>;
   onComplete: () => void;
   onQuit: () => void;
@@ -41,7 +42,7 @@ function MessageBubble({ message }: { message: InterviewMessage }): ReactNode {
   );
 }
 
-export function InterviewApp({ onSendMessage, onComplete, onQuit, initialMessages }: InterviewAppProps): ReactNode {
+export function InterviewApp({ sessionId, onSendMessage, onComplete, onQuit, initialMessages }: InterviewAppProps): ReactNode {
   const [messages, setMessages] = useState<InterviewMessage[]>(
     initialMessages && initialMessages.length > 0
       ? [{ role: "assistant", content: WELCOME_MESSAGE }, ...initialMessages]
@@ -293,6 +294,7 @@ export function InterviewApp({ onSendMessage, onComplete, onQuit, initialMessage
         <box style={{ flexDirection: "row", gap: 2 }}>
           <text fg={colors.accent.primary} attributes={boldAttr()}>synth session</text>
           <text fg={colors.fg.muted}>PRD Interview</text>
+          {sessionId ? <text fg={colors.fg.muted}>{sessionId}</text> : null}
         </box>
         <text fg={colors.fg.muted}>
           {messages.length} message{messages.length !== 1 ? "s" : ""}

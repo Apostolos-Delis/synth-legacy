@@ -170,6 +170,7 @@ export async function resumeInterview(
     const interviewResult = await new Promise<boolean>((resolve) => {
       planRoot.render(
         <tui.InterviewApp
+          sessionId={id}
           initialMessages={savedState.interviewerHistory}
           onSendMessage={async (msg, onChunk, onTool) => {
             const response = await interviewer.respond(msg, onChunk, showToolLogs ? onTool : undefined);
@@ -650,6 +651,7 @@ export async function cmdStart(
     const interviewResult = await new Promise<boolean>((resolve) => {
       planRoot.render(
         <tui.InterviewApp
+          sessionId={id}
           onSendMessage={async (msg, onChunk, onTool) => {
             logger.info("interview:prompt", "User message", { length: msg.length });
             try {

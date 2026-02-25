@@ -151,6 +151,7 @@ async function resumeInterview(
     const interviewResult = await new Promise<boolean>((resolve) => {
       planRoot.render(
         <tui.InterviewApp
+          sessionId={id}
           initialMessages={savedState.interviewerHistory}
           onSendMessage={async (msg, onChunk, onTool) => {
             logger.info("interview:prompt", "User message", { length: msg.length });
