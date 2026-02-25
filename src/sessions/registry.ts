@@ -5,6 +5,7 @@ import type { SessionMetadata, SessionPaths } from "./types.js";
 import { generateSessionId } from "./id.js";
 import { ensureDir, fileExists, dirExists, readJson, writeJson } from "../utils/fs.js";
 import { spawn } from "../utils/process.js";
+import { getLogger } from "../logging/logger.js";
 
 const SYNTH_HOME = join(homedir(), ".synth");
 const LEGACY_PLANS_DIR = join(SYNTH_HOME, "plans");
@@ -171,6 +172,12 @@ export async function createSession(
 
   await writeJson(join(paths.root, "metadata.json"), metadata);
 
+  getLogger().info("session:create", `Created session ${id}`, {
+    sessionId: id,
+    repoKey,
+    description,
+  });
+
   return { id, paths, metadata };
 }
 
@@ -202,6 +209,14 @@ export async function updateSessionMetadata(
     ...updates,
     updatedAt: new Date().toISOString(),
   };
+
+  if (updates.status && updates.status !== session.metadata.status) {
+    getLogger().info(
+      "session:status-change",
+      `Session ${sessionId} status: ${session.metadata.status} → ${updates.status}`,
+      { sessionId, from: session.metadata.status, to: updates.status },
+    );
+  }
 
   await writeJson(join(session.paths.root, "metadata.json"), updated);
   return updated;
