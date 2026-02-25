@@ -7,6 +7,7 @@ import type { AgentAdapter } from "../agents/types.js";
 import type { MergeOperation } from "./merge-engine.js";
 import type { AiAgent, ConflictInfo, ConflictContext } from "./ai-resolver.js";
 import { resolveWithAi } from "./ai-resolver.js";
+import { getLogger } from "../logging/logger.js";
 
 export interface ConflictResolutionResult {
   resolved: boolean;
@@ -113,11 +114,18 @@ export async function resolveConflicts(
   agent: AgentAdapter,
   context: ConflictResolutionContext,
 ): Promise<ConflictResolutionResult> {
+  const log = getLogger();
   const files = operation.conflictedFiles ?? [];
 
   if (files.length === 0) {
     return { resolved: false, resolvedCount: 0, failedCount: 0 };
   }
+
+  log.warn("conflict:detected", `Conflict detected in ${files.length} file(s) for task ${operation.taskId}`, {
+    taskId: operation.taskId,
+    files,
+    fileCount: files.length,
+  });
 
   // Confidence gating: skip if too many conflicted files
   if (files.length > MAX_CONFLICTED_FILES) {
@@ -167,6 +175,11 @@ export async function resolveConflicts(
   }
 
   if (failedCount > 0) {
+    log.warn("conflict:failed", `Conflict resolution failed for task ${operation.taskId}`, {
+      taskId: operation.taskId,
+      resolvedCount,
+      failedCount,
+    });
     await spawn({ cmd: ["git", "reset", "--hard", "HEAD"], cwd: repoRoot }).promise;
     return { resolved: false, resolvedCount, failedCount };
   }
@@ -217,9 +230,18 @@ export async function resolveConflicts(
   const commitResult = await commitHandle.promise;
 
   if (commitResult.exitCode !== 0) {
+    log.warn("conflict:failed", `Conflict resolution commit failed for task ${operation.taskId}`, {
+      taskId: operation.taskId,
+      resolvedCount,
+      failedCount: files.length,
+    });
     await spawn({ cmd: ["git", "reset", "--hard", "HEAD"], cwd: repoRoot }).promise;
     return { resolved: false, resolvedCount, failedCount: files.length };
   }
 
+  log.info("conflict:resolved", `All conflicts resolved for task ${operation.taskId}`, {
+    taskId: operation.taskId,
+    resolvedCount,
+  });
   return { resolved: true, resolvedCount, failedCount: 0 };
 }

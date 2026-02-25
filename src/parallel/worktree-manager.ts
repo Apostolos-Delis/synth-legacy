@@ -3,6 +3,7 @@ import { rm, rmdir } from "node:fs/promises";
 import { spawn, type SpawnResult } from "../utils/process.js";
 import { dirExists } from "../utils/fs.js";
 import { getPlatform } from "../platform/index.js";
+import { getLogger } from "../logging/logger.js";
 
 export interface WorktreeInfo {
   workerId: string;
@@ -95,6 +96,12 @@ export class WorktreeManager {
 
     const info: WorktreeInfo = { workerId, taskId, path: wtPath, branch };
     this.active.set(workerId, info);
+    getLogger().info("worktree:create", `Created worktree for task ${taskId}`, {
+      taskId,
+      workerId,
+      branch,
+      path: wtPath,
+    });
     return info;
   }
 
@@ -130,7 +137,13 @@ export class WorktreeManager {
 
   async cleanupAll(): Promise<void> {
     const entries = [...this.active.values()];
+    const log = getLogger();
     for (const info of entries) {
+      log.info("worktree:cleanup", `Cleaning up worktree for task ${info.taskId}`, {
+        taskId: info.taskId,
+        workerId: info.workerId,
+        branch: info.branch,
+      });
       await this.removeWorktree(info.path, info.branch);
     }
     this.active.clear();

@@ -29,6 +29,7 @@ import { fileExists, readText } from "../utils/fs.js";
 import { resolveConflicts, type ConflictResolutionContext } from "./conflict-resolver.js";
 import { ResourceMonitor } from "./resource-monitor.js";
 import { spawn } from "../utils/process.js";
+import { getLogger } from "../logging/logger.js";
 
 export interface ParallelCoordinatorConfig {
   maxWorkers?: number;
@@ -131,6 +132,12 @@ export class ParallelCoordinator {
       return { mergedTaskIds: [], failedTaskIds: [], serial: true };
     }
 
+    const log = getLogger();
+    log.info("parallel:start", "Starting parallel execution", {
+      workerCount: this.maxWorkers,
+      taskCount: this.tasks.length,
+    });
+
     this.emit({ type: "parallel:started", timestamp: this.timestamp(), totalGroups: this.analysis.groups.length });
 
     this.interruptPromise = new Promise<void>((resolve) => {
@@ -178,6 +185,11 @@ export class ParallelCoordinator {
         if (this.aborted) break;
 
         const group = groups[gi];
+        log.info("parallel:wave-start", `Starting wave ${gi + 1}/${groups.length}`, {
+          wave: gi + 1,
+          totalWaves: groups.length,
+          taskCount: group.taskIds.length,
+        });
         this.emit({ type: "parallel:group-started", timestamp: this.timestamp() });
 
         // Filter out tasks already completed in a previous run
@@ -209,6 +221,10 @@ export class ParallelCoordinator {
           }
 
           const op = this.mergeEngine!.enqueue(result);
+          log.info("parallel:merge-queued", `Merge queued for task ${result.taskId}`, {
+            taskId: result.taskId,
+            operationId: op.id,
+          });
           this.emit({
             type: "merge:queued",
             timestamp: this.timestamp(),
@@ -318,6 +334,9 @@ export class ParallelCoordinator {
 
         await this.persistState(mergedTaskIds, failedTaskIds, gi);
 
+        log.info("parallel:wave-complete", `Wave ${gi + 1} completed`, {
+          wave: gi + 1,
+        });
         this.emit({ type: "parallel:group-completed", timestamp: this.timestamp() });
       }
 
@@ -348,6 +367,10 @@ export class ParallelCoordinator {
       await this.cleanup();
 
       this.deregisterSigintHandler();
+      log.info("parallel:complete", "Parallel execution completed", {
+        mergedCount: mergedTaskIds.length,
+        failedCount: failedTaskIds.length,
+      });
       this.emit({ type: "parallel:completed", timestamp: this.timestamp() });
 
       return { mergedTaskIds, failedTaskIds, serial: false, error: mergeError };
@@ -363,6 +386,7 @@ export class ParallelCoordinator {
 
   async abort(): Promise<void> {
     this.aborted = true;
+    getLogger().warn("parallel:abort", "Parallel execution aborted");
     for (const worker of this.activeWorkers) {
       try { worker.stop(); } catch { /* best effort */ }
     }
@@ -510,6 +534,11 @@ export class ParallelCoordinator {
           if (this.aborted || this.interrupted) break;
         }
 
+        getLogger().debug("parallel:worker-spawn", `Spawning worker ${workerId}`, {
+          taskId: task.id,
+          workerId,
+        });
+
         this.emit({
           type: "worker:created",
           timestamp: this.timestamp(),
@@ -549,6 +578,10 @@ export class ParallelCoordinator {
 
           try {
             const result = await worker.start();
+            getLogger().debug("parallel:worker-complete", `Worker ${workerId} completed`, {
+              taskId: task.id,
+              workerId,
+            });
             this.emit({
               type: "worker:completed",
               timestamp: this.timestamp(),
@@ -556,6 +589,11 @@ export class ParallelCoordinator {
             });
             return result;
           } catch {
+            getLogger().debug("parallel:worker-complete", `Worker ${workerId} failed`, {
+              taskId: task.id,
+              workerId,
+              success: false,
+            });
             await this.queueTaskStatus(task.id, "failed");
             this.emit({
               type: "worker:failed",
