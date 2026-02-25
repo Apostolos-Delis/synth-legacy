@@ -16,7 +16,7 @@ export function updateTaskStatus(
   taskFile: TaskFile,
   taskId: string,
   status: Task["status"],
-  notes?: string,
+  options?: { notes?: string; durationMs?: number },
 ): TaskFile {
   return {
     ...taskFile,
@@ -25,7 +25,10 @@ export function updateTaskStatus(
         ? {
             ...t,
             status,
-            notes: notes ? (t.notes ? `${t.notes}\n${notes}` : notes) : t.notes,
+            notes: options?.notes
+              ? (t.notes ? `${t.notes}\n${options.notes}` : options.notes)
+              : t.notes,
+            durationMs: options?.durationMs ?? t.durationMs,
             iterationCount:
               status === "in_progress" ? t.iterationCount + 1 : t.iterationCount,
             criteriaCompleted:

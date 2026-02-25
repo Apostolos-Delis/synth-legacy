@@ -45,13 +45,13 @@ describe("updateTaskStatus", () => {
 
   test("appends notes", () => {
     const tf = makeTaskFile([makeTask({ id: "US-001", notes: "first note" })]);
-    const updated = updateTaskStatus(tf, "US-001", "open", "second note");
+    const updated = updateTaskStatus(tf, "US-001", "open", { notes: "second note" });
     expect(updated.tasks[0].notes).toBe("first note\nsecond note");
   });
 
   test("sets notes when none exist", () => {
     const tf = makeTaskFile([makeTask({ id: "US-001" })]);
-    const updated = updateTaskStatus(tf, "US-001", "open", "new note");
+    const updated = updateTaskStatus(tf, "US-001", "open", { notes: "new note" });
     expect(updated.tasks[0].notes).toBe("new note");
   });
 
@@ -64,6 +64,12 @@ describe("updateTaskStatus", () => {
     ]);
     const updated = updateTaskStatus(tf, "US-001", "done");
     expect(updated.tasks[0].criteriaCompleted).toEqual([true, true, true]);
+  });
+
+  test("records durationMs when provided", () => {
+    const tf = makeTaskFile([makeTask({ id: "US-001" })]);
+    const updated = updateTaskStatus(tf, "US-001", "done", { durationMs: 1234 });
+    expect(updated.tasks[0].durationMs).toBe(1234);
   });
 
   test("does not change criteriaCompleted for non-done status", () => {

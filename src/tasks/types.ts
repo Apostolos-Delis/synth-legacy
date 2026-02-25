@@ -10,6 +10,7 @@ export interface Task {
   affects?: string[];
   dependsOn?: string[];
   notes?: string;
+  durationMs?: number;
   iterationCount: number;
 }
 
