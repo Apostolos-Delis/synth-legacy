@@ -1,5 +1,6 @@
 import { describe, test, expect } from "bun:test";
 import { statusIndicators, STATUS_COLORS_HEX, PRIORITY_COLORS_HEX, colors } from "../tui/theme.js";
+import { wrapText } from "../tui/utils.js";
 import { makeTask } from "./helpers.js";
 import type { Task } from "../tasks/types.js";
 
@@ -209,20 +210,8 @@ describe("TaskDetailHeader text truncation logic", () => {
 });
 
 describe("TaskDetailHeader word-wrap line counting", () => {
-  // Mirrors the word-boundary-aware wrapping used in both
-  // TaskDetailHeader (render) and OutputPane (height calc).
   function wrapLineCount(text: string, width: number): number {
-    if (width <= 0 || text.length === 0) return 1;
-    let count = 0;
-    let remaining = text;
-    while (remaining.length > 0) {
-      count++;
-      if (remaining.length <= width) break;
-      let breakAt = remaining.lastIndexOf(" ", width);
-      if (breakAt <= 0) breakAt = width;
-      remaining = remaining.slice(breakAt).trimStart();
-    }
-    return Math.max(1, count);
+    return wrapText(text, width).length;
   }
 
   test("short text fits in one line", () => {
@@ -242,18 +231,10 @@ describe("TaskDetailHeader word-wrap line counting", () => {
   });
 
   test("word-wrap produces more lines than naive char-split", () => {
-    // "aaa bbb ccc" with width=7:
-    // Naive: ceil(11/7)=2 lines
-    // Word-wrap: "aaa bbb" (break at space@7 → "aaa bbb"), then "ccc" → 2 lines
-    // But with width=8: "aaa bbb " fits, then "ccc" → still 2
-    // Use width=6 to force 3 lines:
-    // "aaa bbb ccc", width=6 → lastIndexOf(" ",6)=3 → "aaa", remaining="bbb ccc"
-    // "bbb ccc", width=6 → lastIndexOf(" ",6)=3 → "bbb", remaining="ccc"
-    // "ccc" fits → 3 lines. Naive: ceil(11/6)=2
     const text = "aaa bbb ccc";
     const width = 6;
-    const naiveCount = Math.ceil(text.length / width); // 2
-    const wordWrapCount = wrapLineCount(text, width); // 3
+    const naiveCount = Math.ceil(text.length / width);
+    const wordWrapCount = wrapLineCount(text, width);
     expect(wordWrapCount).toBeGreaterThan(naiveCount);
     expect(wordWrapCount).toBe(3);
   });
@@ -263,21 +244,29 @@ describe("TaskDetailHeader word-wrap line counting", () => {
   });
 
   test("multi-line description wraps correctly", () => {
-    // Simulate a realistic task description at innerWidth=34 (width=40, -6 for borders)
     const desc = "Implement the post-execution review cycle for tasks";
     const innerWidth = 34;
-    // "Implement the post-execution review" (35 chars) > 34
-    // lastIndexOf(" ", 34) = 35? Let's trace:
-    // desc.lastIndexOf(" ", 34) → index of space at position ≤34
-    // desc = "Implement the post-execution review cycle for tasks"
-    //         0123456789...
-    // Space positions: 9, 13, 29, 36, 42, 46
-    // lastIndexOf(" ", 34) → 29
-    // Line 1: "Implement the post-execution" (0..29)
-    // remaining: "review cycle for tasks"
-    // "review cycle for tasks".length = 22 <= 34 → line 2
-    // Total: 2 lines
     expect(wrapLineCount(desc, innerWidth)).toBe(2);
+  });
+
+  test("embedded newlines split into separate paragraphs", () => {
+    const desc = "Line one\nLine two\nLine three";
+    const lines = wrapText(desc, 80);
+    expect(lines).toEqual(["Line one", "Line two", "Line three"]);
+  });
+
+  test("empty lines from consecutive newlines are preserved", () => {
+    const desc = "First\n\nThird";
+    const lines = wrapText(desc, 80);
+    expect(lines).toEqual(["First", "", "Third"]);
+  });
+
+  test("newline paragraphs each word-wrap independently", () => {
+    const desc = "aaa bbb ccc\nddd eee fff";
+    const lines = wrapText(desc, 6);
+    // "aaa bbb ccc" at width=6 → "aaa", "bbb", "ccc"
+    // "ddd eee fff" at width=6 → "ddd", "eee", "fff"
+    expect(lines).toEqual(["aaa", "bbb", "ccc", "ddd", "eee", "fff"]);
   });
 });
 

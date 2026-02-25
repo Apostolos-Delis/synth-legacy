@@ -1,6 +1,7 @@
 import { memo, type ReactNode } from "react";
 import type { Task } from "../../tasks/types.js";
 import { boldAttr, statusIndicators, colors, STATUS_COLORS_HEX, PRIORITY_COLORS_HEX } from "../theme.js";
+import { wrapText } from "../utils.js";
 
 const PRIORITY_LABELS: Record<number, string> = {
   1: "Critical",
@@ -26,21 +27,8 @@ export const TaskDetailHeader = memo(function TaskDetailHeader({
   const priorityColor = PRIORITY_COLORS_HEX[task.priority] ?? colors.fg.muted;
   const priorityLabel = PRIORITY_LABELS[task.priority] ?? `P${task.priority}`;
 
-  // Word-wrap description into lines that fit the available width.
   const innerWidth = Math.max(1, width - 6);
-  const descLines: string[] = [];
-  let remaining = task.description;
-  while (remaining.length > 0) {
-    if (remaining.length <= innerWidth) {
-      descLines.push(remaining);
-      break;
-    }
-    let breakAt = remaining.lastIndexOf(" ", innerWidth);
-    if (breakAt <= 0) breakAt = innerWidth;
-    descLines.push(remaining.slice(0, breakAt));
-    remaining = remaining.slice(breakAt).trimStart();
-  }
-  if (descLines.length === 0) descLines.push("");
+  const descLines = wrapText(task.description, innerWidth);
 
   // Build acceptance criteria rows, respecting height limit.
   // Reserve 2 for border, 1 for title, descLines for description, 1 blank separator,

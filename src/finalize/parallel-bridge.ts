@@ -84,6 +84,9 @@ export function applyParallelEvent(
       if (getWorkerDisplayStates) {
         state.workers = buildWorkerInfos(getWorkerDisplayStates());
       }
+      state.header.activeWorkers = state.workers.filter(
+        (w) => w.status === "running",
+      ).length;
       return true;
 
     case "worker:completed":

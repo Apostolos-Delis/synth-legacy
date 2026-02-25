@@ -248,7 +248,8 @@ export class Worker {
       project: this.synthConfig.project.name,
       branchName: this.config.branchName,
       description: `Worker ${this.id}: ${task.title}`,
-      tasks: [{ ...task, status: "open" as const }],
+      // Coordinator handles dependency ordering via wave grouping; clear for single-task engine
+      tasks: [{ ...task, status: "open" as const, dependsOn: [] }],
     };
     await saveTasks(workerSessionPaths.tasks, taskFile);
 

@@ -123,6 +123,27 @@ describe("applyParallelEvent", () => {
     expect(state.header.activeWorkers).toBe(0);
   });
 
+  test("worker:progress recalculates activeWorkers", () => {
+    state = createInitialTuiState(3);
+    const w1Running = makeWorkerState({ id: "w1", status: "running" });
+    const w2Running = makeWorkerState({ id: "w2", status: "running" });
+    apply({ type: "worker:started", timestamp: ts(), workerId: "w1" }, () => [w1Running, w2Running]);
+    expect(state.header.activeWorkers).toBe(2);
+
+    apply({ type: "worker:progress", timestamp: ts(), workerId: "w1", iteration: 2, maxIterations: 3, elapsedMs: 1000, status: "running" }, () => [w1Running, w2Running]);
+    expect(state.header.activeWorkers).toBe(2);
+  });
+
+  test("worker:output recalculates activeWorkers", () => {
+    state = createInitialTuiState(3);
+    const w1Running = makeWorkerState({ id: "w1", status: "running" });
+    apply({ type: "worker:started", timestamp: ts(), workerId: "w1" }, () => [w1Running]);
+    expect(state.header.activeWorkers).toBe(1);
+
+    apply({ type: "worker:output", timestamp: ts(), workerId: "w1", message: "doing stuff", taskId: "FIX-001" }, () => [w1Running]);
+    expect(state.header.activeWorkers).toBe(1);
+  });
+
   test("merge:queued adds item", () => {
     state = createInitialTuiState(3);
     apply({ type: "merge:queued", timestamp: ts(), operationId: "m1", taskId: "FIX-001" });

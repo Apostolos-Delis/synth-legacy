@@ -2,23 +2,14 @@ import { memo, useMemo, type ReactNode } from "react";
 import { useTerminalDimensions } from "@opentui/react";
 import type { Task } from "../../tasks/types.js";
 import { colors, markdownSyntaxStyle } from "../theme.js";
+import { wrapText } from "../utils.js";
 import { PhaseIndicator } from "./PhaseIndicator.js";
 import { TaskDetailHeader } from "./TaskDetailHeader.js";
 
 const MIN_OUTPUT_HEIGHT = 10;
 
 function wrapLineCount(text: string, width: number): number {
-  if (width <= 0 || text.length === 0) return 1;
-  let count = 0;
-  let remaining = text;
-  while (remaining.length > 0) {
-    count++;
-    if (remaining.length <= width) break;
-    let breakAt = remaining.lastIndexOf(" ", width);
-    if (breakAt <= 0) breakAt = width;
-    remaining = remaining.slice(breakAt).trimStart();
-  }
-  return Math.max(1, count);
+  return wrapText(text, width).length;
 }
 
 function calcHeaderHeight(task: Task, width: number, terminalHeight: number, paneHeight: number): number {
