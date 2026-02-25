@@ -50,6 +50,7 @@ export function App({
   const [showQuitConfirm, setShowQuitConfirm] = useState(false);
   const [selectedTaskIndex, setSelectedTaskIndex] = useState(0);
   const [navMode, setNavMode] = useState<NavMode>("task-scroll");
+  const [detailFocus, setDetailFocus] = useState<"task" | "output">("task");
   const { toasts, showSuccess, showInfo, showWarning } = useToast();
 
   // Hide cursor — no text input fields exist in execution/dashboard/completion views
@@ -69,6 +70,8 @@ export function App({
   engineStateRef.current = engineData.engineState;
   const navModeRef = useRef(navMode);
   navModeRef.current = navMode;
+  const detailFocusRef = useRef(detailFocus);
+  detailFocusRef.current = detailFocus;
   const selectedTaskIndexRef = useRef(selectedTaskIndex);
   selectedTaskIndexRef.current = selectedTaskIndex;
   const tasksRef = useRef(engineData.tasks);
@@ -98,13 +101,14 @@ export function App({
       prevTaskId.current = engineData.currentTaskId;
       return;
     }
-    if (engineData.currentTaskId && engineData.currentTaskId !== prevTaskId.current) {
-      const idx = engineData.tasks.findIndex((t) => t.id === engineData.currentTaskId);
-      if (idx >= 0) {
-        setSelectedTaskIndex(idx);
-        setNavMode("task-scroll");
+      if (engineData.currentTaskId && engineData.currentTaskId !== prevTaskId.current) {
+        const idx = engineData.tasks.findIndex((t) => t.id === engineData.currentTaskId);
+        if (idx >= 0) {
+          setSelectedTaskIndex(idx);
+          setNavMode("task-scroll");
+          setDetailFocus("task");
+        }
       }
-    }
     prevTaskId.current = engineData.currentTaskId;
   }, [engineData.currentTaskId, engineData.tasks]);
 
@@ -196,6 +200,35 @@ export function App({
           return;
         }
 
+        if (navModeRef.current === "detail-select") {
+          if (key.name === "escape") {
+            setNavMode("task-scroll");
+            return;
+          }
+          if (key.name === "j" || key.name === "down") {
+            setDetailFocus("output");
+            return;
+          }
+          if (key.name === "k" || key.name === "up") {
+            setDetailFocus("task");
+            return;
+          }
+          if (key.name === "return") {
+            setNavMode(detailFocusRef.current === "output" ? "output-scroll" : "task-detail-scroll");
+            return;
+          }
+        }
+
+        if (navModeRef.current === "task-detail-scroll") {
+          if (key.name === "escape") {
+            setNavMode("task-scroll");
+            return;
+          }
+          if (key.name === "j" || key.name === "k" || key.name === "up" || key.name === "down") {
+            return;
+          }
+        }
+
         if (navModeRef.current === "worker-panel") {
           if (key.name === "escape") {
             setNavMode("task-scroll");
@@ -248,7 +281,8 @@ export function App({
             return;
           }
           if (key.name === "return") {
-            setNavMode("output-scroll");
+            setDetailFocus("task");
+            setNavMode("detail-select");
             return;
           }
         }
@@ -325,6 +359,7 @@ export function App({
             state={executionState}
             selectedTaskIndex={selectedTaskIndex}
             navMode={navMode}
+            detailFocus={detailFocus}
             parallel={parallel}
             parallelCompletion={parallelCompletion}
             parallelStatus={parallelStatus}
@@ -337,6 +372,7 @@ export function App({
             state={executionState}
             selectedTaskIndex={selectedTaskIndex}
             navMode={navMode}
+            detailFocus={detailFocus}
             parallel={parallel}
             parallelCompletion={parallelCompletion}
             parallelStatus={parallelStatus}

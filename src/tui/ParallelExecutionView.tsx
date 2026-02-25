@@ -19,6 +19,7 @@ interface ParallelExecutionViewProps {
   state: TuiState;
   selectedTaskIndex: number;
   navMode: NavMode;
+  detailFocus: "task" | "output";
   parallel?: ParallelHeaderInfo | null;
   parallelCompletion?: ParallelCompletionInfo | null;
   parallelStatus?: ParallelStatusInfo | null;
@@ -31,6 +32,7 @@ export function ParallelExecutionView({
   state,
   selectedTaskIndex,
   navMode,
+  detailFocus,
   parallel,
   parallelCompletion,
   parallelStatus,
@@ -94,6 +96,8 @@ export function ParallelExecutionView({
   const showThinking = isSelectedTaskActive && state.isThinking;
   const showPhase = isSelectedTaskActive ? state.currentPhase : null;
   const showPhaseStartTime = isSelectedTaskActive ? state.phaseStartTime : null;
+  const taskDetailFocused = navMode === "task-detail-scroll" || (navMode === "detail-select" && detailFocus === "task");
+  const outputFocused = navMode === "output-scroll" || (navMode === "detail-select" && detailFocus === "output");
 
   return (
     <box width={width} height={height} flexDirection="column">
@@ -138,6 +142,9 @@ export function ParallelExecutionView({
             phaseStartTime={showPhaseStartTime}
             task={selectedTask}
             outputScrollFocused={navMode === "output-scroll"}
+            outputFocused={outputFocused}
+            taskDetailFocused={taskDetailFocused}
+            taskDetailScrollFocused={navMode === "task-detail-scroll"}
             autoScroll={isSelectedTaskActive && navMode !== "output-scroll"}
           />
         </box>
