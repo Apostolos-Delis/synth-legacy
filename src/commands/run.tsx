@@ -502,7 +502,10 @@ export async function cmdRun(
             taskStartTimes.set(event.taskId, now);
             tuiData.taskStartTimes[event.taskId] = now;
             const task = tuiData.tasks.find((t) => t.id === event.taskId);
-            if (task) task.iterationCount++;
+            if (task) {
+              task.iterationCount++;
+              task.status = "in_progress";
+            }
           }
           break;
         case "task:complete":
