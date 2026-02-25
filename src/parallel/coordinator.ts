@@ -188,8 +188,6 @@ export class ParallelCoordinator {
         const results = await this.executeWave(groupTasks, effectiveWorkers);
 
         for (const result of results) {
-          if (this.aborted) break;
-
           const hasCommits = await this.branchHasNewCommits(result.branch);
           if (!hasCommits) {
             this.emit({
@@ -337,13 +335,17 @@ export class ParallelCoordinator {
       this.deregisterSigintHandler();
       this.emit({ type: "parallel:failed", timestamp: this.timestamp() });
       await this.handleAbort();
+      try { await this.worktreeManager?.cleanupAll(); } catch { /* best effort */ }
+      try { if (this.originalBranch) await checkoutBranch(this.originalBranch, this.repoRoot); } catch { /* best effort */ }
       throw error;
     }
   }
 
   async abort(): Promise<void> {
     this.aborted = true;
-    await this.handleAbort();
+    for (const worker of this.activeWorkers) {
+      try { worker.stop(); } catch { /* best effort */ }
+    }
   }
 
   private registerSigintHandler(): void {
@@ -616,16 +618,6 @@ export class ParallelCoordinator {
     for (const worker of this.activeWorkers) {
       try {
         worker.stop();
-      } catch {
-        // Best effort
-      }
-    }
-    if (this.worktreeManager) {
-      await this.worktreeManager.cleanupAll();
-    }
-    if (this.originalBranch) {
-      try {
-        await checkoutBranch(this.originalBranch, this.repoRoot);
       } catch {
         // Best effort
       }

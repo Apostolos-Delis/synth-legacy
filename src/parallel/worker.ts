@@ -1,5 +1,5 @@
 import { join } from "node:path";
-import { mkdir, copyFile } from "node:fs/promises";
+import { mkdir, copyFile, rm } from "node:fs/promises";
 import type { SynthConfig } from "../config/types.js";
 import type { AgentAdapter } from "../agents/types.js";
 import type { SessionPaths } from "../sessions/types.js";
@@ -245,6 +245,7 @@ export class Worker {
   private async prepareWorkerSession(
     workerSessionPaths: SessionPaths,
   ): Promise<void> {
+    await rm(workerSessionPaths.root, { recursive: true, force: true });
     await mkdir(workerSessionPaths.root, { recursive: true });
     await mkdir(workerSessionPaths.logs, { recursive: true });
     await mkdir(workerSessionPaths.reviewRoot, { recursive: true });
