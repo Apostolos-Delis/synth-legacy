@@ -35,7 +35,6 @@ const cli = yargs(process.argv.slice(2))
     type: "boolean",
     describe: "Show help",
   })
-  .strictCommands()
   .option("parallel", {
     type: "number",
     describe: "Force parallel execution (default: 8 workers)",
@@ -140,7 +139,7 @@ cli.command(
   false, // hidden from help
   () => {},
   async (argv) => {
-    // Reject unknown commands — strictCommands doesn't catch them with a $0 handler
+    // Reject unknown commands — $0 is the sole handler to avoid duplicate help output
     const positionals = argv._;
     if (positionals.length > 0) {
       process.stderr.write(`Unknown command: ${positionals[0]}\n`);
