@@ -9,6 +9,12 @@ function truncateText(text: string, maxWidth: number): string {
   return text.slice(0, maxWidth - 1) + "\u2026";
 }
 
+function padLine(text: string, width: number): string {
+  if (width <= 0) return "";
+  if (text.length >= width) return text.slice(0, width);
+  return text + " ".repeat(width - text.length);
+}
+
 const PRIORITY_LABELS: Record<number, string> = {
   1: "Critical",
   2: "High",
@@ -40,11 +46,13 @@ export const TaskDetailHeader = memo(function TaskDetailHeader({
   const titleOverhead = 2 + 2 + priorityLabel.length + 2 + 2 + task.status.length + 1;
   const titleMaxLen = Math.max(10, innerWidth - titleOverhead);
   const displayTitle = truncateText(task.title, titleMaxLen);
+  const titleLineText = `${statusIcon} ${displayTitle}  [${priorityLabel}] [${task.status}]`;
+  const titlePad = padLine("", Math.max(0, innerWidth - titleLineText.length));
 
   // Cap visible description lines to available space: border(2) + title(1) + blank sep(1)
   const maxDescLines = Math.max(1, height - 2 - 1 - 1);
   const visibleDescLines = descLines.slice(0, maxDescLines).map(
-    (line) => truncateText(line, innerWidth),
+    (line) => padLine(truncateText(line, innerWidth), innerWidth),
   );
 
   // Build acceptance criteria rows, respecting height limit.
@@ -61,22 +69,28 @@ export const TaskDetailHeader = memo(function TaskDetailHeader({
     const done = completed?.[i] ?? false;
     const icon = done ? "\u2713" : "\u25CB";
     const iconColor = done ? colors.status.success : colors.fg.muted;
-    const maxLen = width - 12;
-    const text = criteria[i].length > maxLen ? criteria[i].slice(0, maxLen - 3) + "..." : criteria[i];
+    const maxLen = Math.max(0, innerWidth - 8);
+    const text = criteria[i].length > maxLen ? criteria[i].slice(0, Math.max(0, maxLen - 3)) + "..." : criteria[i];
+    const rowText = ` ${icon} #${i + 1} ${text}`;
+    const rowPad = padLine("", Math.max(0, innerWidth - rowText.length));
 
     criteriaRows.push(
       <text key={`ac-${i}`}>
         <span fg={iconColor}> {icon}</span>
         <span fg={colors.fg.secondary}> #{i + 1} </span>
         <span fg={colors.fg.primary}>{text}</span>
+        <span>{rowPad}</span>
       </text>,
     );
   }
 
   if (criteria.length > visibleCount) {
+    const moreText = `  +${criteria.length - visibleCount} more...`;
+    const morePad = padLine("", Math.max(0, innerWidth - moreText.length));
     criteriaRows.push(
       <text key="ac-more">
-        <span fg={colors.fg.muted}>  +{criteria.length - visibleCount} more...</span>
+        <span fg={colors.fg.muted}>{moreText}</span>
+        <span>{morePad}</span>
       </text>,
     );
   }
@@ -96,17 +110,21 @@ export const TaskDetailHeader = memo(function TaskDetailHeader({
         {"  "}
         <span fg={priorityColor} attributes={boldAttr()}>[{priorityLabel}]</span>
         <span fg={statusColor}> [{task.status}]</span>
+        <span>{titlePad}</span>
       </text>
       {visibleDescLines.map((line, i) => (
         <text key={`desc-${i}`}>
           <span fg={colors.fg.muted}>{line}</span>
         </text>
       ))}
-      <text />
+      <text>
+        <span>{padLine("", innerWidth)}</span>
+      </text>
       {criteria.length > 0 && visibleCount > 0 && (
         <text>
           <span fg={colors.accent.primary} attributes={boldAttr()}>{"\u2500"} Acceptance Criteria</span>
           <span fg={colors.fg.muted}> ({criteria.length})</span>
+          <span>{padLine("", Math.max(0, innerWidth - `\u2500 Acceptance Criteria (${criteria.length})`.length))}</span>
         </text>
       )}
       {criteriaRows}
