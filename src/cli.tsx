@@ -633,7 +633,11 @@ async function cmdRun(sessionId?: string, startIteration = 0, tuiContext?: TuiCo
           tokenUsage: { sessionTotal: { inputTokens: 0, outputTokens: 0, totalTokens: 0 }, taskTotals: {}, hasData: false },
         };
 
-        const parallelState = createInitialTuiState(actionableTasks.length);
+        const totalTasks = taskFile.tasks.length;
+        const initialMergedTasks = taskFile.tasks.filter(
+          (t) => t.status === "done" || t.status === "skipped",
+        ).length;
+        const parallelState = createInitialTuiState(totalTasks, initialMergedTasks);
 
         // Render ONCE — the bridge manages its own re-renders via _notify
         parallelRoot!.render(

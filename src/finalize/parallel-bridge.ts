@@ -14,6 +14,7 @@ export interface ParallelTuiState {
   workers: WorkerInfo[];
   mergeItems: MergeQueueItem[];
   conflict: ConflictInfo | null;
+  baseMergedTasks: number;
 }
 
 const WORKER_STATUS_MAP: Record<WorkerDisplayState["status"], WorkerStatus> = {
@@ -38,18 +39,22 @@ export function buildWorkerInfos(displayStates: WorkerDisplayState[]): WorkerInf
   }));
 }
 
-export function createInitialTuiState(totalTasks: number): ParallelTuiState {
+export function createInitialTuiState(
+  totalTasks: number,
+  initialMergedTasks: number = 0,
+): ParallelTuiState {
   return {
     header: {
       currentWave: 0,
       totalWaves: 1,
       activeWorkers: 0,
-      mergedTasks: 0,
+      mergedTasks: initialMergedTasks,
       totalTasks,
     },
     workers: [],
     mergeItems: [],
     conflict: null,
+    baseMergedTasks: initialMergedTasks,
   };
 }
 
@@ -125,9 +130,10 @@ export function applyParallelEvent(
         item.status = "completed";
         item.endTime = Date.now();
       }
-      state.header.mergedTasks = state.mergeItems.filter(
+      const completed = state.mergeItems.filter(
         (m) => m.status === "completed",
       ).length;
+      state.header.mergedTasks = state.baseMergedTasks + completed;
       return true;
     }
 
