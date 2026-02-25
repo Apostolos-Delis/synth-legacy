@@ -141,6 +141,7 @@ function sessionPaths(repoKey: string, sessionId: string): SessionPaths {
     reviewTasks: join(reviewRoot, "tasks.json"),
     reviewProgress: join(reviewRoot, "progress.md"),
     reviewConversation: join(reviewRoot, "conversation.json"),
+    sessionLog: join(root, "session.log"),
   };
 }
 

@@ -287,6 +287,7 @@ const mockSessionPaths: SessionPaths = {
   reviewTasks: "/sessions/repo/test/review/tasks.json",
   reviewProgress: "/sessions/repo/test/review/progress.md",
   reviewConversation: "/sessions/repo/test/review/conversation.json",
+  sessionLog: "/sessions/repo/test/session.log",
 };
 
 const mockSynthConfig: SynthConfig = {

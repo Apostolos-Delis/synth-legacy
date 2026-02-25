@@ -27,4 +27,5 @@ export interface SessionPaths {
   reviewTasks: string;
   reviewProgress: string;
   reviewConversation: string;
+  sessionLog: string;
 }

@@ -113,6 +113,7 @@ const mockSessionPaths: SessionPaths = {
   reviewTasks: "/sessions/repo/test-session/review/tasks.json",
   reviewProgress: "/sessions/repo/test-session/review/progress.md",
   reviewConversation: "/sessions/repo/test-session/review/conversation.json",
+  sessionLog: "/sessions/repo/test-session/session.log",
 };
 
 const sessionFilePath = "/sessions/repo/test-session/.synth/parallel-session.json";

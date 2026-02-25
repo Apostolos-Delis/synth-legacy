@@ -49,6 +49,7 @@ function makeSessionPaths(): SessionPaths {
     reviewTasks: `${root}/review/tasks.json`,
     reviewProgress: `${root}/review/progress.md`,
     reviewConversation: `${root}/review/conversation.json`,
+    sessionLog: `${root}/session.log`,
   };
 }
 

@@ -21,6 +21,7 @@ export function makeSessionPaths(root: string): SessionPaths {
     reviewTasks: join(reviewRoot, "tasks.json"),
     reviewProgress: join(reviewRoot, "progress.md"),
     reviewConversation: join(reviewRoot, "conversation.json"),
+    sessionLog: join(root, "session.log"),
   };
 }
 
