@@ -11,7 +11,7 @@ import { saveTasks, loadTasks, getProgress } from "../tasks/store.js";
 import { writeText, readText, fileExists, writeJson } from "../utils/fs.js";
 import { spawn } from "../utils/process.js";
 import { ansi, fmt, PRIORITY_COLORS } from "../tui/theme.js";
-import { createSpinner, withSpinner } from "../tui/spinner.js";
+import { createSpinner } from "../tui/spinner.js";
 
 import { cmdRun, type CliContext as RunCliContext } from "./run.js";
 import { cmdFinalize } from "./finalize.js";
@@ -427,15 +427,53 @@ export async function cmdStart(
     ]);
     const agent = getAgent(config.agent.name);
 
-    const taskFile = tuiEnabled
-      ? await withSpinner("Generating tasks from PRD", () =>
-          generateTasks(agent, paths.prd, config.project.name, config.project.branch, sessionCwd, { model: config.agent.model, taskPrefix }),
-          { successMessage: fmt.success("Tasks generated") },
-        )
-      : await (async () => {
-          log("Generating tasks from PRD...");
-          return generateTasks(agent, paths.prd, config.project.name, config.project.branch, sessionCwd, { model: config.agent.model, taskPrefix });
-        })();
+    let taskFile;
+    let prdRenderer: Awaited<ReturnType<Awaited<ReturnType<typeof loadTui>>["createCliRenderer"]>> | undefined;
+    let prdRoot: ReturnType<Awaited<ReturnType<typeof loadTui>>["createRoot"]> | undefined;
+
+    if (tuiEnabled) {
+      const tui = await loadTui();
+      prdRenderer = await tui.createCliRenderer({
+        exitOnCtrlC: false,
+        useKittyKeyboard: { disambiguate: true, alternateKeys: true },
+      });
+      prdRoot = tui.createRoot(prdRenderer);
+
+      let streamOutput = "";
+      let taskCount = 0;
+      let phase = "Analyzing PRD";
+      prdRoot.render(<tui.GeneratingView output={streamOutput} phase={phase} />);
+
+      try {
+        taskFile = await generateTasks(
+          agent, paths.prd, config.project.name, config.project.branch, sessionCwd,
+          {
+            model: config.agent.model,
+            taskPrefix,
+            onProgress: (chunk) => {
+              streamOutput += chunk;
+              const ids = streamOutput.match(/\b[A-Z]{2,5}-\d{3}\b/g);
+              if (ids) {
+                taskCount = new Set(ids).size;
+                if (phase !== "Validating dependencies") phase = "Generating tasks";
+              }
+              if (streamOutput.includes("```json") || streamOutput.includes('"tasks"')) {
+                phase = "Validating dependencies";
+              }
+              prdRoot!.render(<tui.GeneratingView output={streamOutput} taskCount={taskCount} phase={phase} />);
+            },
+          },
+        );
+      } catch (err) {
+        prdRoot.unmount();
+        prdRenderer.destroy();
+        agent.dispose();
+        throw err;
+      }
+    } else {
+      log("Generating tasks from PRD...");
+      taskFile = await generateTasks(agent, paths.prd, config.project.name, config.project.branch, sessionCwd, { model: config.agent.model, taskPrefix });
+    }
 
     await saveTasks(paths.tasks, taskFile);
     await writeText(paths.progress, "## Codebase Patterns\n\n---\n\n");
@@ -446,7 +484,13 @@ export async function cmdStart(
 
     // Auto-chain into execution
     agent.dispose();
-    await cmdRun(id, 0, undefined, buildRunContext(ctx));
+    if (prdRenderer && prdRoot) {
+      await cmdRun(id, 0, { renderer: prdRenderer, root: prdRoot }, buildRunContext(ctx));
+      prdRoot.unmount();
+      prdRenderer.destroy();
+    } else {
+      await cmdRun(id, 0, undefined, buildRunContext(ctx));
+    }
     return;
   }
 
