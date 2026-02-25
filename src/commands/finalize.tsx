@@ -223,6 +223,7 @@ export async function cmdFinalize(
               <ParallelBridge
                 tuiData={tuiData}
                 parallelState={parallelState}
+                taskGraphAnalysis={analysis}
                 onQuit={() => coordinator.abort()}
               />,
             );
