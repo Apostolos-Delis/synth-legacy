@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 
 import yargs from "yargs";
-import { commands } from "./commands/index.js";
+import { commands, commandCategories } from "./commands/index.js";
 import { VERSION } from "./commands/helpers.js";
 import { globalTrace, formatProfileReport, formatProfileReportJson } from "./utils/perf.js";
 import { cmdStart } from "./commands/start.js";
@@ -29,8 +29,12 @@ const cli = yargs(process.argv.slice(2))
   .scriptName("synth")
   .version(VERSION)
   .alias("v", "version")
-  .help()
-  .alias("h", "help")
+  .help(false)
+  .option("help", {
+    alias: "h",
+    type: "boolean",
+    describe: "Show help",
+  })
   .strictCommands()
   .option("parallel", {
     type: "number",
@@ -68,6 +72,66 @@ const cli = yargs(process.argv.slice(2))
 // Register all command modules
 for (const cmd of commands) {
   cli.command(cmd);
+}
+
+// ── Categorized help (US-002) ──
+
+function buildCommandDescriptions(): Map<string, string> {
+  const map = new Map<string, string>();
+  for (const cmd of commands) {
+    // command field may be "start [session-id]" — extract the base name
+    const name = String(cmd.command).split(/\s/)[0];
+    map.set(name, String(cmd.describe ?? ""));
+  }
+  return map;
+}
+
+function categorizedHelp(): string {
+  const descs = buildCommandDescriptions();
+  const lines: string[] = [];
+
+  // Compute max command width across all categories for alignment
+  let maxLen = 0;
+  for (const [, cmds] of Object.entries(commandCategories)) {
+    for (const name of cmds) {
+      const full = `synth ${name}`;
+      if (full.length > maxLen) maxLen = full.length;
+    }
+  }
+
+  for (const [category, cmds] of Object.entries(commandCategories)) {
+    lines.push(category);
+    for (const name of cmds) {
+      const full = `synth ${name}`;
+      const desc = descs.get(name) ?? "";
+      lines.push(`  ${full.padEnd(maxLen + 2)}${desc}`);
+    }
+    lines.push("");
+  }
+  return lines.join("\n");
+}
+
+function showCategorizedHelp(): void {
+  const helpText = cli.getHelp();
+
+  const render = (text: string) => {
+    // Replace the flat "Commands:" block with categorized output.
+    // The "Commands:" block starts with the header and ends at the next
+    // blank line followed by a group header (e.g. "Global Options:") or EOF.
+    const replaced = text.replace(
+      /^Commands:\n(?:.*\n)*?\n/m,
+      categorizedHelp(),
+    );
+    process.stdout.write(replaced + "\n");
+    process.exit(0);
+  };
+
+  if (typeof helpText === "string") {
+    render(helpText);
+  } else {
+    // getHelp() may return a Promise
+    (helpText as Promise<string>).then(render);
+  }
 }
 
 // Default command: launch TUI when no subcommand is given (US-005)
@@ -117,7 +181,13 @@ cli.command(
   },
 );
 
-cli.parse();
+// Intercept --help / -h before parse to show categorized help
+const rawArgs = process.argv.slice(2);
+if (rawArgs.includes("--help") || rawArgs.includes("-h")) {
+  showCategorizedHelp();
+} else {
+  cli.parse();
+}
 
 // Profile report fires after yargs completes
 process.on("exit", () => {
