@@ -90,6 +90,12 @@ function WorkerRow({
     <text truncate={true}>
       <span fg={STATUS_COLOR[worker.status]}>{icon}</span>
       {" "}
+      {worker.taskId ? (
+        <>
+          <span fg={colors.accent.primary} attributes={boldAttr()}>{worker.taskId.slice(0, 8)}</span>
+          {" "}
+        </>
+      ) : null}
       <span fg={colors.fg.primary} attributes={boldAttr()}>{paddedId}</span>
       {" "}
       <span fg={colors.fg.muted}>{branch}</span>
@@ -137,9 +143,10 @@ export const WorkerPanel = memo(function WorkerPanel({
 
   const maxIdLen = Math.max(4, ...sorted.map((w) => w.id.length));
   const maxIterStr = sorted.reduce((m, w) => Math.max(m, `${w.iteration}/${w.maxIterations}`.length), 3);
-  // Budget: icon(1) sp(1) id(maxIdLen) sp(1) branch(BRANCH_MAX_LEN) sp(1) sha(7) sp(1) title sp(1) iter(maxIterStr) sp(1) elapsed(6)
+  const hasTaskId = sorted.some((w) => w.taskId);
+  // Budget: icon(1) sp(1) [taskId(8) sp(1)] id(maxIdLen) sp(1) branch(BRANCH_MAX_LEN) sp(1) sha(7) sp(1) title sp(1) iter(maxIterStr) sp(1) elapsed(6)
   // Subtract 2 for box borders
-  const fixedCols = 1 + 1 + maxIdLen + 1 + BRANCH_MAX_LEN + 1 + 7 + 1 + 1 + maxIterStr + 1 + 6 + 2;
+  const fixedCols = 1 + 1 + (hasTaskId ? 9 : 0) + maxIdLen + 1 + BRANCH_MAX_LEN + 1 + 7 + 1 + 1 + maxIterStr + 1 + 6 + 2;
   const titleMaxLen = Math.max(10, width - fixedCols);
 
   const innerHeight = height - 2; // borders
