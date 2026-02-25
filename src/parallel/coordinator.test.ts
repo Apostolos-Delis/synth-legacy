@@ -306,6 +306,8 @@ const mockAgent: AgentAdapter = {
     interrupt: () => {},
   }),
   dispose: () => {},
+  installHint: "mock",
+  checkAuth: async () => null,
 };
 
 function makeTask(id: string, overrides?: Partial<Task>): Task {

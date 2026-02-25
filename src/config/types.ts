@@ -5,12 +5,12 @@ export interface SynthConfig {
     base_branch: string;
   };
   agent: {
-    name: "claude" | "codex";
+    name: string;
     model?: string;
     timeout: number;
     skip_permissions: boolean;
     fallback?: {
-      name: "claude" | "codex";
+      name: string;
     };
   };
   execution: {

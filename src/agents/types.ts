@@ -1,3 +1,6 @@
+import type { DoctorCheckResult } from "../doctor/types.js";
+export type { DoctorCheckResult } from "../doctor/types.js";
+
 export interface AgentDetectResult {
   available: boolean;
   version?: string;
@@ -30,7 +33,9 @@ export interface AgentExecutionHandle {
 
 export interface AgentAdapter {
   readonly name: string;
+  readonly installHint: string;
   detect(): Promise<AgentDetectResult>;
   execute(prompt: string, options: AgentExecuteOptions): AgentExecutionHandle;
   dispose(): void;
+  checkAuth(): Promise<DoctorCheckResult | null>;
 }

@@ -55,6 +55,8 @@ function createMockAgent(): { agent: AgentAdapter; getCallCount: () => number } 
       };
     },
     dispose() {},
+    installHint: "mock",
+    async checkAuth() { return null; },
   };
 
   return { agent, getCallCount: () => callCount };
@@ -205,6 +207,8 @@ describe("review pipeline integration", () => {
           };
         },
         dispose() {},
+    installHint: "mock",
+    async checkAuth() { return null; },
       };
 
       const orchestrator = new ReviewOrchestrator(config, agent, null, sessionPaths, dir);

@@ -16,6 +16,8 @@ function makeAgent(response = "ok"): AgentAdapter {
       };
     },
     dispose() {},
+    installHint: "mock",
+    async checkAuth() { return null; },
   };
 }
 
@@ -101,6 +103,8 @@ describe("ConversationEngine", () => {
           };
         },
         dispose() {},
+    installHint: "mock",
+    async checkAuth() { return null; },
       };
 
       const engine = makeEngine({ agent });
@@ -131,6 +135,8 @@ describe("ConversationEngine", () => {
           };
         },
         dispose() {},
+    installHint: "mock",
+    async checkAuth() { return null; },
       };
 
       const engine = makeEngine({ agent });
@@ -195,6 +201,8 @@ describe("ConversationEngine", () => {
           };
         },
         dispose() {},
+    installHint: "mock",
+    async checkAuth() { return null; },
       };
 
       const engine = makeEngine({ agent });
@@ -222,6 +230,8 @@ describe("ConversationEngine", () => {
           };
         },
         dispose() {},
+    installHint: "mock",
+    async checkAuth() { return null; },
       };
 
       const engine1 = makeEngine({ agent });
@@ -253,6 +263,8 @@ describe("ConversationEngine", () => {
           };
         },
         dispose() {},
+    installHint: "mock",
+    async checkAuth() { return null; },
       };
 
       const engine = makeEngine({ agent });
@@ -272,6 +284,8 @@ describe("ConversationEngine", () => {
           };
         },
         dispose() {},
+    installHint: "mock",
+    async checkAuth() { return null; },
       };
 
       const engine = makeEngine({ agent, persist });
@@ -298,6 +312,8 @@ describe("ConversationEngine", () => {
           };
         },
         dispose() {},
+    installHint: "mock",
+    async checkAuth() { return null; },
       };
 
       const engine = makeEngine({ agent });
@@ -324,6 +340,8 @@ describe("ConversationEngine", () => {
           };
         },
         dispose() {},
+    installHint: "mock",
+    async checkAuth() { return null; },
       };
 
       const chunks: string[] = [];

@@ -42,6 +42,8 @@ function createAgent(output: string): AgentAdapter {
       };
     },
     dispose() {},
+    installHint: "mock",
+    async checkAuth() { return null; },
   };
 }
 

@@ -1,11 +1,6 @@
-import type {
-  AgentAdapter,
-  AgentDetectResult,
-  AgentExecuteOptions,
-  AgentExecutionHandle,
-  AgentExecutionResult,
-} from "./types.js";
-import { spawn } from "../utils/process.js";
+import type { AgentExecuteOptions } from "./types.js";
+import type { DoctorCheckResult } from "../doctor/types.js";
+import { BaseAgentAdapter } from "./base.js";
 
 export function buildCodexCmd(prompt: string, options: Pick<AgentExecuteOptions, "readOnly">): string[] {
   return [
@@ -18,57 +13,21 @@ export function buildCodexCmd(prompt: string, options: Pick<AgentExecuteOptions,
   ];
 }
 
-export class CodexAdapter implements AgentAdapter {
+export class CodexAdapter extends BaseAgentAdapter {
   readonly name = "codex";
-  private activeHandle: ReturnType<typeof spawn> | null = null;
 
-  async detect(): Promise<AgentDetectResult> {
-    try {
-      const handle = spawn({ cmd: ["codex", "--version"] });
-      const result = await handle.promise;
-      if (result.exitCode === 0) {
-        return { available: true, version: result.stdout.trim() };
-      }
-      return { available: false, error: result.stderr.trim() };
-    } catch {
-      return { available: false, error: "codex CLI not found" };
+  override get installHint() {
+    return "install with: npm install -g @openai/codex";
+  }
+
+  protected buildCmd(prompt: string, options: AgentExecuteOptions): string[] {
+    return buildCodexCmd(prompt, options);
+  }
+
+  override async checkAuth(): Promise<DoctorCheckResult | null> {
+    if (process.env.OPENAI_API_KEY) {
+      return { name: "codex auth", status: "pass", message: "OPENAI_API_KEY set" };
     }
-  }
-
-  execute(prompt: string, options: AgentExecuteOptions): AgentExecutionHandle {
-    const cmd = buildCodexCmd(prompt, options);
-
-    const handle = spawn({
-      cmd,
-      cwd: options.cwd,
-      timeout: options.timeout,
-      onStdout: options.onStdout,
-      onStderr: options.onStderr,
-    });
-
-    this.activeHandle = handle;
-
-    const promise: Promise<AgentExecutionResult> = handle.promise.then(
-      (result) => {
-        this.activeHandle = null;
-        return {
-          exitCode: result.exitCode,
-          stdout: result.stdout,
-          stderr: result.stderr,
-          timedOut: result.timedOut,
-        };
-      },
-    );
-
-    return {
-      pid: handle.pid,
-      promise,
-      interrupt: () => handle.interrupt(),
-    };
-  }
-
-  dispose(): void {
-    this.activeHandle?.interrupt();
-    this.activeHandle = null;
+    return { name: "codex auth", status: "fail", message: "OPENAI_API_KEY not set", suggestion: "set OPENAI_API_KEY environment variable" };
   }
 }

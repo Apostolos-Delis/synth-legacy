@@ -74,6 +74,8 @@ function makeAgent(stdout = "resolved"): AgentAdapter {
       interrupt: () => {},
     }),
     dispose: () => {},
+    installHint: "mock",
+    checkAuth: async () => null,
   };
 }
 
@@ -338,6 +340,8 @@ describe("wrapAgentAsAiAgent", () => {
         interrupt: () => {},
       }),
       dispose: () => {},
+    installHint: "mock",
+    checkAuth: async () => null,
     };
 
     const aiAgent = wrapAgentAsAiAgent(agent);

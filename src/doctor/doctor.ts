@@ -1,18 +1,14 @@
 import { parse } from "smol-toml";
 import { join } from "node:path";
-import { homedir } from "node:os";
 import type { SynthConfig } from "../config/types.js";
 import { spawn } from "../utils/process.js";
 import { fileExists, readText } from "../utils/fs.js";
 import { getPlatform } from "../platform/index.js";
 import { globalConfigPath } from "../config/paths.js";
+import { createRegisteredAgents } from "../agents/registry.js";
 
-export interface DoctorCheckResult {
-  name: string;
-  status: "pass" | "fail" | "warn";
-  message?: string;
-  suggestion?: string;
-}
+import type { DoctorCheckResult } from "./types.js";
+export type { DoctorCheckResult } from "./types.js";
 
 export async function checkCommand(cmd: string, versionArgs: string[]): Promise<{ available: boolean; version: string; error: string }> {
   try {
@@ -53,7 +49,6 @@ async function checkGit(cwd: string): Promise<DoctorCheckResult[]> {
   }
   results.push({ name: "git", status: "pass", message: gitResult.version });
 
-  // Check if we're in a git repo
   try {
     const repoResult = await spawn({ cmd: ["git", "rev-parse", "--is-inside-work-tree"], cwd, timeout: 5_000 }).promise;
     if (repoResult.exitCode !== 0) {
@@ -68,46 +63,24 @@ async function checkGit(cwd: string): Promise<DoctorCheckResult[]> {
   return results;
 }
 
-async function checkClaudeAuth(): Promise<DoctorCheckResult> {
-  const credPath = join(homedir(), ".claude", "credentials.json");
-  if (await fileExists(credPath)) {
-    return { name: "claude auth", status: "pass", message: "credentials file found" };
-  }
-  return { name: "claude auth", status: "warn", message: "could not verify authentication", suggestion: "run: claude login" };
-}
-
-async function checkCodexAuth(): Promise<DoctorCheckResult> {
-  // Codex requires OPENAI_API_KEY environment variable
-  if (process.env.OPENAI_API_KEY) {
-    return { name: "codex auth", status: "pass", message: "OPENAI_API_KEY set" };
-  }
-  return { name: "codex auth", status: "fail", message: "OPENAI_API_KEY not set", suggestion: "set OPENAI_API_KEY environment variable" };
-}
-
 async function checkAgentClis(): Promise<{ results: DoctorCheckResult[]; hasAgent: boolean }> {
   const results: DoctorCheckResult[] = [];
   let hasAgent = false;
 
-  const claude = await checkCommand("claude", ["--version"]);
-  if (claude.available) {
-    hasAgent = true;
-    results.push({ name: "claude CLI", status: "pass", message: claude.version });
-    results.push(await checkClaudeAuth());
-  } else {
-    results.push({ name: "claude CLI", status: "warn", message: "not found", suggestion: "install with: npm install -g @anthropic-ai/claude-code" });
-  }
+  for (const agent of createRegisteredAgents()) {
+    const detection = await agent.detect();
 
-  const codex = await checkCommand("codex", ["--version"]);
-  if (codex.available) {
-    hasAgent = true;
-    results.push({ name: "codex CLI", status: "pass", message: codex.version });
-    results.push(await checkCodexAuth());
-  } else {
-    results.push({ name: "codex CLI", status: "warn", message: "not found", suggestion: "install with: npm install -g @openai/codex" });
+    if (detection.available) {
+      hasAgent = true;
+      results.push({ name: `${agent.name} CLI`, status: "pass", message: detection.version });
+      const authResult = await agent.checkAuth();
+      if (authResult) results.push(authResult);
+    } else {
+      results.push({ name: `${agent.name} CLI`, status: "warn", message: "not found", suggestion: agent.installHint });
+    }
   }
 
   if (!hasAgent) {
-    // Override warnings to failures when neither is present
     for (const r of results) {
       if (r.name.endsWith("CLI")) r.status = "fail";
     }

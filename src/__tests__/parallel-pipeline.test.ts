@@ -215,6 +215,8 @@ const mockAgent: AgentAdapter = {
     interrupt: () => {},
   }),
   dispose: () => {},
+  installHint: "mock",
+  checkAuth: async () => null,
 };
 
 describe("parallel pipeline integration", () => {
