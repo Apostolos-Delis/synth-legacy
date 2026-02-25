@@ -103,6 +103,7 @@ interface TaskListPaneProps {
 
 function TaskListPane({ tasks, selectedIndex, width, height }: TaskListPaneProps): ReactNode {
   const innerHeight = height - 2; // border top+bottom
+  const contentHeight = Math.max(1, innerHeight);
   const needsScroll = tasks.length > innerHeight;
 
   const taskRows = tasks.map((task, index) => {
@@ -146,7 +147,7 @@ function TaskListPane({ tasks, selectedIndex, width, height }: TaskListPaneProps
     >
       {needsScroll ? (
         <scrollbox
-          flexGrow={1}
+          height={contentHeight}
           stickyScroll={true}
           stickyStart="top"
           style={{ flexDirection: "column" }}
@@ -154,7 +155,7 @@ function TaskListPane({ tasks, selectedIndex, width, height }: TaskListPaneProps
           {taskRows}
         </scrollbox>
       ) : (
-        <box flexGrow={1} style={{ flexDirection: "column" }}>
+        <box height={contentHeight} style={{ flexDirection: "column" }}>
           {taskRows}
         </box>
       )}
@@ -175,6 +176,7 @@ function TaskDetailPane({ task, taskIdMap, width, height }: TaskDetailPaneProps)
   const priorityColor = PRIORITY_COLORS_HEX[task.priority] ?? colors.fg.muted;
   const priorityLabel = PRIORITY_LABELS[task.priority] ?? `P${task.priority}`;
   const innerWidth = Math.max(1, width - 4); // account for border + padding
+  const innerHeight = Math.max(1, height - 2);
 
   return (
     <box
@@ -186,7 +188,7 @@ function TaskDetailPane({ task, taskIdMap, width, height }: TaskDetailPaneProps)
       flexDirection="column"
     >
       <scrollbox
-        flexGrow={1}
+        height={innerHeight}
         stickyScroll={true}
         stickyStart="top"
         style={{ flexDirection: "column", paddingLeft: 1, paddingRight: 1 }}

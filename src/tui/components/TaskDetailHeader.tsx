@@ -44,6 +44,8 @@ export const TaskDetailHeader = memo(function TaskDetailHeader({
   const priorityLabel = PRIORITY_LABELS[task.priority] ?? `P${task.priority}`;
 
   const innerWidth = Math.max(1, width - 6);
+  const innerHeight = Math.max(1, height - 2);
+  const scrollHeight = Math.max(1, innerHeight - 1);
   const descLines = wrapText(task.description, innerWidth);
 
   // Pre-truncate title to fit within the box alongside fixed-width elements
@@ -129,7 +131,7 @@ export const TaskDetailHeader = memo(function TaskDetailHeader({
         <span>{titlePad}</span>
       </text>
       <scrollbox
-        flexGrow={1}
+        height={scrollHeight}
         focused={scrollFocused}
         stickyScroll={false}
         style={{ flexDirection: "column" }}

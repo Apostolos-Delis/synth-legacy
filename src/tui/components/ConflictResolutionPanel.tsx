@@ -109,6 +109,7 @@ export const ConflictResolutionPanel = memo(function ConflictResolutionPanel({
   const pathMaxLen = Math.max(10, width - 16);
 
   const innerHeight = height - 2; // borders
+  const contentHeight = Math.max(1, innerHeight);
   const needsScroll = files.length + 2 > innerHeight; // +2 for task context + summary lines
 
   const rows: ReactNode[] = [];
@@ -155,7 +156,7 @@ export const ConflictResolutionPanel = memo(function ConflictResolutionPanel({
 
   const content = needsScroll ? (
     <scrollbox
-      flexGrow={1}
+      height={contentHeight}
       stickyScroll={true}
       stickyStart="top"
       style={{ flexDirection: "column" }}
@@ -163,7 +164,7 @@ export const ConflictResolutionPanel = memo(function ConflictResolutionPanel({
       {rows}
     </scrollbox>
   ) : (
-    <box flexGrow={1} style={{ flexDirection: "column" }}>
+    <box height={contentHeight} style={{ flexDirection: "column" }}>
       {rows}
     </box>
   );

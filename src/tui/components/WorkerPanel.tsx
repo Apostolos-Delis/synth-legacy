@@ -92,7 +92,7 @@ function WorkerRow({
       {" "}
       {worker.taskId ? (
         <>
-          <span fg={colors.accent.primary} attributes={boldAttr()}>{worker.taskId.slice(0, 8)}</span>
+          <span fg={colors.accent.primary} attributes={boldAttr()}>{worker.taskId.length > 8 ? worker.taskId.slice(0, 7) + "…" : worker.taskId}</span>
           {" "}
         </>
       ) : null}
@@ -150,6 +150,7 @@ export const WorkerPanel = memo(function WorkerPanel({
   const titleMaxLen = Math.max(10, width - fixedCols);
 
   const innerHeight = height - 2; // borders
+  const contentHeight = Math.max(1, innerHeight);
   const needsScroll = sorted.length > innerHeight;
 
   const rows = sorted.map((worker) => (
@@ -175,7 +176,7 @@ export const WorkerPanel = memo(function WorkerPanel({
     >
       {needsScroll ? (
         <scrollbox
-          flexGrow={1}
+          height={contentHeight}
           stickyScroll={true}
           stickyStart="top"
           style={{ flexDirection: "column" }}
@@ -183,7 +184,7 @@ export const WorkerPanel = memo(function WorkerPanel({
           {rows}
         </scrollbox>
       ) : (
-        <box flexGrow={1} style={{ flexDirection: "column" }}>
+        <box height={contentHeight} style={{ flexDirection: "column" }}>
           {rows}
         </box>
       )}

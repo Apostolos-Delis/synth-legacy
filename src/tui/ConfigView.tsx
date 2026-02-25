@@ -12,6 +12,7 @@ interface ConfigViewProps {
 export function ConfigView({ state, onBack }: ConfigViewProps): ReactNode {
   const { width, height } = useTerminalDimensions();
   const lines = state.configDisplay.split("\n");
+  const bodyHeight = Math.max(1, height - 2);
 
   const handleKey = useCallback(
     (key: { name: string }) => {
@@ -36,7 +37,7 @@ export function ConfigView({ state, onBack }: ConfigViewProps): ReactNode {
           <span fg={colors.fg.muted}>j/k:scroll  esc:back</span>
         </text>
       </box>
-      <scrollbox flexGrow={1} stickyScroll={false} stickyStart="top" style={{ flexDirection: "column", paddingLeft: 1, paddingRight: 1 }}>
+      <scrollbox height={bodyHeight} stickyScroll={false} stickyStart="top" style={{ flexDirection: "column", paddingLeft: 1, paddingRight: 1 }}>
         {lines.map((line, i) => {
           // Colorize JSON keys vs values
           const keyMatch = line.match(/^(\s*)"([^"]+)":/);

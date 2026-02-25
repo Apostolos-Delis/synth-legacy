@@ -3,7 +3,7 @@ import { useTerminalDimensions } from "@opentui/react";
 import type { CompletionSummary } from "./types.js";
 import { boldAttr, colors, statusIndicators, STATUS_COLORS_HEX } from "./theme.js";
 import { Footer } from "./components/Footer.js";
-import { wrapText } from "./utils.js";
+import { stripAnsi } from "./utils.js";
 import { formatDuration } from "../utils/format.js";
 
 interface CompletionViewProps {
@@ -13,8 +13,28 @@ interface CompletionViewProps {
 
 function padLine(text: string, width: number): string {
   if (width <= 0) return "";
-  if (text.length >= width) return "";
+  if (text.length >= width) return text.slice(0, width);
+  return text + " ".repeat(width - text.length);
+}
+
+function padRight(text: string, width: number): string {
+  if (width <= 0 || text.length >= width) return "";
   return " ".repeat(width - text.length);
+}
+
+function normalizeCommitSubject(subject: string): string {
+  return stripAnsi(subject)
+    .replace(/\*\*/g, "")
+    .replace(/`/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function truncateText(text: string, maxWidth: number): string {
+  if (maxWidth <= 0) return "";
+  if (text.length <= maxWidth) return text;
+  if (maxWidth <= 3) return text.slice(0, maxWidth);
+  return text.slice(0, maxWidth - 3) + "...";
 }
 
 export function CompletionView({ summary, showFinalizePrompt }: CompletionViewProps): ReactNode {
@@ -22,16 +42,26 @@ export function CompletionView({ summary, showFinalizePrompt }: CompletionViewPr
   const { progress, tasks, commits } = summary;
   const innerWidth = Math.max(1, width - 2);
   const headerText = `Completion Summary | ${summary.projectName} (${summary.sessionId})`;
-  const headerPad = padLine(headerText, innerWidth);
+  const headerPad = padRight(headerText, innerWidth);
   const statsText = `Duration: ${formatDuration(summary.totalDurationMs)}  Iterations: ${summary.totalIterations}  Agent: ${summary.agentName}`;
-  const statsPad = padLine(statsText, innerWidth);
-  const progressText = `\u2714 ${progress.done} done  \u2718 ${progress.failed} failed  \u25CB ${progress.open} open  \u25D4 ${progress.inProgress} in progress`;
-  const progressPad = padLine(progressText, innerWidth);
+  const statsPad = padRight(statsText, innerWidth);
+  const doneIcon = statusIndicators.done ?? "\u2713";
+  const failedIcon = statusIndicators.failed ?? "\u2717";
+  const openIcon = statusIndicators.open ?? "\u25CB";
+  const inProgressIcon = statusIndicators.in_progress ?? "\u25D0";
+  const fullProgressText = `${doneIcon} ${progress.done} done  ${failedIcon} ${progress.failed} failed  ${openIcon} ${progress.open} open  ${inProgressIcon} ${progress.inProgress} in progress`;
+  const compactProgressText = `${doneIcon} ${progress.done}  ${failedIcon} ${progress.failed}  ${openIcon} ${progress.open}  ${inProgressIcon} ${progress.inProgress}`;
+  const useCompactProgress = fullProgressText.length > innerWidth;
+  const progressText = useCompactProgress ? compactProgressText : fullProgressText;
+  const progressPad = padRight(progressText, innerWidth);
+  const progressSeparator = "  ";
   const tableHeaderText = `${"ID".padEnd(8)} ${"Title".padEnd(40)} Status`;
-  const tableHeaderPad = padLine(tableHeaderText, innerWidth);
+  const tableHeaderPad = padRight(tableHeaderText, innerWidth);
   const summaryText = `Summary saved to: ${summary.summaryFilePath}`;
-  const summaryPad = padLine(summaryText, innerWidth);
+  const summaryPad = padRight(summaryText, innerWidth);
   const blankLine = padLine("", innerWidth);
+  const reservedRows = 1 + 1 + 1 + 1 + 1 + (showFinalizePrompt ? 1 : 0) + 1;
+  const scrollHeight = Math.max(1, height - reservedRows);
 
   const commitRows: ReactNode[] = [];
   for (let i = 0; i < commits.length; i++) {
@@ -39,41 +69,30 @@ export function CompletionView({ summary, showFinalizePrompt }: CompletionViewPr
     const firstSpace = commit.indexOf(" ");
     const hash = firstSpace === -1 ? commit : commit.slice(0, firstSpace);
     const subject = firstSpace === -1 ? "" : commit.slice(firstSpace + 1);
-    const indent = "  ";
-    const prefix = `${indent}${hash}${subject ? " " : ""}`;
-    const subjectWidth = Math.max(1, innerWidth - prefix.length);
-    const subjectLines = subject ? wrapText(subject, subjectWidth) : [""];
+    const indent = innerWidth >= 2 ? "  " : "";
+    const maxHashWidth = Math.max(0, innerWidth - indent.length);
+    const displayHash = maxHashWidth > 0 ? hash.slice(0, maxHashWidth) : "";
+    const cleanedSubject = normalizeCommitSubject(subject);
+    const subjectWidth = Math.max(0, innerWidth - indent.length - displayHash.length - (cleanedSubject ? 1 : 0));
+    const displaySubject = cleanedSubject ? truncateText(cleanedSubject, subjectWidth) : "";
+    const rowText = `${indent}${displayHash}${displaySubject ? ` ${displaySubject}` : ""}`;
+    const rowPad = padRight(rowText, innerWidth);
 
-    for (let lineIndex = 0; lineIndex < subjectLines.length; lineIndex++) {
-      const line = subjectLines[lineIndex];
-      const linePrefix = lineIndex === 0 ? prefix : " ".repeat(prefix.length);
-      const fullLine = `${linePrefix}${line}`;
-      const linePad = padLine(fullLine, innerWidth);
-      commitRows.push(
-        <text key={`commit-${i}-${lineIndex}`}>
-          {lineIndex === 0 ? (
-            <>
-              <span fg={colors.fg.secondary}>{indent}{hash}</span>
-              {subject ? <span fg={colors.fg.muted}>{" "}</span> : null}
-              {subject ? <span fg={colors.fg.primary}>{line}</span> : null}
-            </>
-          ) : (
-            <>
-              <span fg={colors.fg.muted}>{linePrefix}</span>
-              <span fg={colors.fg.primary}>{line}</span>
-            </>
-          )}
-          <span>{linePad}</span>
-        </text>,
-      );
-    }
+    commitRows.push(
+      <text key={`commit-${i}`} truncate={true}>
+        <span fg={colors.fg.secondary}>{indent}{displayHash}</span>
+        {displaySubject ? <span fg={colors.fg.muted}>{" "}</span> : null}
+        {displaySubject ? <span fg={colors.fg.primary}>{displaySubject}</span> : null}
+        <span>{rowPad}</span>
+      </text>,
+    );
   }
 
   return (
     <box width={width} height={height} flexDirection="column">
       {/* Header */}
       <box height={1} style={{ backgroundColor: colors.bg.secondary, paddingLeft: 1 }}>
-        <text>
+        <text truncate={true}>
           <span fg={colors.status.success} attributes={boldAttr()}>Completion Summary</span>
           <span fg={colors.fg.muted}>{" | "}</span>
           <span fg={colors.fg.secondary}>{summary.projectName}</span>
@@ -86,7 +105,7 @@ export function CompletionView({ summary, showFinalizePrompt }: CompletionViewPr
 
       {/* Stats line */}
       <box style={{ paddingLeft: 1 }}>
-        <text>
+        <text truncate={true}>
           <span fg={colors.fg.muted}>{"Duration: "}</span>
           <span fg={colors.fg.primary} attributes={boldAttr()}>{formatDuration(summary.totalDurationMs)}</span>
           <span fg={colors.fg.muted}>{"  Iterations: "}</span>
@@ -99,11 +118,22 @@ export function CompletionView({ summary, showFinalizePrompt }: CompletionViewPr
 
       {/* Progress line */}
       <box style={{ paddingLeft: 1 }}>
-        <text>
-          <span fg={colors.status.success}>{"\u2714 "}{String(progress.done)}{" done  "}</span>
-          <span fg={colors.status.error}>{"\u2718 "}{String(progress.failed)}{" failed  "}</span>
-          <span fg={colors.fg.muted}>{"\u25CB "}{String(progress.open)}{" open  "}</span>
-          <span fg={colors.accent.primary}>{"\u25D4 "}{String(progress.inProgress)}{" in progress"}</span>
+        <text truncate={true}>
+          <span fg={STATUS_COLORS_HEX.done ?? colors.status.success}>
+            {doneIcon}{" "}{String(progress.done)}{useCompactProgress ? "" : " done"}
+          </span>
+          <span>{progressSeparator}</span>
+          <span fg={STATUS_COLORS_HEX.failed ?? colors.status.error}>
+            {failedIcon}{" "}{String(progress.failed)}{useCompactProgress ? "" : " failed"}
+          </span>
+          <span>{progressSeparator}</span>
+          <span fg={STATUS_COLORS_HEX.open ?? colors.fg.muted}>
+            {openIcon}{" "}{String(progress.open)}{useCompactProgress ? "" : " open"}
+          </span>
+          <span>{progressSeparator}</span>
+          <span fg={STATUS_COLORS_HEX.in_progress ?? colors.accent.primary}>
+            {inProgressIcon}{" "}{String(progress.inProgress)}{useCompactProgress ? "" : " in progress"}
+          </span>
           <span>{progressPad}</span>
         </text>
       </box>
@@ -117,7 +147,7 @@ export function CompletionView({ summary, showFinalizePrompt }: CompletionViewPr
 
       {/* Task table header */}
       <box style={{ paddingLeft: 1 }}>
-        <text>
+        <text truncate={true}>
           <span fg={colors.fg.muted} attributes={boldAttr()}>
             {"ID".padEnd(8)} {"Title".padEnd(40)} Status
           </span>
@@ -126,7 +156,7 @@ export function CompletionView({ summary, showFinalizePrompt }: CompletionViewPr
       </box>
 
       {/* Task list */}
-      <scrollbox flexGrow={1} stickyScroll={true} stickyStart="top" style={{ flexDirection: "column", paddingLeft: 1 }}>
+      <scrollbox height={scrollHeight} stickyScroll={true} stickyStart="top" style={{ flexDirection: "column", paddingLeft: 1 }}>
         {tasks.map((task) => {
           const icon = statusIndicators[task.status] ?? "?";
           const statusColor = STATUS_COLORS_HEX[task.status] ?? colors.fg.muted;

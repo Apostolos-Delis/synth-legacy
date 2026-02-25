@@ -30,6 +30,7 @@ export const TaskSidebar = memo(function TaskSidebar({
 
   // 2 rows for top+bottom border
   const innerHeight = height - 2;
+  const contentHeight = Math.max(1, innerHeight);
   const needsScroll = tasks.length > innerHeight;
 
   useEffect(() => {
@@ -99,14 +100,14 @@ export const TaskSidebar = memo(function TaskSidebar({
       {needsScroll ? (
         <scrollbox
           ref={scrollRef}
-          flexGrow={1}
+          height={contentHeight}
           stickyScroll={false}
           style={{ flexDirection: "column" }}
         >
           {taskRows}
         </scrollbox>
       ) : (
-        <box flexGrow={1} style={{ flexDirection: "column" }}>
+        <box height={contentHeight} style={{ flexDirection: "column" }}>
           {taskRows}
           {Array.from({ length: Math.max(0, innerHeight - taskRows.length) }).map((_, i) => (
             <text key={`empty-${i}`}>

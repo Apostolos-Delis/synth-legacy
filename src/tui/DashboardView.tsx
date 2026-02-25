@@ -48,6 +48,7 @@ export function DashboardView({ state }: DashboardViewProps): ReactNode {
   const sessionTokens = state.tokenUsage.hasData
     ? formatTokenCount(state.tokenUsage.sessionTotal.totalTokens)
     : "N/A";
+  const bodyHeight = Math.max(1, height - 7);
 
   return (
     <box width={width} height={height} flexDirection="column">
@@ -87,7 +88,7 @@ export function DashboardView({ state }: DashboardViewProps): ReactNode {
           <span fg={colors.border.normal}>{"\u2500".repeat(Math.min(width - 2, showTokens ? 110 : showTime ? 95 : 85))}</span>
         </text>
       </box>
-      <scrollbox flexGrow={1} stickyScroll={true} stickyStart="top" style={{ flexDirection: "column", paddingLeft: 1 }}>
+      <scrollbox height={bodyHeight} stickyScroll={true} stickyStart="top" style={{ flexDirection: "column", paddingLeft: 1 }}>
         {tasks.map((task) => {
           const icon = statusIndicators[task.status] ?? "?";
           const statusColor = STATUS_COLORS_HEX[task.status] ?? colors.fg.muted;

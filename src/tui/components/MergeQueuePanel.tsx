@@ -145,6 +145,7 @@ export const MergeQueuePanel = memo(function MergeQueuePanel({
   const maxTaskIdLen = Math.max(4, ...sorted.map((i) => i.taskId.length));
 
   const innerHeight = height - 2; // borders
+  const contentHeight = Math.max(1, innerHeight);
   const needsScroll = sorted.length > innerHeight;
 
   const rows = sorted.map((item) => (
@@ -169,7 +170,7 @@ export const MergeQueuePanel = memo(function MergeQueuePanel({
     >
       {needsScroll ? (
         <scrollbox
-          flexGrow={1}
+          height={contentHeight}
           stickyScroll={true}
           stickyStart="top"
           style={{ flexDirection: "column" }}
@@ -177,7 +178,7 @@ export const MergeQueuePanel = memo(function MergeQueuePanel({
           {rows}
         </scrollbox>
       ) : (
-        <box flexGrow={1} style={{ flexDirection: "column" }}>
+        <box height={contentHeight} style={{ flexDirection: "column" }}>
           {rows}
         </box>
       )}

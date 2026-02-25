@@ -469,6 +469,11 @@ export function FinalizeApp({ orchestrator, agent, config, sessionPaths, cwd, on
   }, [handleSubmit, onQuit, isLoading, isComplete, showOptions, syncLineCount, renderer, messages]));
 
   const { inputHeight, textareaHeight } = calcInputSizing(termHeight, inputLineCount);
+  const headerHeight = 3;
+  const hintHeight = 1;
+  const inputAreaHeight = isComplete ? 3 : showOptions ? optionSelectorHeight : inputHeight;
+  const messageAreaHeight = Math.max(1, termHeight - headerHeight - hintHeight - inputAreaHeight);
+  const messageScrollHeight = Math.max(1, messageAreaHeight - 1);
 
   return (
     <box style={{ width: "100%", height: "100%", flexDirection: "column" }}>
@@ -499,14 +504,14 @@ export function FinalizeApp({ orchestrator, agent, config, sessionPaths, cwd, on
       {/* Message area */}
       <box
         style={{
-          flexGrow: 1,
+          height: messageAreaHeight,
           flexDirection: "column",
           paddingLeft: 1,
           paddingRight: 1,
           paddingTop: 1,
         }}
       >
-        <scrollbox style={{ flexGrow: 1 }} stickyScroll={true} stickyStart="bottom">
+        <scrollbox height={messageScrollHeight} stickyScroll={true} stickyStart="bottom">
           {messages.map((msg, i) => (
             <MessageBubble key={i} message={msg} />
           ))}

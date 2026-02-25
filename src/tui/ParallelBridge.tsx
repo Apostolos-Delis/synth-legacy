@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef, type ReactNode } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo, type ReactNode } from "react";
 import { useKeyboard } from "@opentui/react";
 import { App } from "./App.js";
 import { TaskGraphOverlay } from "./components/TaskGraphOverlay.js";
@@ -31,16 +31,18 @@ export function ParallelBridge({ tuiData, parallelState, taskGraphAnalysis, onQu
   const showGraphRef = useRef(showGraph);
   showGraphRef.current = showGraph;
 
-  // Derive task statuses from tuiData.tasks and active workers
-  const taskStatuses: Record<string, Task["status"]> = {};
-  for (const task of tuiData.tasks) {
-    taskStatuses[task.id] = task.status;
-  }
-  for (const worker of parallelState.workers) {
-    if (worker.taskId && worker.status === "running") {
-      taskStatuses[worker.taskId] = "in_progress";
+  const taskStatuses = useMemo(() => {
+    const statuses: Record<string, Task["status"]> = {};
+    for (const task of tuiData.tasks) {
+      statuses[task.id] = task.status;
     }
-  }
+    for (const worker of parallelState.workers) {
+      if (worker.taskId && worker.status === "running") {
+        statuses[worker.taskId] = "in_progress";
+      }
+    }
+    return statuses;
+  }, [tuiData.tasks, parallelState.workers]);
 
   useKeyboard(
     useCallback((key: { name: string }) => {

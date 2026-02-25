@@ -218,6 +218,10 @@ export function PrdReviewView({
   }, [handleSubmit, onQuit, isLoading, syncLineCount, renderer]));
 
   const { inputHeight, textareaHeight } = calcInputSizing(termHeight, inputLineCount);
+  const headerHeight = 3;
+  const inputAreaHeight = isLoading ? 3 : inputHeight;
+  const contentHeight = Math.max(1, termHeight - headerHeight - inputAreaHeight);
+  const scrollHeight = Math.max(1, contentHeight - 1);
 
   return (
     <box style={{ width: "100%", height: "100%", flexDirection: "column" }}>
@@ -248,14 +252,14 @@ export function PrdReviewView({
       {/* PRD content area */}
       <box
         style={{
-          flexGrow: 1,
+          height: contentHeight,
           flexDirection: "column",
           paddingLeft: 1,
           paddingRight: 1,
           paddingTop: 1,
         }}
       >
-        <scrollbox style={{ flexGrow: 1 }} stickyScroll={true} stickyStart="top">
+        <scrollbox height={scrollHeight} stickyScroll={true} stickyStart="top">
           {isLoading && streamingText ? (
             <box style={{ paddingLeft: 2 }}>
               <markdown content={streamingText} syntaxStyle={markdownSyntaxStyle()} streaming={true} />

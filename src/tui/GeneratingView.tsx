@@ -12,6 +12,8 @@ interface GeneratingViewProps {
 
 export function GeneratingView({ output, taskCount, phase }: GeneratingViewProps): ReactNode {
   const { width, height } = useTerminalDimensions();
+  const bodyHeight = Math.max(1, height - 2);
+  const scrollHeight = Math.max(1, bodyHeight - 3);
 
   return (
     <box width={width} height={height} flexDirection="column">
@@ -23,14 +25,14 @@ export function GeneratingView({ output, taskCount, phase }: GeneratingViewProps
         </text>
       </box>
 
-      <box style={{ flexGrow: 1, flexDirection: "column", paddingLeft: 1, paddingTop: 1 }}>
+      <box style={{ height: bodyHeight, flexDirection: "column", paddingLeft: 1, paddingTop: 1 }}>
         <box style={{ flexDirection: "row", gap: 1, marginBottom: 1 }}>
           <Spinner label="Agent is generating tasks" color={colors.status.info} />
           {taskCount != null && taskCount > 0 && (
             <text fg={colors.status.success}>{`Found ${taskCount} task${taskCount === 1 ? "" : "s"} so far...`}</text>
           )}
         </box>
-        <scrollbox style={{ flexGrow: 1 }} stickyScroll={true} stickyStart="bottom">
+        <scrollbox height={scrollHeight} stickyScroll={true} stickyStart="bottom">
           <text fg={colors.fg.muted}>{output || "Waiting for agent output..."}</text>
         </scrollbox>
       </box>

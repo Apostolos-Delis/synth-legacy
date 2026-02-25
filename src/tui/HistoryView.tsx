@@ -38,6 +38,8 @@ function buildHistoryEntries(state: TuiState): HistoryEntry[] {
 
 export function HistoryView({ state, onBack }: HistoryViewProps): ReactNode {
   const { width, height } = useTerminalDimensions();
+  const listBodyHeight = Math.max(1, height - 5);
+  const detailBodyHeight = Math.max(1, height - 2);
   const entries = useMemo(
     () => buildHistoryEntries(state),
     [state.iterationEntries],
@@ -99,7 +101,7 @@ export function HistoryView({ state, onBack }: HistoryViewProps): ReactNode {
             </span>
           </text>
         </box>
-        <scrollbox flexGrow={1} stickyScroll={false} stickyStart="top" style={{ flexDirection: "column", paddingLeft: 1, paddingRight: 1 }}>
+        <scrollbox height={detailBodyHeight} stickyScroll={false} stickyStart="top" style={{ flexDirection: "column", paddingLeft: 1, paddingRight: 1 }}>
           {outputText.split("\n").map((line, i) => (
             <text key={i}>
               <span fg={isError ? colors.status.warning : colors.fg.primary}>{line}</span>
@@ -146,7 +148,7 @@ export function HistoryView({ state, onBack }: HistoryViewProps): ReactNode {
           </text>
         </box>
       ) : (
-        <scrollbox flexGrow={1} stickyScroll={true} stickyStart="top" style={{ flexDirection: "column", paddingLeft: 1 }}>
+        <scrollbox height={listBodyHeight} stickyScroll={true} stickyStart="top" style={{ flexDirection: "column", paddingLeft: 1 }}>
           {entries.map((entry, i) => {
             const isSelected = i === clampedIndex;
             const icon = statusIndicators[entry.status as keyof typeof statusIndicators] ?? "?";

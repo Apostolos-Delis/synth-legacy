@@ -258,6 +258,10 @@ export function InterviewApp({ onSendMessage, onComplete, onQuit, initialMessage
   }, [handleSubmit, onComplete, onQuit, isLoading, syncLineCount, renderer, messages]));
 
   const { inputHeight, textareaHeight } = calcInputSizing(termHeight, inputLineCount);
+  const headerHeight = 3;
+  const hintHeight = 1;
+  const messageAreaHeight = Math.max(1, termHeight - headerHeight - inputHeight - hintHeight);
+  const messageScrollHeight = Math.max(1, messageAreaHeight - 1);
 
   return (
     <box style={{ width: "100%", height: "100%", flexDirection: "column" }}>
@@ -288,14 +292,14 @@ export function InterviewApp({ onSendMessage, onComplete, onQuit, initialMessage
       {/* Message area */}
       <box
         style={{
-          flexGrow: 1,
+          height: messageAreaHeight,
           flexDirection: "column",
           paddingLeft: 1,
           paddingRight: 1,
           paddingTop: 1,
         }}
       >
-        <scrollbox style={{ flexGrow: 1 }} stickyScroll={true} stickyStart="bottom">
+        <scrollbox height={messageScrollHeight} stickyScroll={true} stickyStart="bottom">
           {messages.map((msg, i) => (
             <MessageBubble key={i} message={msg} />
           ))}

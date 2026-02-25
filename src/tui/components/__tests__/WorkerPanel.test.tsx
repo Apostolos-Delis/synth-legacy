@@ -82,7 +82,7 @@ function buildRowSegments(
 
   // Task ID (conditional) — mirrors lines 93-98 of WorkerPanel.tsx
   if (worker.taskId) {
-    segments.push({ text: worker.taskId.slice(0, 8), role: "taskId" });
+    segments.push({ text: worker.taskId.length > 8 ? worker.taskId.slice(0, 7) + "…" : worker.taskId, role: "taskId" });
     segments.push({ text: " ", role: "sep" });
   }
 
