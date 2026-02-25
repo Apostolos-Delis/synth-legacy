@@ -67,12 +67,13 @@ interface AgentExecutionResult {
 **Execution command**:
 
 ```
-claude -p <prompt> --output-format stream-json [--dangerously-skip-permissions]
+claude -p <prompt> --verbose --output-format stream-json [--dangerously-skip-permissions]
 ```
 
 | Flag | Purpose |
 |------|---------|
 | `-p <prompt>` | Non-interactive single-prompt mode |
+| `--verbose` | Required by Claude Code when using `--output-format stream-json` in print mode |
 | `--output-format stream-json` | Structured output for parsing |
 | `--dangerously-skip-permissions` | Skip file/command permission prompts (when `agent.skip_permissions: true`) |
 

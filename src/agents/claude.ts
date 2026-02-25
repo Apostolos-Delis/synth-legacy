@@ -12,6 +12,7 @@ export function buildClaudeCmd(prompt: string, options: Pick<AgentExecuteOptions
     "claude",
     "-p",
     prompt,
+    "--verbose",
     "--output-format",
     "stream-json",
     ...(options.model ? ["--model", options.model] : []),
