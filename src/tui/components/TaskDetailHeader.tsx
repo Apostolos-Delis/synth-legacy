@@ -43,10 +43,10 @@ export const TaskDetailHeader = memo(function TaskDetailHeader({
   const descLines = wrapText(task.description, innerWidth);
 
   // Pre-truncate title to fit within the box alongside fixed-width elements
-  const titleOverhead = 2 + 2 + priorityLabel.length + 2 + 2 + task.status.length + 1;
+  const titleOverhead = 2 + 1 + task.id.length + 1 + 2 + priorityLabel.length + 2 + 2 + task.status.length + 1;
   const titleMaxLen = Math.max(10, innerWidth - titleOverhead);
   const displayTitle = truncateText(task.title, titleMaxLen);
-  const titleLineText = `${statusIcon} ${displayTitle}  [${priorityLabel}] [${task.status}]`;
+  const titleLineText = `${statusIcon} ${task.id} ${displayTitle}  [${priorityLabel}] [${task.status}]`;
   const titlePad = padLine("", Math.max(0, innerWidth - titleLineText.length));
 
   // Cap visible description lines to available space: border(2) + title(1) + blank sep(1)
@@ -106,6 +106,8 @@ export const TaskDetailHeader = memo(function TaskDetailHeader({
     >
       <text>
         <span fg={statusColor} attributes={boldAttr()}>{statusIcon} </span>
+        <span fg={colors.fg.secondary} attributes={boldAttr()}>{task.id}</span>
+        {" "}
         <span fg={colors.fg.primary} attributes={boldAttr()}>{displayTitle}</span>
         {"  "}
         <span fg={priorityColor} attributes={boldAttr()}>[{priorityLabel}]</span>

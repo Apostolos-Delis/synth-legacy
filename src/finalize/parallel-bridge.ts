@@ -32,6 +32,7 @@ export function buildWorkerInfos(displayStates: WorkerDisplayState[]): WorkerInf
     iteration: ws.currentIteration,
     maxIterations: ws.maxIterations,
     startTime: Date.now() - ws.elapsedMs,
+    elapsedMs: ws.elapsedMs,
     status: WORKER_STATUS_MAP[ws.status] ?? "running",
     lastOutput: ws.lastOutput,
     branchName: ws.branchName,

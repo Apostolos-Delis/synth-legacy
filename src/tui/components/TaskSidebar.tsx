@@ -42,7 +42,8 @@ export const TaskSidebar = memo(function TaskSidebar({
     const priorityColor = PRIORITY_COLORS_HEX[task.priority] ?? colors.fg.muted;
     const active = isCurrent(task.id);
     const selected = index === selectedTaskIndex;
-    const highlighted = active || selected;
+    const inProgress = task.status === "in_progress";
+    const highlighted = active || selected || inProgress;
     const titleMaxLen = width - 14;
     const title =
       task.title.length > titleMaxLen
@@ -50,8 +51,14 @@ export const TaskSidebar = memo(function TaskSidebar({
         : task.title;
 
     // Selected indicator: ▸ for selected, › for executing (not selected), space otherwise
-    const indicator = selected ? "\u25B8" : active ? "\u203A" : " ";
-    const indicatorColor = selected ? colors.accent.secondary : active ? colors.accent.primary : colors.fg.dim;
+    const indicator = selected ? "\u25B8" : active ? "\u203A" : inProgress ? "\u2022" : " ";
+    const indicatorColor = selected
+      ? colors.accent.secondary
+      : active
+        ? colors.accent.primary
+        : inProgress
+          ? colors.status.info
+          : colors.fg.dim;
 
     return (
       <text key={task.id} truncate={true}>

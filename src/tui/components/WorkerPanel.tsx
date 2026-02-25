@@ -9,6 +9,7 @@ export interface WorkerInfo {
   iteration: number;
   maxIterations: number;
   startTime: number;
+  elapsedMs: number;
   status: WorkerStatus;
   lastOutput: string;
   branchName: string;
@@ -41,6 +42,14 @@ function formatElapsed(startTime: number, now: number): string {
   return `${mins}m${rem.toString().padStart(2, "0")}s`;
 }
 
+function formatElapsedMs(elapsedMs: number): string {
+  const secs = Math.max(0, Math.floor(elapsedMs / 1000));
+  if (secs < 60) return `${secs}s`;
+  const mins = Math.floor(secs / 60);
+  const rem = secs % 60;
+  return `${mins}m${rem.toString().padStart(2, "0")}s`;
+}
+
 const BRANCH_MAX_LEN = 18;
 
 function WorkerRow({
@@ -61,7 +70,9 @@ function WorkerRow({
       ? worker.taskTitle.slice(0, titleMaxLen - 3) + "..."
       : worker.taskTitle;
   const paddedId = worker.id.padEnd(maxIdLen);
-  const elapsed = formatElapsed(worker.startTime, now);
+  const elapsed = worker.status === "running"
+    ? formatElapsed(worker.startTime, now)
+    : formatElapsedMs(worker.elapsedMs);
   const iterStr = `${worker.iteration}/${worker.maxIterations}`;
   const shortSha = worker.lastCommitSha ? worker.lastCommitSha.slice(0, 7) : "";
   const branch =
