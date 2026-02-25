@@ -502,9 +502,12 @@ export async function cmdStart(
     // Auto-chain into execution
     agent.dispose();
     if (prdRenderer && prdRoot) {
-      await cmdRun(id, 0, { renderer: prdRenderer, root: prdRoot }, buildRunContext(ctx));
-      prdRoot.unmount();
-      prdRenderer.destroy();
+      try {
+        await cmdRun(id, 0, { renderer: prdRenderer, root: prdRoot }, buildRunContext(ctx));
+      } finally {
+        prdRoot.unmount();
+        prdRenderer.destroy();
+      }
     } else {
       await cmdRun(id, 0, undefined, buildRunContext(ctx));
     }
