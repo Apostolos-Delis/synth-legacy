@@ -1,45 +1,35 @@
 import { listSessions, listAllSessions } from "../sessions/registry.js";
 import { ansi, fmt, STATUS_ICONS } from "../tui/theme.js";
 
-interface CommandOptions {
-  [key: string]: {
-    alias?: string;
-    type: string;
-    describe: string;
-    default?: unknown;
-  };
-}
+import type { Argv } from "yargs";
 
 interface CommandModule {
   command: string;
   describe: string;
-  builder: CommandOptions;
+  builder: (yargs: Argv) => Argv;
   handler: (args: Record<string, unknown>) => Promise<void>;
-  examples: [string, string][];
 }
 
 const lsCommand: CommandModule = {
   command: "ls",
   describe: "List sessions",
-  builder: {
-    all: {
-      alias: "a",
-      type: "boolean",
-      describe: "Include completed/finalized sessions",
-      default: false,
-    },
-    global: {
-      alias: "g",
-      type: "boolean",
-      describe: "List sessions across all repos",
-      default: false,
-    },
-  },
-  examples: [
-    ["synth ls", "List active sessions in this repo"],
-    ["synth ls --all", "Include completed/finalized sessions"],
-    ["synth ls --global", "List sessions across all repos"],
-  ],
+  builder: (yargs) =>
+    yargs
+      .option("all", {
+        alias: "a",
+        type: "boolean",
+        describe: "Include completed/finalized sessions",
+        default: false,
+      })
+      .option("global", {
+        alias: "g",
+        type: "boolean",
+        describe: "List sessions across all repos",
+        default: false,
+      })
+      .example("synth ls", "List active sessions in this repo")
+      .example("synth ls --all", "Include completed/finalized sessions")
+      .example("synth ls --global", "List sessions across all repos"),
   async handler(args) {
     const showAll = Boolean(args.all);
     const globalMode = Boolean(args.global);

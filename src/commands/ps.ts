@@ -1,18 +1,20 @@
 import { listSessions } from "../sessions/registry.js";
 import { ansi, fmt } from "../tui/theme.js";
 
+import type { Argv } from "yargs";
+
 export interface CommandModule<T = object> {
   command: string;
   describe: string;
-  builder?: Record<string, never> | ((yargs: T) => T);
+  builder: (yargs: Argv) => Argv;
   handler: (argv: T) => void | Promise<void>;
-  examples?: Array<[string, string]>;
 }
 
 const psCommand: CommandModule = {
   command: "ps",
   describe: "List running synth instances",
-  builder: {},
+  builder: (yargs) =>
+    yargs.example("synth ps", "List running synth instances"),
   handler: async () => {
     const cwd = process.cwd();
     const plans = await listSessions(cwd);
@@ -35,7 +37,6 @@ const psCommand: CommandModule = {
       );
     }
   },
-  examples: [["synth ps", "List running synth instances"]],
 };
 
 export default psCommand;

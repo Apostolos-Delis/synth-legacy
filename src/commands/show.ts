@@ -3,18 +3,13 @@ import { loadTasks, getProgress } from "../tasks/store.js";
 import { fileExists } from "../utils/fs.js";
 import { ansi, fmt, STATUS_ICONS, STATUS_COLORS } from "../tui/theme.js";
 
+import type { Argv } from "yargs";
+
 interface CommandModule {
   command: string;
   describe: string;
-  builder: {
-    [key: string]: {
-      type: string;
-      describe: string;
-      demandOption?: boolean;
-    };
-  };
+  builder: (yargs: Argv) => Argv;
   handler: (args: Record<string, unknown>) => Promise<void>;
-  examples: [string, string][];
 }
 
 async function resolvePlanId(input?: string): Promise<string | undefined> {
@@ -41,17 +36,15 @@ async function resolvePlanId(input?: string): Promise<string | undefined> {
 const showCommand: CommandModule = {
   command: "show <session-id>",
   describe: "Show session details",
-  builder: {
-    "session-id": {
-      type: "string",
-      describe: "Session ID or numeric index",
-      demandOption: true,
-    },
-  },
-  examples: [
-    ["synth show my-session", "Show details for session 'my-session'"],
-    ["synth show 1", "Show details for session #1"],
-  ],
+  builder: (yargs) =>
+    yargs
+      .positional("session-id", {
+        type: "string",
+        describe: "Session ID or numeric index",
+        demandOption: true,
+      })
+      .example("synth show my-session", "Show details for session 'my-session'")
+      .example("synth show 1", "Show details for session #1"),
   async handler(args) {
     const cwd = process.cwd();
     const sessionId = await resolvePlanId(args["session-id"] as string);
