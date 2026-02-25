@@ -78,7 +78,7 @@ export function DashboardView({ state }: DashboardViewProps): ReactNode {
       <box height={1} style={{ paddingLeft: 1 }}>
         <text>
           <span fg={colors.fg.muted} attributes={boldAttr()}>
-            {"ID".padEnd(8)} {"Title".padEnd(40)} {"Status".padEnd(12)} {"Pri".padEnd(4)} {"Iters".padEnd(6)}{showTime ? " " + "Time".padEnd(7) : ""}{showTokens ? " " + "Tokens".padEnd(8) : ""} Result
+            {"ID".padEnd(8)} {"Title".padEnd(40)} {"Status".padEnd(13)} {"Pri".padEnd(4)} {"Iters".padEnd(6)}{showTime ? " " + "Time".padEnd(7) : ""}{showTokens ? " " + "Tokens".padEnd(8) : ""} Result
           </span>
         </text>
       </box>
@@ -112,7 +112,7 @@ export function DashboardView({ state }: DashboardViewProps): ReactNode {
               {" "}
               <span fg={colors.fg.primary} attributes={isActive ? boldAttr() : undefined}>{title}</span>
               {" "}
-              <span fg={statusColor}>{icon} {task.status.padEnd(10)}</span>
+              <span fg={statusColor}>{`${icon} ${task.status}`.padEnd(13)}</span>
               {" "}
               <span fg={priorityColor}>P{task.priority}</span>
               {"  "}
