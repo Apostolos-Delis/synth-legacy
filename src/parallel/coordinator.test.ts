@@ -94,6 +94,25 @@ mock.module("../utils/fs.js", () => ({
   readText: async () => "",
 }));
 
+mock.module("../utils/process.js", () => ({
+  spawn: (opts: { cmd: string[]; cwd?: string }) => {
+    const isGitLog = opts.cmd[0] === "git" && opts.cmd[1] === "log";
+    const stdout = isGitLog ? "abc123 feat(T-1): test" : "";
+    return {
+      pid: 1,
+      promise: Promise.resolve({
+        exitCode: 0,
+        stdout,
+        stderr: "",
+        timedOut: false,
+        timings: { spawnMs: 0, firstStdoutMs: null, firstStderrMs: null, totalMs: 0 },
+      }),
+      interrupt: () => {},
+      process: {},
+    };
+  },
+}));
+
 mock.module("../tasks/store.js", () => ({
   loadTasks: async () => ({ tasks: [] }),
   saveTasks: async () => {},
