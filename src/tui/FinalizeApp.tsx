@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef, type ReactNode } from "react";
 import { useKeyboard, useTerminalDimensions, useRenderer } from "@opentui/react";
 import type { TextareaRenderable } from "@opentui/core";
-import type { FinalizeMessage, FinalizePhase, ChatOption, CompletionSummary } from "../finalize/chat-types.js";
+import type { FinalizeMessage, FinalizePhase, ChatOption, CompletionSummary, FinalizeMode, BackgroundAuditController, BackgroundAuditState } from "../finalize/chat-types.js";
 import type { FinalizeOrchestrator } from "../finalize/orchestrator.js";
 import type { AgentAdapter } from "../agents/types.js";
 import type { SynthConfig } from "../config/types.js";
@@ -22,9 +22,12 @@ interface FinalizeAppProps {
   config: SynthConfig;
   sessionPaths: SessionPaths;
   cwd: string;
+  mode?: FinalizeMode;
+  backgroundAudit?: BackgroundAuditController;
   onQuit: () => void;
   onComplete?: (summary: CompletionSummary) => void;
   onExecute?: () => void;
+  onReviewComplete?: () => void;
 }
 
 const PHASE_LABELS: Record<FinalizePhase, string> = {
@@ -71,7 +74,19 @@ function MessageBubble({ message }: { message: FinalizeMessage }): ReactNode {
   );
 }
 
-export function FinalizeApp({ orchestrator, agent, config, sessionPaths, cwd, onQuit, onComplete, onExecute }: FinalizeAppProps): ReactNode {
+export function FinalizeApp({
+  orchestrator,
+  agent,
+  config,
+  sessionPaths,
+  cwd,
+  mode = "finalize",
+  backgroundAudit,
+  onQuit,
+  onComplete,
+  onExecute,
+  onReviewComplete,
+}: FinalizeAppProps): ReactNode {
   const [messages, setMessages] = useState<FinalizeMessage[]>(() => orchestrator.getMessages());
   const [currentPhase, setCurrentPhase] = useState<FinalizePhase>(() => orchestrator.getCurrentPhase());
   const [isLoading, setIsLoading] = useState(true);
@@ -86,6 +101,7 @@ export function FinalizeApp({ orchestrator, agent, config, sessionPaths, cwd, on
   const [completionSummary, setCompletionSummary] = useState<CompletionSummary | null>(null);
   const [prdContent, setPrdContent] = useState<string | null>(null);
   const completionFiredRef = useRef(false);
+  const reviewCompleteRef = useRef(false);
 
   const destroyedRef = useDestroyedRef();
   const { inputLineCount, setInputLineCount, syncLineCount } = useSyncLineCount(textareaRef, destroyedRef);
@@ -102,7 +118,7 @@ export function FinalizeApp({ orchestrator, agent, config, sessionPaths, cwd, on
 
   // Fetch completion summary and PRD content when phase becomes "complete"
   useEffect(() => {
-    if (currentPhase !== "complete" || completionFiredRef.current) return;
+    if (mode !== "finalize" || currentPhase !== "complete" || completionFiredRef.current) return;
     completionFiredRef.current = true;
 
     orchestrator.getCompletionSummary().then((summary) => {
@@ -120,13 +136,43 @@ export function FinalizeApp({ orchestrator, agent, config, sessionPaths, cwd, on
     }).catch(() => {
       // PRD file read is best-effort
     });
-  }, [currentPhase, orchestrator, onComplete, sessionPaths.prd]);
+  }, [mode, currentPhase, orchestrator, onComplete, sessionPaths.prd]);
 
   // Auto-start: trigger orchestrator.start() on mount (skip if already restored)
   const startedRef = useRef(false);
   useEffect(() => {
     if (startedRef.current) return;
     startedRef.current = true;
+
+    if (mode === "review" && backgroundAudit) {
+      const applyBackgroundState = (state: BackgroundAuditState) => {
+        if (destroyedRef.current) return;
+        if (state.status === "running") {
+          setIsLoading(true);
+          setLoadingStartTime(Date.now());
+          setStreamingText(state.buffer);
+          return;
+        }
+        if (state.status === "done") {
+          setStreamingText("");
+          setMessages([...orchestrator.getMessages()]);
+          setIsLoading(false);
+          return;
+        }
+        if (state.status === "error") {
+          setStreamingText("");
+          setMessages((prev) => [
+            ...prev,
+            { role: "system", content: `Audit error: ${state.error ?? "Unknown error"}` },
+          ]);
+          setIsLoading(false);
+        }
+      };
+
+      applyBackgroundState(backgroundAudit.getState());
+      const unsubscribe = backgroundAudit.subscribe(applyBackgroundState);
+      return () => unsubscribe();
+    }
 
     // If orchestrator already has messages (restored from saved state), skip start
     if (orchestrator.getMessages().length > 0) {
@@ -156,7 +202,7 @@ export function FinalizeApp({ orchestrator, agent, config, sessionPaths, cwd, on
         setIsLoading(false);
       }
     });
-  }, [orchestrator, agent, config, sessionPaths, cwd]);
+  }, [orchestrator, agent, config, sessionPaths, cwd, mode, backgroundAudit]);
 
   // Execute fixes when phase transitions to "executing-fixes"
   const activeExecRef = useRef<string | null>(null);
@@ -208,6 +254,15 @@ export function FinalizeApp({ orchestrator, agent, config, sessionPaths, cwd, on
         if (!destroyedRef.current) {
           setMessages([...orchestrator.getMessages()]);
           if (orchestrator.getCurrentPhase() === "creating-pr") {
+            if (mode === "review") {
+              if (!reviewCompleteRef.current) {
+                reviewCompleteRef.current = true;
+                onReviewComplete?.();
+              }
+              activeExecRef.current = null;
+              if (!destroyedRef.current) setIsLoading(false);
+              return;
+            }
             runPrCreation();
             return;
           }
@@ -225,9 +280,16 @@ export function FinalizeApp({ orchestrator, agent, config, sessionPaths, cwd, on
         }
       });
     } else if (currentPhase === "creating-pr") {
+      if (mode === "review") {
+        if (!reviewCompleteRef.current) {
+          reviewCompleteRef.current = true;
+          onReviewComplete?.();
+        }
+        return;
+      }
       runPrCreation();
     }
-  }, [currentPhase, orchestrator, agent, config, sessionPaths, runPrCreation, onExecute]);
+  }, [currentPhase, orchestrator, agent, config, sessionPaths, runPrCreation, onExecute, mode, onReviewComplete]);
 
   // Determine if the last assistant message has options
   const lastMessage = messages.length > 0 ? messages[messages.length - 1] : null;

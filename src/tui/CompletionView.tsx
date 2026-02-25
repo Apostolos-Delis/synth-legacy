@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { useTerminalDimensions } from "@opentui/react";
-import type { CompletionSummary } from "./types.js";
+import type { CompletionSummary, ReviewStatus } from "./types.js";
 import { boldAttr, colors, statusIndicators, STATUS_COLORS_HEX } from "./theme.js";
 import { Footer } from "./components/Footer.js";
 import { stripAnsi } from "./utils.js";
@@ -9,6 +9,8 @@ import { formatDuration } from "../utils/format.js";
 interface CompletionViewProps {
   summary: CompletionSummary;
   showFinalizePrompt?: boolean;
+  showReviewPrompt?: boolean;
+  reviewStatus?: ReviewStatus;
 }
 
 function padLine(text: string, width: number): string {
@@ -37,9 +39,10 @@ function truncateText(text: string, maxWidth: number): string {
   return text.slice(0, maxWidth - 3) + "...";
 }
 
-export function CompletionView({ summary, showFinalizePrompt }: CompletionViewProps): ReactNode {
+export function CompletionView({ summary, showFinalizePrompt, showReviewPrompt, reviewStatus }: CompletionViewProps): ReactNode {
   const { width, height } = useTerminalDimensions();
   const { progress, tasks, commits } = summary;
+  const showReviewFixes = typeof summary.reviewFixesApplied === "number";
   const innerWidth = Math.max(1, width - 2);
   const headerText = `Completion Summary | ${summary.projectName} (${summary.sessionId})`;
   const headerPad = padRight(headerText, innerWidth);
@@ -60,8 +63,18 @@ export function CompletionView({ summary, showFinalizePrompt }: CompletionViewPr
   const summaryText = `Summary saved to: ${summary.summaryFilePath}`;
   const summaryPad = padRight(summaryText, innerWidth);
   const blankLine = padLine("", innerWidth);
-  const reservedRows = 1 + 1 + 1 + 1 + 1 + (showFinalizePrompt ? 1 : 0) + 1;
+  const reviewStatusRow = showReviewPrompt ? 1 : 0;
+  const reviewFixesRow = showReviewFixes ? 1 : 0;
+  const promptRow = showFinalizePrompt || showReviewPrompt ? 1 : 0;
+  const reservedRows = 1 + 1 + 1 + reviewFixesRow + 1 + 1 + reviewStatusRow + promptRow + 1;
   const scrollHeight = Math.max(1, height - reservedRows);
+  const reviewStatusText = reviewStatus === "running"
+    ? "Review in progress..."
+    : reviewStatus === "ready"
+      ? "Review ready."
+      : reviewStatus === "error"
+        ? "Review failed."
+        : null;
 
   const commitRows: ReactNode[] = [];
   for (let i = 0; i < commits.length; i++) {
@@ -137,6 +150,14 @@ export function CompletionView({ summary, showFinalizePrompt }: CompletionViewPr
           <span>{progressPad}</span>
         </text>
       </box>
+      {showReviewFixes && (
+        <box style={{ paddingLeft: 1 }}>
+          <text truncate={true}>
+            <span fg={colors.fg.muted}>{"Review fixes applied: "}</span>
+            <span fg={colors.fg.primary} attributes={boldAttr()}>{String(summary.reviewFixesApplied)}</span>
+          </text>
+        </box>
+      )}
 
       {/* Separator */}
       <box style={{ paddingLeft: 1 }}>
@@ -203,6 +224,33 @@ export function CompletionView({ summary, showFinalizePrompt }: CompletionViewPr
         </text>
       </scrollbox>
 
+      {showReviewPrompt && reviewStatusText && (
+        <box style={{ paddingLeft: 1 }}>
+          <text>
+            <span fg={colors.fg.muted}>{reviewStatusText}</span>
+          </text>
+        </box>
+      )}
+
+      {showReviewPrompt && (
+        <box style={{ paddingLeft: 1 }}>
+          <text>
+            <span fg={colors.status.success} attributes={boldAttr()}>
+              {"All tasks complete. "}
+            </span>
+            <span fg={colors.fg.secondary}>
+              {"Press "}
+            </span>
+            <span fg={colors.accent.primary} attributes={boldAttr()}>Enter</span>
+            <span fg={colors.fg.secondary}>
+              {" to start review, or "}
+            </span>
+            <span fg={colors.accent.primary} attributes={boldAttr()}>q</span>
+            <span fg={colors.fg.secondary}>{" to exit."}</span>
+          </text>
+        </box>
+      )}
+
       {showFinalizePrompt && (
         <box style={{ paddingLeft: 1 }}>
           <text>
@@ -222,7 +270,10 @@ export function CompletionView({ summary, showFinalizePrompt }: CompletionViewPr
         </box>
       )}
 
-      <Footer view={showFinalizePrompt ? "completion-finalize" : "completion"} width={width} />
+      <Footer
+        view={showReviewPrompt ? "completion-review" : showFinalizePrompt ? "completion-finalize" : "completion"}
+        width={width}
+      />
     </box>
   );
 }

@@ -7,11 +7,13 @@ import {
   updateSessionMetadata,
 } from "../sessions/registry.js";
 import type { SessionPaths } from "../sessions/types.js";
-import { loadTasks, saveTasks, resetOrphanedTasks, allTasksDone } from "../tasks/store.js";
+import { loadTasks, saveTasks, resetOrphanedTasks, allTasksDone, getProgress } from "../tasks/store.js";
 import { fileExists, readJson, writeJson, writeText, removeFile } from "../utils/fs.js";
 import { ansi, fmt, PRIORITY_COLORS } from "../tui/theme.js";
 import { deriveSessionSlug, deriveTaskPrefix } from "../sessions/slug.js";
-import type { TuiContext } from "../tui/types.js";
+import type { TuiContext, TuiEngineData, CompletionSummary } from "../tui/types.js";
+import type { BackgroundAuditController, BackgroundAuditState, BackgroundAuditStatus, FinalizeMessage, OrchestratorState } from "../finalize/chat-types.js";
+import { spawn } from "../utils/process.js";
 
 import {
   log,
@@ -56,6 +58,36 @@ async function setSessionSlugAndPrefix(cwd: string, sessionId: string, title: st
   const slug = deriveSessionSlug(title);
   await updateSessionMetadata(cwd, sessionId, { description: title, slug });
   return deriveTaskPrefix(title);
+}
+
+function createBackgroundAudit() {
+  let state: BackgroundAuditState = { status: "running", buffer: "" };
+  const listeners = new Set<(next: BackgroundAuditState) => void>();
+
+  const notify = () => {
+    for (const listener of listeners) listener(state);
+  };
+
+  const controller: BackgroundAuditController = {
+    getState: () => state,
+    subscribe: (listener) => {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+  };
+
+  const appendChunk = (chunk: string) => {
+    if (!chunk) return;
+    state = { ...state, buffer: state.buffer + chunk };
+    notify();
+  };
+
+  const setStatus = (status: BackgroundAuditStatus, error?: string) => {
+    state = { ...state, status, error };
+    notify();
+  };
+
+  return { controller, appendChunk, setStatus };
 }
 
 // ── Resume interview helper ──
@@ -343,7 +375,8 @@ export async function cmdResumeInternal(
     runContext?: { config: import("../config/types.js").SynthConfig; sessionPaths: SessionPaths },
     savedConversation?: import("../finalize/chat-types.js").FinalizeMessage[],
     savedState?: import("../finalize/chat-types.js").OrchestratorState,
-  ) => cmdFinalize(sid, tuiContext, runContext, savedConversation, savedState, { cwd, tuiEnabled });
+    options?: import("./finalize.js").FinalizeUiOptions,
+  ) => cmdFinalize(sid, tuiContext, runContext, savedConversation, savedState, { cwd, tuiEnabled }, options);
 
   // Build local cmdRun wrapper
   const localCmdRun = async (sid?: string, startIteration = 0, tuiContext?: TuiContext) => {
@@ -453,9 +486,9 @@ export async function cmdResumeInternal(
 
     case "reviewing": {
       const config = await applyTheme(cwd);
-      const [{ getAgent }, { Engine: EngineClass }] = await Promise.all([
+      const [{ getAgent }, runMod] = await Promise.all([
         loadAgentRegistry(),
-        loadEngine(),
+        loadRunModule(),
       ]);
       const agent = getAgent(config.agent.name);
       const detection = await agent.detect();
@@ -463,13 +496,199 @@ export async function cmdResumeInternal(
         logError(`Agent '${config.agent.name}' not available: ${detection.error}`);
         process.exit(1);
       }
+
+      if (tuiEnabled) {
+        const tui = await loadTui();
+        const renderer = await tui.createCliRenderer({
+          useKittyKeyboard: { disambiguate: true, alternateKeys: true },
+        });
+        const root = tui.createRoot(renderer);
+        const App = tui.App;
+
+        const run = await runMod.loadRun(plan.paths);
+        const startedAt = run?.startedAt ? new Date(run.startedAt).getTime() : Date.now();
+        const endedAt = run?.endedAt ? new Date(run.endedAt).getTime() : Date.now();
+        const durationMs = Math.max(0, endedAt - startedAt);
+        const totalIterations = run?.currentIteration ?? 0;
+
+        const currentTasks = await loadTasks(plan.paths.tasks);
+        const progress = getProgress(currentTasks);
+        const sinceDate = run?.startedAt ?? new Date(startedAt).toISOString();
+        const gitResult = spawn({ cmd: ["git", "log", "--oneline", `--since=${sinceDate}`], cwd });
+        const { stdout: commitLog } = await gitResult.promise;
+        const commits = commitLog.trim() ? commitLog.trim().split("\n") : [];
+
+        const summaryData: CompletionSummary = {
+          projectName: config.project.name,
+          sessionId: plan.metadata.id,
+          agentName: config.agent.name,
+          totalDurationMs: durationMs,
+          totalIterations,
+          tasks: currentTasks.tasks,
+          progress,
+          commits,
+          summaryFilePath: plan.paths.summary,
+        };
+
+        const taskElapsedMs = Object.fromEntries(
+          currentTasks.tasks
+            .filter((t) => t.durationMs != null)
+            .map((t) => [t.id, t.durationMs as number]),
+        );
+
+        const tuiData: TuiEngineData = {
+          engineState: "completed",
+          iteration: totalIterations,
+          maxIterations: config.execution.max_iterations,
+          tasks: [...currentTasks.tasks],
+          currentTaskId: null,
+          output: "",
+          agentName: config.agent.name,
+          projectName: config.project.name,
+          sessionId: plan.metadata.id,
+          startTime: startedAt,
+          interviewMessages: [],
+          isThinking: false,
+          currentPhase: null,
+          phaseStartTime: null,
+          completionSummary: summaryData,
+          taskOutputMap: {},
+          taskElapsedMs,
+          taskStartTimes: {},
+          iterationEntries: [],
+          configDisplay: JSON.stringify(config, null, 2),
+          tokenUsage: { sessionTotal: { inputTokens: 0, outputTokens: 0, totalTokens: 0 }, taskTotals: {}, hasData: false },
+          reviewStatus: "running",
+        };
+
+        let completionResolve: ((action: "quit" | "finalize" | "review") => void) | null = null;
+        let allowFinalize = false;
+        let allowReview = true;
+
+        const renderTui = () => {
+          root.render(
+            <App
+              {...tuiData}
+              onQuit={() => {
+                if (completionResolve) {
+                  completionResolve("quit");
+                }
+              }}
+              onFinalize={allowFinalize ? () => completionResolve?.("finalize") : undefined}
+              onReviewStart={allowReview ? () => completionResolve?.("review") : undefined}
+            />,
+          );
+        };
+
+        renderTui();
+
+        const { FinalizeOrchestrator } = await import("../finalize/orchestrator.js");
+        const reviewOrchestrator = new FinalizeOrchestrator({ mode: "review" });
+        const finalizeConvPath = join(plan.paths.root, "finalize-conversation.json");
+        const finalizeStatePath = join(plan.paths.root, "finalize-state.json");
+        const savedConversation = await fileExists(finalizeConvPath)
+          ? await readJson<FinalizeMessage[]>(finalizeConvPath)
+          : [];
+        const savedState = savedConversation.length > 0 && await fileExists(finalizeStatePath)
+          ? await readJson<OrchestratorState>(finalizeStatePath)
+          : undefined;
+
+        if (savedConversation.length > 0) {
+          reviewOrchestrator.restore(agent, config, plan.paths, cwd, savedConversation, savedState);
+          tuiData.reviewStatus = "ready";
+          renderTui();
+        }
+
+        let backgroundAudit: BackgroundAuditController | undefined;
+        if (savedConversation.length === 0) {
+          const audit = createBackgroundAudit();
+          backgroundAudit = audit.controller;
+
+          reviewOrchestrator.start(agent, config, plan.paths, cwd, (chunk) => {
+            audit.appendChunk(chunk);
+          }).then(() => {
+            audit.setStatus("done");
+            tuiData.reviewStatus = "ready";
+            renderTui();
+          }).catch((err) => {
+            const message = err instanceof Error ? err.message : String(err);
+            audit.setStatus("error", message);
+            tuiData.reviewStatus = "error";
+            tuiData.reviewError = message;
+            renderTui();
+          });
+        }
+
+        let reviewFixesApplied = 0;
+        let reviewCompleted = false;
+
+        while (true) {
+          const completionAction = await new Promise<"quit" | "finalize" | "review">((resolve) => {
+            completionResolve = resolve;
+          });
+          completionResolve = null;
+
+          if (completionAction === "quit") {
+            break;
+          }
+
+          if (completionAction === "review") {
+            let reviewQuit = false;
+            await localCmdFinalize(id, { renderer, root }, {
+              config,
+              sessionPaths: plan.paths,
+            }, undefined, undefined, {
+              mode: "review",
+              orchestrator: reviewOrchestrator,
+              backgroundAudit,
+              onReviewComplete: (result) => {
+                reviewCompleted = true;
+                reviewFixesApplied = result.fixesApplied;
+              },
+              onReviewQuit: () => {
+                reviewQuit = true;
+              },
+            });
+
+            if (reviewQuit) {
+              break;
+            }
+
+            if (reviewCompleted) {
+              await updateSessionMetadata(cwd, id, { status: "completed" });
+              allowFinalize = true;
+              allowReview = false;
+              tuiData.reviewStatus = "complete";
+              tuiData.reviewError = undefined;
+              tuiData.completionSummary = { ...summaryData, reviewFixesApplied };
+              renderTui();
+            }
+            continue;
+          }
+
+          if (completionAction === "finalize") {
+            await localCmdFinalize(id, { renderer, root }, {
+              config,
+              sessionPaths: plan.paths,
+            });
+            break;
+          }
+        }
+
+        root.unmount();
+        renderer.destroy();
+        agent.dispose();
+        return;
+      }
+
+      const [{ Engine: EngineClass }] = await Promise.all([
+        loadEngine(),
+      ]);
       const fallbackAgent = config.agent.fallback
         ? getAgent(config.agent.fallback.name)
         : null;
 
       if (!(await fileExists(plan.paths.reviewTasks))) {
-        // No review tasks file — run full review from scratch
-        // Clean up any partial findings.md from previous interrupted attempt
         await removeFile(plan.paths.reviewFindings);
 
         log(fmt.info(`Session ${id} review was interrupted before generating tasks — re-running review...`));
@@ -478,7 +697,6 @@ export async function cmdResumeInternal(
           config, agent, fallbackAgent, plan.paths, cwd,
         );
 
-        // Register signal handlers for clean interruption
         const onSigInt = () => {
           reviewOrchestrator.stop();
           reviewOrchestrator.cleanupPartialFindings().then(() => process.exit(0));
@@ -520,16 +738,13 @@ export async function cmdResumeInternal(
           process.off("SIGTERM", onSigTerm);
         }
       } else {
-        // Review tasks file exists — check completion state
         const reviewTaskFile = await loadTasks(plan.paths.reviewTasks);
         const allDone = allTasksDone(reviewTaskFile);
 
         if (allDone) {
-          // All review tasks complete — transition to completed
           log(fmt.info(`Session ${id} review tasks are all done — marking completed.`));
           await updateSessionMetadata(cwd, id, { status: "completed" });
         } else {
-          // Incomplete review tasks — resume execution via Engine
           const cleaned = resetOrphanedTasks(reviewTaskFile);
           if (cleaned !== reviewTaskFile) {
             await saveTasks(plan.paths.reviewTasks, cleaned);
@@ -546,7 +761,6 @@ export async function cmdResumeInternal(
           log(fmt.info(`Resuming review task execution for session ${id}...`));
           const engine = new EngineClass(config, agent, fallbackAgent, reviewPaths, cwd);
 
-          // Register signal handlers for clean interruption during review task execution
           const onSigInt = () => { engine.stop(); };
           const onSigTerm = () => { engine.stop(); };
           process.on("SIGINT", onSigInt);

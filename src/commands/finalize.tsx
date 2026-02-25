@@ -1,7 +1,9 @@
+import { join } from "node:path";
 import type { SynthConfig } from "../config/types.js";
 import type { SessionPaths } from "../sessions/types.js";
 import type { TuiContext } from "../tui/types.js";
-import type { FinalizeMessage, OrchestratorState } from "../finalize/chat-types.js";
+import type { FinalizeMessage, OrchestratorState, FinalizeMode, BackgroundAuditController } from "../finalize/chat-types.js";
+import type { FinalizeOrchestrator } from "../finalize/orchestrator.js";
 import { loadConfig } from "../config/loader.js";
 import { resolveTheme } from "../tui/themes/resolve.js";
 import {
@@ -10,6 +12,7 @@ import {
   updateSessionMetadata,
 } from "../sessions/registry.js";
 import { ansi, fmt, initTheme } from "../tui/theme.js";
+import { fileExists, readJson } from "../utils/fs.js";
 
 export interface FinalizeRunContext {
   config: SynthConfig;
@@ -19,6 +22,14 @@ export interface FinalizeRunContext {
 export interface CliContext {
   tuiEnabled: boolean;
   cwd: string;
+}
+
+export interface FinalizeUiOptions {
+  mode?: FinalizeMode;
+  orchestrator?: FinalizeOrchestrator;
+  backgroundAudit?: BackgroundAuditController;
+  onReviewComplete?: (result: { fixesApplied: number }) => void;
+  onReviewQuit?: () => void;
 }
 
 // ── Lazy loaders (same pattern as cli.tsx) ──
@@ -82,11 +93,13 @@ export async function cmdFinalize(
   savedConversation?: FinalizeMessage[],
   savedState?: OrchestratorState,
   ctx?: CliContext,
+  options?: FinalizeUiOptions,
 ): Promise<void> {
   const cwd = ctx?.cwd ?? process.cwd();
   const tuiEnabled = ctx?.tuiEnabled ?? (process.stdout.isTTY === true);
 
   const config = runContext?.config ?? await applyTheme(cwd);
+  const mode = options?.mode ?? "finalize";
 
   let plan;
   if (sessionId) {
@@ -107,7 +120,7 @@ export async function cmdFinalize(
   }
 
   // Mark session as finalizing so resume can detect interrupted finalize
-  if (plan.metadata.status !== "finalizing") {
+  if (mode === "finalize" && plan.metadata.status !== "finalizing") {
     await updateSessionMetadata(cwd, plan.metadata.id, { status: "finalizing" });
   }
 
@@ -120,11 +133,23 @@ export async function cmdFinalize(
     const tui = await loadTui();
 
     const agent = getAgent(config.agent.name);
-    const orchestrator = new FinalizeOrchestrator();
+    const orchestrator = options?.orchestrator ?? new FinalizeOrchestrator({ mode });
 
     // Restore from saved conversation if resuming an interrupted finalize
     if (savedConversation?.length) {
       orchestrator.restore(agent, config, plan.paths, cwd, savedConversation, savedState);
+    } else if (!options?.orchestrator && mode === "finalize") {
+      const convPath = join(plan.paths.root, "finalize-conversation.json");
+      const statePath = join(plan.paths.root, "finalize-state.json");
+      if (await fileExists(convPath)) {
+        const storedConversation = await readJson<FinalizeMessage[]>(convPath);
+        const storedState = await fileExists(statePath)
+          ? await readJson<OrchestratorState>(statePath)
+          : undefined;
+        if (storedConversation.length > 0) {
+          orchestrator.restore(agent, config, plan.paths, cwd, storedConversation, storedState);
+        }
+      }
     }
 
     const ownsRenderer = !tuiContext;
@@ -158,7 +183,7 @@ export async function cmdFinalize(
     process.on("SIGINT", sigintHandler);
 
     try {
-      type FinalizeYield = "quit" | "execute";
+      type FinalizeYield = "quit" | "execute" | "review-complete";
 
       // Yield loop: FinalizeApp yields back to cmdFinalize for fix execution
       // (parallel or serial TUI), then we remount FinalizeApp at recheck/PR phase.
@@ -172,13 +197,27 @@ export async function cmdFinalize(
               config={config}
               sessionPaths={plan!.paths}
               cwd={cwd}
+              mode={mode}
+              backgroundAudit={options?.backgroundAudit}
               onQuit={() => resolve("quit")}
               onExecute={() => resolve("execute")}
+              onReviewComplete={() => resolve("review-complete")}
             />,
           );
         });
 
         if (action === "quit") {
+          if (mode === "review") {
+            options?.onReviewQuit?.();
+          }
+          running = false;
+          break;
+        }
+
+        if (action === "review-complete") {
+          if (mode === "review") {
+            options?.onReviewComplete?.({ fixesApplied: orchestrator.getConfirmedFixes().length });
+          }
           running = false;
           break;
         }

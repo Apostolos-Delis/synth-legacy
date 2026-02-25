@@ -2,7 +2,8 @@ import type { Task } from "../tasks/types.js";
 import type { EngineState } from "../engine/types.js";
 import type { InterviewMessage } from "../interview/types.js";
 
-export type ViewMode = "execution" | "dashboard" | "history" | "config" | "interview" | "generating" | "review" | "completion" | "completion-finalize" | "finalize";
+export type ViewMode = "execution" | "dashboard" | "history" | "config" | "interview" | "generating" | "review" | "completion" | "completion-review" | "completion-finalize" | "finalize";
+export type ReviewStatus = "running" | "ready" | "complete" | "error";
 export type NavMode =
   | "task-scroll"
   | "detail-select"
@@ -27,6 +28,7 @@ export interface CompletionSummary {
   progress: { total: number; done: number; failed: number; open: number; inProgress: number };
   commits: string[];
   summaryFilePath: string;
+  reviewFixesApplied?: number;
 }
 
 export interface TokenUsageData {
@@ -57,6 +59,8 @@ export interface TuiEngineData {
   iterationEntries: { iteration: number; taskId: string; status: string; timestamp: number }[];
   configDisplay: string;
   tokenUsage: TokenUsageData;
+  reviewStatus?: ReviewStatus;
+  reviewError?: string;
   _notify?: () => void;
 }
 

@@ -12,6 +12,8 @@ import { ansi, fmt } from "../tui/theme.js";
 import { globalTrace } from "../utils/perf.js";
 import { stripAnsi } from "../tui/utils.js";
 import type { TuiEngineData, TuiContext, CompletionSummary } from "../tui/types.js";
+import type { FinalizeUiOptions } from "./finalize.js";
+import type { BackgroundAuditController, BackgroundAuditState, BackgroundAuditStatus } from "../finalize/chat-types.js";
 import {
   applyTaskStatus,
   resetTaskOutput,
@@ -21,9 +23,39 @@ import {
   appendTaskOutput,
 } from "../tui/task-state.js";
 import { TokenAccumulator } from "../engine/tokens.js";
-import type { IterationResult } from "../engine/types.js";
+import type { EngineState, IterationResult } from "../engine/types.js";
 
 const MAX_OUTPUT_LENGTH = 100_000;
+
+function createBackgroundAudit() {
+  let state: BackgroundAuditState = { status: "running", buffer: "" };
+  const listeners = new Set<(next: BackgroundAuditState) => void>();
+
+  const notify = () => {
+    for (const listener of listeners) listener(state);
+  };
+
+  const controller: BackgroundAuditController = {
+    getState: () => state,
+    subscribe: (listener) => {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+  };
+
+  const appendChunk = (chunk: string) => {
+    if (!chunk) return;
+    state = { ...state, buffer: state.buffer + chunk };
+    notify();
+  };
+
+  const setStatus = (status: BackgroundAuditStatus, error?: string) => {
+    state = { ...state, status, error };
+    notify();
+  };
+
+  return { controller, appendChunk, setStatus };
+}
 
 import {
   log,
@@ -49,6 +81,10 @@ export interface CliContext {
     sessionId?: string,
     tuiContext?: TuiContext,
     runContext?: { config: import("../config/types.js").SynthConfig; sessionPaths: import("../sessions/types.js").SessionPaths },
+    savedConversation?: import("../finalize/chat-types.js").FinalizeMessage[],
+    savedState?: import("../finalize/chat-types.js").OrchestratorState,
+    ctx?: import("./finalize.js").CliContext,
+    options?: FinalizeUiOptions,
   ) => Promise<void>;
 }
 
@@ -133,6 +169,20 @@ export async function cmdRun(
   log("");
 
   await updateSessionMetadata(cwd, plan.metadata.id, { status: "executing" });
+  const engineStartTime = Date.now();
+
+  const ownsRenderer = !tuiContext;
+  let renderer: Awaited<ReturnType<typeof import("@opentui/core")["createCliRenderer"]>> | null = tuiContext?.renderer ?? null;
+  let root: ReturnType<typeof import("@opentui/react")["createRoot"]> | null = tuiContext?.root ?? null;
+  let tuiData: TuiEngineData | null = null;
+  let App: Awaited<ReturnType<typeof loadTui>>["App"] | null = null;
+  let finalState: EngineState | null = null;
+  let usedParallel = false;
+  let engine: InstanceType<typeof EngineClass> | null = null;
+  let stopExecution: (() => void) | null = null;
+  const fallbackAgent = config.agent.fallback
+    ? getAgent(config.agent.fallback.name)
+    : null;
 
   // Parallel execution path
   if (parallelMode) {
@@ -156,10 +206,6 @@ export async function cmdRun(
         ),
       );
 
-      const parallelFallbackAgent = config.agent.fallback
-        ? getAgent(config.agent.fallback.name)
-        : null;
-
       const coordinator = new ParallelCoordinator({
         tasks: actionableTasks,
         repoRoot: cwd,
@@ -173,28 +219,24 @@ export async function cmdRun(
         },
         synthConfig: config,
         agent,
-        fallbackAgent: parallelFallbackAgent,
+        fallbackAgent,
       });
+      stopExecution = () => coordinator.abort();
 
       // Wire parallel execution to the TUI (or fall back to log-based output)
       const { attachParallelLogger } = await import("../finalize/parallel-bridge.js");
-      let parallelRenderer: Awaited<ReturnType<typeof import("@opentui/core")["createCliRenderer"]>> | null = null;
-      let parallelRoot: ReturnType<typeof import("@opentui/react")["createRoot"]> | null = null;
-      let parallelOwnsRenderer = !tuiContext;
       let parallelDestroyed = false;
 
       if (tuiEnabled) {
         const { createInitialTuiState, applyParallelEvent } = await import("../finalize/parallel-bridge.js");
         const { ParallelBridge } = await import("../tui/ParallelBridge.js");
         const tui = await loadTui();
-        if (tuiContext) {
-          parallelRenderer = tuiContext.renderer;
-          parallelRoot = tuiContext.root;
-        } else {
-          parallelRenderer = await tui.createCliRenderer({
+        App = tui.App;
+        if (!renderer || !root) {
+          renderer = await tui.createCliRenderer({
             useKittyKeyboard: { disambiguate: true, alternateKeys: true },
           });
-          parallelRoot = tui.createRoot(parallelRenderer);
+          root = tui.createRoot(renderer);
         }
 
         const parallelTaskElapsedMs = Object.fromEntries(
@@ -226,6 +268,7 @@ export async function cmdRun(
           configDisplay: JSON.stringify(config, null, 2),
           tokenUsage: { sessionTotal: { inputTokens: 0, outputTokens: 0, totalTokens: 0 }, taskTotals: {}, hasData: false },
         };
+        tuiData = parallelTuiData;
 
         const totalTasks = taskFile.tasks.length;
         const initialMergedTasks = taskFile.tasks.filter(
@@ -234,7 +277,7 @@ export async function cmdRun(
         const parallelState = createInitialTuiState(totalTasks, initialMergedTasks);
 
         // Render ONCE — the bridge manages its own re-renders via _notify
-        parallelRoot!.render(
+        root!.render(
           <ParallelBridge
             tuiData={parallelTuiData}
             parallelState={parallelState}
@@ -351,110 +394,84 @@ export async function cmdRun(
             ),
           );
         }
+        finalState = result.failedTaskIds.length > 0 || result.error ? "paused" : "completed";
       } finally {
         parallelDestroyed = true;
-        await runMod.releaseLock(plan.paths);
-        if (parallelOwnsRenderer) {
-          try {
-            if (parallelRoot) parallelRoot.unmount();
-            if (parallelRenderer) parallelRenderer.destroy();
-          } catch {
-            // Last-resort terminal cleanup
-          } finally {
-            process.stdout.write("\x1b[?1000l\x1b[?1003l\x1b[?1006l"); // disable mouse tracking modes
-            process.stdout.write("\x1b[?25h");  // show cursor
-            process.stdout.write("\x1b[?1049l"); // exit alternate screen
-          }
-        }
       }
-
-      parallelFallbackAgent?.dispose();
-      agent.dispose();
-      return;
+      usedParallel = true;
     }
   }
 
-  const fallbackAgent = config.agent.fallback
-    ? getAgent(config.agent.fallback.name)
-    : null;
+  if (!usedParallel) {
+    engine = new EngineClass(config, agent, fallbackAgent, plan.paths, cwd);
+    stopExecution = () => engine!.stop();
 
-  const engine = new EngineClass(config, agent, fallbackAgent, plan.paths, cwd);
-
-  const ownsRenderer = !tuiContext;
-  let renderer: Awaited<ReturnType<typeof import("@opentui/core")["createCliRenderer"]>> | null = null;
-  let root: ReturnType<typeof import("@opentui/react")["createRoot"]> | null = null;
-  let tuiData: TuiEngineData | null = null;
-  let App: Awaited<ReturnType<typeof loadTui>>["App"] | null = null;
-
-  if (tuiEnabled) {
-    const tui = await loadTui();
-    App = tui.App;
-    if (tuiContext) {
-      renderer = tuiContext.renderer;
-      root = tuiContext.root;
-    } else {
-      renderer = await tui.createCliRenderer({
-        useKittyKeyboard: { disambiguate: true, alternateKeys: true },
-      });
-      root = tui.createRoot(renderer);
-    }
-    const initialTaskElapsedMs = Object.fromEntries(
-      taskFile.tasks
-        .filter((t) => t.durationMs != null)
-        .map((t) => [t.id, t.durationMs as number]),
-    );
-
-    tuiData = {
-      engineState: "executing",
-      iteration: startIteration,
-      maxIterations: config.execution.max_iterations,
-      tasks: [...taskFile.tasks],
-      currentTaskId: null,
-      output: "",
-      agentName: config.agent.name,
-      projectName: config.project.name,
-      sessionId: plan.metadata.id,
-      startTime: Date.now(),
-      interviewMessages: [],
-      isThinking: false,
-      currentPhase: null,
-      phaseStartTime: null,
-      completionSummary: null,
-      taskOutputMap: {},
-      taskElapsedMs: initialTaskElapsedMs,
-      taskStartTimes: {},
-      iterationEntries: [],
-      configDisplay: JSON.stringify(config, null, 2),
-      tokenUsage: { sessionTotal: { inputTokens: 0, outputTokens: 0, totalTokens: 0 }, taskTotals: {}, hasData: false },
-    };
-
-    // Pre-load historical outputs and iteration entries for tasks completed in previous sessions
-    const completedTasks = taskFile.tasks.filter((t) => t.status === "done");
-    buildIterationMap(plan.paths.progress).then(async (iterMap) => {
-      if (!tuiData || iterMap.length === 0) return;
-      // Populate iteration entries from progress.md history
-      for (const entry of iterMap) {
-        tuiData.iterationEntries.push({
-          iteration: entry.iteration,
-          taskId: entry.taskId,
-          status: "done",
-          timestamp: 0, // historical entries don't have precise timestamps
+    if (tuiEnabled) {
+      const tui = await loadTui();
+      App = tui.App;
+      if (!renderer || !root) {
+        renderer = await tui.createCliRenderer({
+          useKittyKeyboard: { disambiguate: true, alternateKeys: true },
         });
+        root = tui.createRoot(renderer);
       }
-      // Load outputs for completed tasks
-      for (const task of completedTasks) {
-        if (tuiData.taskOutputMap[task.id]) continue;
-        const output = await loadTaskOutput(plan!.paths.logs, task.id, iterMap);
-        if (output && !tuiData.taskOutputMap[task.id]) {
-          tuiData.taskOutputMap[task.id] = output;
+      const initialTaskElapsedMs = Object.fromEntries(
+        taskFile.tasks
+          .filter((t) => t.durationMs != null)
+          .map((t) => [t.id, t.durationMs as number]),
+      );
+
+      tuiData = {
+        engineState: "executing",
+        iteration: startIteration,
+        maxIterations: config.execution.max_iterations,
+        tasks: [...taskFile.tasks],
+        currentTaskId: null,
+        output: "",
+        agentName: config.agent.name,
+        projectName: config.project.name,
+        sessionId: plan.metadata.id,
+        startTime: Date.now(),
+        interviewMessages: [],
+        isThinking: false,
+        currentPhase: null,
+        phaseStartTime: null,
+        completionSummary: null,
+        taskOutputMap: {},
+        taskElapsedMs: initialTaskElapsedMs,
+        taskStartTimes: {},
+        iterationEntries: [],
+        configDisplay: JSON.stringify(config, null, 2),
+        tokenUsage: { sessionTotal: { inputTokens: 0, outputTokens: 0, totalTokens: 0 }, taskTotals: {}, hasData: false },
+      };
+
+      const completedTasks = taskFile.tasks.filter((t) => t.status === "done");
+      buildIterationMap(plan.paths.progress).then(async (iterMap) => {
+        if (!tuiData || iterMap.length === 0) return;
+        for (const entry of iterMap) {
+          tuiData.iterationEntries.push({
+            iteration: entry.iteration,
+            taskId: entry.taskId,
+            status: "done",
+            timestamp: 0,
+          });
         }
-      }
-      renderTui();
-    });
+        for (const task of completedTasks) {
+          if (tuiData.taskOutputMap[task.id]) continue;
+          const output = await loadTaskOutput(plan!.paths.logs, task.id, iterMap);
+          if (output && !tuiData.taskOutputMap[task.id]) {
+            tuiData.taskOutputMap[task.id] = output;
+          }
+        }
+        renderTui();
+      });
+    }
   }
 
   let firstTokenRendered = false;
-  let completionResolve: ((action: "quit" | "finalize") => void) | null = null;
+  let completionResolve: ((action: "quit" | "finalize" | "review") => void) | null = null;
+  let allowFinalize = false;
+  let allowReview = false;
 
   const renderTui = () => {
     if (root && tuiData && App) {
@@ -468,11 +485,8 @@ export async function cmdRun(
               cleanup().then(() => process.exit(0));
             }
           }}
-          onFinalize={() => {
-            if (completionResolve) {
-              completionResolve("finalize");
-            }
-          }}
+          onFinalize={allowFinalize ? () => completionResolve?.("finalize") : undefined}
+          onReviewStart={allowReview ? () => completionResolve?.("review") : undefined}
         />,
       );
     }
@@ -493,8 +507,8 @@ export async function cmdRun(
   const taskStartTimes = new Map<string, number>();
   const tokenAccumulator = new TokenAccumulator();
 
-  if (tuiEnabled) {
-    engine.on((event) => {
+  if (!usedParallel && tuiEnabled) {
+    engine!.on((event) => {
       if (!tuiData) return;
       switch (event.type) {
         case "iteration:start":
@@ -630,8 +644,8 @@ export async function cmdRun(
       renderTui();
     });
     renderTui();
-  } else {
-    engine.on((event) => {
+  } else if (!usedParallel) {
+    engine!.on((event) => {
       switch (event.type) {
         case "iteration:start":
           log(
@@ -668,13 +682,13 @@ export async function cmdRun(
     if (cleaningUp) return;
     cleaningUp = true;
     sleepInhibitor?.release();
-    engine.stop();
+    stopExecution?.();
     if (ownsRenderer) {
       if (root) root.unmount();
       if (renderer) renderer.destroy();
     }
     // Don't overwrite completed status if SIGINT arrives during completion view
-    if (engine.getState() === "completed") return;
+    if ((engine && engine.getState() === "completed") || finalState === "completed") return;
     await runMod.endRun(plan!.paths, "interrupted");
     await updateSessionMetadata(cwd, plan!.metadata.id, { status: "paused" });
     if (!tuiEnabled) {
@@ -689,150 +703,153 @@ export async function cmdRun(
 
   // Notifications fire regardless of --no-tui; only suppressed in non-TTY (piped) mode
   const notificationsEnabled = config.notifications?.enabled !== false && process.stdout.isTTY === true;
-  const engineStartTime = Date.now();
-
   try {
-    await engine.run(startIteration);
-    const finalState = engine.getState();
+    if (!usedParallel) {
+      await engine!.run(startIteration);
+      finalState = engine!.getState();
+    }
+
+    if (!finalState) {
+      finalState = "completed";
+    }
+
     await runMod.endRun(plan.paths, finalState === "completed" ? "completed" : "paused");
 
-    // ── Review phase: runs after successful execution, skipped if blocked ──
+    const durationMs = Date.now() - engineStartTime;
+    const currentTasks = await loadTasks(plan.paths.tasks);
+    const progress = getProgress(currentTasks);
+
     if (finalState === "completed") {
       await updateSessionMetadata(cwd, plan.metadata.id, { status: "reviewing" });
 
-      const { ReviewOrchestrator } = await loadReviewOrchestrator();
-      const reviewOrchestrator = new ReviewOrchestrator(
-        config,
-        agent,
-        fallbackAgent,
-        plan.paths,
-        cwd,
-      );
+      const sinceDate = new Date(engineStartTime).toISOString();
+      const gitResult = spawn({ cmd: ["git", "log", "--oneline", `--since=${sinceDate}`], cwd });
+      const { stdout: commitLog } = await gitResult.promise;
+      const commits = commitLog.trim() ? commitLog.trim().split("\n") : [];
 
-      // Swap signal handlers to be review-aware
-      process.off("SIGINT", onSigInt);
-      process.off("SIGTERM", onSigTerm);
-
-      let reviewCleaningUp = false;
-      const reviewCleanup = async () => {
-        if (reviewCleaningUp) return;
-        reviewCleaningUp = true;
-        reviewOrchestrator.stop();
-        await reviewOrchestrator.cleanupPartialFindings();
-        if (ownsRenderer) {
-          if (root) root.unmount();
-          if (renderer) renderer.destroy();
-        }
-        // Keep status as "reviewing" so resume re-enters review phase
+      const summaryData: CompletionSummary = {
+        projectName: config.project.name,
+        sessionId: plan.metadata.id,
+        agentName: config.agent.name,
+        totalDurationMs: durationMs,
+        totalIterations: engine ? engine.getIteration() : 0,
+        tasks: currentTasks.tasks,
+        progress,
+        commits,
+        summaryFilePath: plan.paths.summary,
       };
 
-      const onReviewSigInt = () => { reviewCleanup().then(() => process.exit(0)); };
-      const onReviewSigTerm = () => { reviewCleanup().then(() => process.exit(0)); };
-      process.on("SIGINT", onReviewSigInt);
-      process.on("SIGTERM", onReviewSigTerm);
+      const markdown = buildSummaryMarkdown(summaryData);
+      await writeText(plan.paths.summary, markdown);
 
-      try {
       if (tuiEnabled && tuiData) {
-        // Show review phase in TUI — reuse execution view with "reviewing" state
-        tuiData.engineState = "reviewing";
-        tuiData.currentTaskId = null;
-        tuiData.output = "";
-        tuiData.isThinking = true;
-        tuiData.currentPhase = "Generating review findings...";
-        tuiData.phaseStartTime = Date.now();
-        renderTui();
-
-        reviewOrchestrator.on((event) => {
-          if (!tuiData) return;
-          switch (event.type) {
-            case "state:change":
-              if (event.message === "reviewing") {
-                tuiData.engineState = "reviewing";
-              } else if (event.message) {
-                tuiData.engineState = event.message as TuiEngineData["engineState"];
-              }
-              break;
-            case "iteration:start":
-              tuiData.iteration = event.iteration ?? tuiData.iteration;
-              tuiData.currentTaskId = event.taskId ?? null;
-              tuiData.output = "";
-              break;
-            case "task:start":
-              tuiData.isThinking = true;
-              tuiData.currentPhase = "Executing review task...";
-              tuiData.phaseStartTime = event.timestamp ?? Date.now();
-              if (event.taskId) {
-                resetTaskOutput(tuiData, event.taskId);
-                setTaskStartTime(tuiData, event.taskId, Date.now());
-                applyTaskStatus(tuiData, event.taskId, "in_progress");
-              }
-              break;
-            case "task:complete":
-            case "task:failed": {
-              tuiData.isThinking = false;
-              tuiData.currentPhase = null;
-              if (event.taskId) {
-                applyTaskStatus(tuiData, event.taskId, event.type === "task:complete" ? "done" : "failed");
-              }
-              break;
-            }
-            case "agent:stdout": {
-              const stripped = event.message ? stripAnsi(event.message) : "";
-              if (stripped) {
-                tuiData.output += stripped;
-                if (tuiData.currentTaskId && tuiData.currentTaskId in tuiData.taskOutputMap) {
-                  appendTaskOutput(tuiData, tuiData.currentTaskId, stripped, MAX_OUTPUT_LENGTH);
-                }
-              }
-              renderTui();
-              return; // already rendered
-            }
-            case "agent:stderr":
-              if (event.message) tuiData.output += stripAnsi(event.message);
-              break;
-            case "phase:scanning":
-              tuiData.currentPhase = "Scanning project files...";
-              tuiData.phaseStartTime = event.timestamp ?? Date.now();
-              break;
-            case "phase:building-prompt":
-              tuiData.currentPhase = "Building prompt...";
-              tuiData.phaseStartTime = event.timestamp ?? Date.now();
-              break;
-            case "phase:spawning-agent":
-              tuiData.currentPhase = "Spawning agent...";
-              tuiData.phaseStartTime = event.timestamp ?? Date.now();
-              break;
-            case "phase:streaming":
-              tuiData.currentPhase = "Streaming response...";
-              tuiData.phaseStartTime = event.timestamp ?? Date.now();
-              break;
-            case "complete":
-              tuiData.isThinking = false;
-              tuiData.currentPhase = null;
-              break;
-          }
-          renderTui();
-        });
-
-        // Load and display review tasks in TUI as they're generated
-        const reviewResult = await reviewOrchestrator.run((chunk) => {
-          if (tuiData) {
-            tuiData.output += chunk;
-            if (tuiData.output.length > MAX_OUTPUT_LENGTH) {
-              tuiData.output = tuiData.output.slice(-MAX_OUTPUT_LENGTH);
-            }
-            renderTuiThrottled();
-          }
-        });
-
-        // Merge review tasks into TUI task list if any were created
-        if (reviewResult.taskFile) {
-          tuiData.tasks = [...tuiData.tasks, ...reviewResult.taskFile.tasks];
-        }
+        tuiData.completionSummary = summaryData;
         tuiData.engineState = "completed";
+        tuiData.reviewStatus = "running";
+        allowReview = true;
+        allowFinalize = false;
         renderTui();
+
+        const { FinalizeOrchestrator } = await import("../finalize/orchestrator.js");
+        const reviewOrchestrator = new FinalizeOrchestrator({ mode: "review" });
+        const audit = createBackgroundAudit();
+        const backgroundAudit = audit.controller;
+
+        reviewOrchestrator.start(agent, config, plan.paths, cwd, (chunk) => {
+          audit.appendChunk(chunk);
+        }).then(() => {
+          audit.setStatus("done");
+          if (tuiData) {
+            tuiData.reviewStatus = "ready";
+            renderTui();
+          }
+        }).catch((err) => {
+          const message = err instanceof Error ? err.message : String(err);
+          audit.setStatus("error", message);
+          if (tuiData) {
+            tuiData.reviewStatus = "error";
+            tuiData.reviewError = message;
+            renderTui();
+          }
+        });
+
+        let reviewFixesApplied = 0;
+        let reviewCompleted = false;
+
+        while (true) {
+          const completionAction = await new Promise<"quit" | "finalize" | "review">((resolve) => {
+            completionResolve = resolve;
+          });
+          completionResolve = null;
+
+          if (completionAction === "quit") {
+            return;
+          }
+
+          if (completionAction === "review") {
+            let reviewQuit = false;
+            await cmdFinalize(plan.metadata.id, { renderer: renderer!, root: root! }, {
+              config,
+              sessionPaths: plan.paths,
+            }, undefined, undefined, { cwd, tuiEnabled }, {
+              mode: "review",
+              orchestrator: reviewOrchestrator,
+              backgroundAudit,
+              onReviewComplete: (result) => {
+                reviewCompleted = true;
+                reviewFixesApplied = result.fixesApplied;
+              },
+              onReviewQuit: () => {
+                reviewQuit = true;
+              },
+            });
+
+            if (reviewQuit) {
+              return;
+            }
+
+            if (reviewCompleted) {
+              await updateSessionMetadata(cwd, plan.metadata.id, { status: "completed" });
+              allowFinalize = true;
+              allowReview = false;
+              if (tuiData) {
+                tuiData.reviewStatus = "complete";
+                tuiData.reviewError = undefined;
+                tuiData.completionSummary = { ...summaryData, reviewFixesApplied };
+                renderTui();
+              }
+            }
+            continue;
+          }
+
+          if (completionAction === "finalize") {
+            const finalizeRenderer = renderer;
+            const finalizeRoot = root;
+            renderer = null;
+            root = null;
+            cleaningUp = true;
+
+            await cmdFinalize(plan.metadata.id, { renderer: finalizeRenderer!, root: finalizeRoot! }, {
+              config,
+              sessionPaths: plan.paths,
+            });
+            if (ownsRenderer) {
+              finalizeRoot?.unmount();
+              finalizeRenderer?.destroy();
+            }
+            return;
+          }
+        }
       } else {
-        // Non-TUI: log review progress to console
+        const { ReviewOrchestrator } = await loadReviewOrchestrator();
+        const reviewOrchestrator = new ReviewOrchestrator(
+          config,
+          agent,
+          fallbackAgent,
+          plan.paths,
+          cwd,
+        );
+
         log(`\n${fmt.bold("━━━ Review Phase ━━━")}`);
         log(fmt.info("Analyzing execution output for issues..."));
 
@@ -859,83 +876,9 @@ export async function cmdRun(
         } else {
           log(fmt.info("Review completed — no issues found"));
         }
-      }
 
-      // Review done — transition back to completed
-      await updateSessionMetadata(cwd, plan.metadata.id, { status: "completed" });
-      } finally {
-        process.off("SIGINT", onReviewSigInt);
-        process.off("SIGTERM", onReviewSigTerm);
-        // Restore original signal handlers for the remaining finally block
-        process.on("SIGINT", onSigInt);
-        process.on("SIGTERM", onSigTerm);
-      }
-    } else {
-      // Non-completed states (blocked, paused) — skip review
-      await updateSessionMetadata(cwd, plan.metadata.id, {
-        status: finalState === "blocked" ? "blocked" : "paused",
-      });
-    }
+        await updateSessionMetadata(cwd, plan.metadata.id, { status: "completed" });
 
-    const durationMs = Date.now() - engineStartTime;
-    const currentTasks = await loadTasks(plan.paths.tasks);
-    const progress = getProgress(currentTasks);
-
-    // Show completion summary when engine finishes successfully
-    if (finalState === "completed") {
-      // Gather git commits made during this run
-      const sinceDate = new Date(engineStartTime).toISOString();
-      const gitResult = spawn({ cmd: ["git", "log", "--oneline", `--since=${sinceDate}`], cwd });
-      const { stdout: commitLog } = await gitResult.promise;
-      const commits = commitLog.trim() ? commitLog.trim().split("\n") : [];
-
-      const summaryData: CompletionSummary = {
-        projectName: config.project.name,
-        sessionId: plan.metadata.id,
-        agentName: config.agent.name,
-        totalDurationMs: durationMs,
-        totalIterations: engine.getIteration(),
-        tasks: currentTasks.tasks,
-        progress,
-        commits,
-        summaryFilePath: plan.paths.summary,
-      };
-
-      // Write summary.md
-      const markdown = buildSummaryMarkdown(summaryData);
-      await writeText(plan.paths.summary, markdown);
-
-      if (tuiEnabled && tuiData) {
-        // Set completion summary and re-render — App auto-switches to CompletionView
-        tuiData.completionSummary = summaryData;
-        renderTui();
-        // Wait for user to press q/Esc or f (finalize)
-        const completionAction = await new Promise<"quit" | "finalize">((resolve) => {
-          completionResolve = resolve;
-        });
-        completionResolve = null;
-
-        if (completionAction === "finalize") {
-          // Transition to finalize phase, reusing renderer/root.
-          // Capture references before nulling, so we can clean up after finalize.
-          const finalizeRenderer = renderer;
-          const finalizeRoot = root;
-          // Null out so the finally block won't double-unmount/destroy
-          renderer = null;
-          root = null;
-          cleaningUp = true; // prevent SIGINT cleanup from interfering
-
-          await cmdFinalize(plan.metadata.id, { renderer: finalizeRenderer!, root: finalizeRoot! }, {
-            config,
-            sessionPaths: plan.paths,
-          });
-          if (ownsRenderer) {
-            finalizeRoot?.unmount();
-            finalizeRenderer?.destroy();
-          }
-          return;
-        }
-      } else {
         printCompletionSummary(summaryData);
         const readline = await import("node:readline");
         const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
@@ -947,6 +890,10 @@ export async function cmdRun(
           await cmdFinalize(plan.metadata.id);
         }
       }
+    } else {
+      await updateSessionMetadata(cwd, plan.metadata.id, {
+        status: finalState === "blocked" ? "blocked" : "paused",
+      });
     }
 
     if (notificationsEnabled) {
@@ -954,7 +901,7 @@ export async function cmdRun(
 
       if (finalState === "completed") {
         notif.sendCompletionNotification({ durationMs, taskCount: progress.done });
-      } else if (finalState === "paused" && engine.getIteration() >= config.execution.max_iterations) {
+      } else if (finalState === "paused" && engine && engine.getIteration() >= config.execution.max_iterations) {
         notif.sendMaxIterationsNotification({
           iterationsRun: engine.getIteration(),
           tasksCompleted: progress.done,

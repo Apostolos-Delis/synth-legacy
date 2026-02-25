@@ -21,6 +21,7 @@ interface AppProps extends TuiEngineData {
   defaultView?: ViewMode;
   onQuit?: () => void;
   onFinalize?: () => void;
+  onReviewStart?: () => void;
   onPause?: () => void;
   onResume?: () => void;
   parallel?: ParallelHeaderInfo | null;
@@ -35,6 +36,7 @@ export function App({
   defaultView = "execution",
   onQuit,
   onFinalize,
+  onReviewStart,
   onPause,
   onResume,
   parallel,
@@ -148,10 +150,12 @@ export function App({
         return;
       }
 
-      // Completion view responds to q/Esc to quit and f to finalize
+      // Completion view responds to q/Esc to quit, Enter to review, and f to finalize
       if (viewRef.current === "completion") {
         if (key.name === "q" || key.name === "escape") {
           onQuit?.();
+        } else if (key.name === "return" && onReviewStart) {
+          onReviewStart();
         } else if (key.name === "f" && onFinalize) {
           onFinalize();
         }
@@ -329,7 +333,7 @@ export function App({
           break;
       }
     },
-    [onQuit, onFinalize, onPause, onResume],
+    [onQuit, onFinalize, onReviewStart, onPause, onResume],
   );
 
   useKeyboard(handleKeyboard);
@@ -340,7 +344,12 @@ export function App({
     const allDone = progress.failed === 0 && progress.open === 0 && progress.inProgress === 0;
     return (
       <box style={{ width: "100%", height: "100%", position: "relative" }}>
-        <CompletionView summary={engineData.completionSummary} showFinalizePrompt={allDone && !!onFinalize} />
+        <CompletionView
+          summary={engineData.completionSummary}
+          showFinalizePrompt={allDone && !!onFinalize}
+          showReviewPrompt={allDone && !!onReviewStart}
+          reviewStatus={engineData.reviewStatus}
+        />
       </box>
     );
   }

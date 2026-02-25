@@ -16,6 +16,7 @@ const SHORTCUTS: Record<ViewMode, string> = {
   generating: "Please wait...",
   review: "j/k:navigate  Enter:start execution  Esc/q:save and quit",
   completion: "q:quit",
+  "completion-review": "Enter:start review  q:quit",
   "completion-finalize": "f:finalize  q:quit",
   finalize: "Enter:send  Esc:quit",
 };

@@ -43,6 +43,8 @@ export interface FixTask {
   sourceIssue: ReviewIssue;
 }
 
+export type FinalizeMode = "finalize" | "review";
+
 export type FinalizePhase =
   | "auditing"
   | "discussing"
@@ -60,6 +62,19 @@ export interface CompletionSummary {
   durationMs: number;
 }
 
+export type BackgroundAuditStatus = "running" | "done" | "error";
+
+export interface BackgroundAuditState {
+  status: BackgroundAuditStatus;
+  buffer: string;
+  error?: string;
+}
+
+export interface BackgroundAuditController {
+  getState(): BackgroundAuditState;
+  subscribe(listener: (state: BackgroundAuditState) => void): () => void;
+}
+
 export interface OrchestratorState {
   phase: FinalizePhase;
   fixes: FixTask[];
@@ -68,4 +83,3 @@ export interface OrchestratorState {
   fixCounter: number;
   messages: FinalizeMessage[];
 }
-

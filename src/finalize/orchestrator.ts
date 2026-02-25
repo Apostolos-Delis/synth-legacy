@@ -12,6 +12,7 @@ import type {
   FixTask,
   FixTaskStatus,
   OrchestratorState,
+  FinalizeMode,
 } from "./chat-types.js";
 import {
   buildAuditContext,
@@ -176,11 +177,13 @@ export class FinalizeOrchestrator {
   private gitOps: GitOps;
   private _spawn: SpawnFn;
   private _loadTasks: LoadTasksFn;
+  private mode: FinalizeMode;
 
-  constructor(options?: { gitOps?: GitOps; spawn?: SpawnFn; loadTasks?: LoadTasksFn }) {
+  constructor(options?: { gitOps?: GitOps; spawn?: SpawnFn; loadTasks?: LoadTasksFn; mode?: FinalizeMode }) {
     this.gitOps = options?.gitOps ?? { getCurrentBranch: defaultGetCurrentBranch };
     this._spawn = options?.spawn ?? defaultSpawn;
     this._loadTasks = options?.loadTasks ?? defaultLoadTasks;
+    this.mode = options?.mode ?? "finalize";
   }
 
   getCurrentPhase(): FinalizePhase {
@@ -289,7 +292,7 @@ export class FinalizeOrchestrator {
     }
     // Persist on every phase transition for crash safety
     this.persistState().catch(() => {});
-    if (phase === "complete" && this.sessionPaths) {
+    if (phase === "complete" && this.sessionPaths && this.mode === "finalize") {
       this.updateMetadataToFinalized().catch((err) => {
         console.error("Failed to update metadata to finalized:", err);
       });
