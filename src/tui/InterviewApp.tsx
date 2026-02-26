@@ -48,6 +48,9 @@ function MessageBubble({
   const isUser = message.role === "user";
   const roleColor = isUser ? colors.accent.primary : colors.accent.secondary;
   const roleLabel = isUser ? "You" : "Synth";
+  const durationLabel = !isUser && message.durationMs && message.durationMs > 0
+    ? `Worked for ${formatDuration(message.durationMs)}`
+    : "";
 
   return (
     <box style={{ width: "100%", flexDirection: "column", marginBottom: 1 }}>
@@ -57,6 +60,13 @@ function MessageBubble({
           <PhaseIndicator phase={phaseLabel} startTime={loadingStartTime} />
         ) : null}
       </box>
+      {!isUser && !isStreaming && durationLabel ? (
+        <box style={{ flexDirection: "row", gap: 1, paddingLeft: 2 }}>
+          <text fg={colors.fg.dim}>{"─".repeat(8)}</text>
+          <text fg={colors.fg.muted}>{durationLabel}</text>
+          <text fg={colors.fg.dim}>{"─".repeat(8)}</text>
+        </box>
+      ) : null}
       <box style={{ paddingLeft: 2 }}>
         {isUser || !isStreaming ? (
           <markdown content={message.content} syntaxStyle={markdownSyntaxStyle()} />
@@ -127,12 +137,13 @@ export function InterviewApp({ sessionId, onSendMessage, onComplete, onQuit, ini
     try {
       const { response, done } = await onSendMessage(value, handleStreamChunk, appendTool, resetStreaming);
       const elapsed = Date.now() - startTime;
-      const durationLabel = elapsed > 0 ? `\n\n_Generated in ${formatDuration(elapsed)}_` : "";
       setMessages((prev) => {
         if (prev.length === 0) return prev;
         const last = prev[prev.length - 1];
-        if (last.role !== "assistant") return [...prev, { role: "assistant", content: `${response}${durationLabel}` }];
-        const updated = { ...last, content: `${response}${durationLabel}` };
+        if (last.role !== "assistant") {
+          return [...prev, { role: "assistant", content: response, durationMs: elapsed }];
+        }
+        const updated = { ...last, content: response, durationMs: elapsed };
         return [...prev.slice(0, -1), updated];
       });
       resetStreaming();
