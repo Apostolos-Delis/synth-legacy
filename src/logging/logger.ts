@@ -1,4 +1,4 @@
-import { appendFile, mkdir } from "node:fs/promises";
+import { appendFile, mkdir, rename, stat, unlink } from "node:fs/promises";
 import { dirname } from "node:path";
 import type { LogEntry, LogError, LogLevel, LogSubscriber } from "./types.js";
 
@@ -6,6 +6,9 @@ const DEFAULT_SERVICE = process.env.SYNTH_SERVICE ?? process.env.SERVICE_NAME ??
 const DEFAULT_ENV = process.env.SYNTH_ENV ?? process.env.NODE_ENV ?? "development";
 const MAX_META_CHARS = 10_000;
 const MAX_CONTEXT_CHARS = 2_000;
+const MAX_LOG_BYTES = 10_000_000;
+const LOG_ROTATION_COUNT = 3;
+const LOG_SIZE_CHECK_EVERY = 200;
 
 interface LoggerOptions {
   service?: string;
@@ -198,6 +201,7 @@ export class Logger {
   private readonly subscribers: LogSubscriber[] = [];
   private dirEnsured = false;
   private writeChain: Promise<void> = Promise.resolve();
+  private writeCount = 0;
   private readonly service: string;
   private readonly env: string;
   private readonly baseContext?: Record<string, unknown>;
@@ -278,6 +282,8 @@ export class Logger {
         await mkdir(dirname(this.path), { recursive: true });
         this.dirEnsured = true;
       }
+      this.writeCount += 1;
+      await this.rotateIfNeeded();
       await appendFile(this.path, line);
     };
     this.writeChain = this.writeChain
@@ -294,6 +300,29 @@ export class Logger {
         }
         this.writeFallback(err);
       });
+  }
+
+  private async rotateIfNeeded(): Promise<void> {
+    if (this.writeCount % LOG_SIZE_CHECK_EVERY !== 0) return;
+    let size: number;
+    try {
+      size = (await stat(this.path)).size;
+    } catch {
+      return;
+    }
+    if (size < MAX_LOG_BYTES) return;
+    for (let i = LOG_ROTATION_COUNT; i >= 1; i -= 1) {
+      const src = i === 1 ? this.path : `${this.path}.${i - 1}`;
+      const dest = `${this.path}.${i}`;
+      try {
+        await rename(src, dest);
+      } catch {
+      }
+    }
+    try {
+      await unlink(`${this.path}.${LOG_ROTATION_COUNT + 1}`);
+    } catch {
+    }
   }
 
   private writeFallback(err: unknown): void {
