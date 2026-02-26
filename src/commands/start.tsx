@@ -6,6 +6,7 @@ import {
   getSession,
   updateSessionMetadata,
 } from "../sessions/registry.js";
+import type { SessionMetadata, SessionPaths } from "../sessions/types.js";
 import { deriveSessionSlug, deriveTaskPrefix } from "../sessions/slug.js";
 import { saveTasks, loadTasks, getProgress } from "../tasks/store.js";
 import { writeText, readText, fileExists, writeJson } from "../utils/fs.js";
@@ -37,6 +38,8 @@ export interface StartContext {
   parallelWorkers: number | undefined;
   agentName?: string;
 }
+
+type Session = { id: string; paths: SessionPaths; metadata: SessionMetadata };
 
 // ── Exported helpers ──
 
@@ -606,13 +609,13 @@ export async function cmdStart(
   let prdMarkdown: string | null = null;
 
   const logger = getLogger();
-  let session: Awaited<ReturnType<typeof createSession>> | null = null;
+  let session: Session | null = null;
   let interviewer: InstanceType<typeof interviewMod.Interviewer> | null = null;
 
   // Create worktree if -w flag is set (use session ID as fallback name before PRD title is known)
   let worktreeBranchName: string | undefined;
-  const ensureSession = async () => {
-    if (session) return;
+  const ensureSession = async (): Promise<Session> => {
+    if (session) return session;
     session = await createSession(cwd, "");
     await updateSessionMetadata(cwd, session.id, { agentName });
 
@@ -640,6 +643,7 @@ export async function cmdStart(
       };
       await writeJson(session!.paths.interview, state);
     });
+    return session;
   };
 
   if (tuiEnabled) {
@@ -708,9 +712,8 @@ export async function cmdStart(
     });
 
     if (!interviewResult) {
-      if (session) {
-        logger.info("interview:quit", "Interview quit", { sessionId: session.id });
-      }
+      const sessionId = (session as Session | null)?.id;
+      logger.info("interview:quit", "Interview quit", { sessionId });
       process.off("SIGINT", sigintHandler);
       cleanup();
       agent.dispose();
@@ -718,11 +721,8 @@ export async function cmdStart(
     }
 
     if (!prdMarkdown) {
-      if (session) {
-        logger.warn("prd:missing", "No PRD extracted from interview", { sessionId: session.id });
-      } else {
-        logger.warn("prd:missing", "No PRD extracted from interview");
-      }
+      const sessionId = (session as Session | null)?.id;
+      logger.warn("prd:missing", "No PRD extracted from interview", { sessionId });
       process.off("SIGINT", sigintHandler);
       cleanup();
       agent.dispose();
@@ -730,13 +730,8 @@ export async function cmdStart(
     }
 
     // Phase 2: PRD Review (user can revise before task generation)
-    if (!session) {
-      process.off("SIGINT", sigintHandler);
-      cleanup();
-      agent.dispose();
-      return;
-    }
-    const { id, paths } = session;
+    const activeSession = await ensureSession();
+    const { id, paths } = activeSession;
     const taskPrefix = await setSessionSlugAndPrefix(cwd, id, interviewMod.extractPrdTitle(prdMarkdown));
 
     // Rename worktree branch to match PRD slug (if auto-generated name was used)
@@ -871,9 +866,8 @@ export async function cmdStart(
     while (!prdMarkdown) {
       const userInput = await askQuestion();
       if (userInput === null) {
-        if (session) {
-          logger.info("interview:quit", "Interview quit", { sessionId: session.id });
-        }
+        const sessionId = (session as Session | null)?.id;
+        logger.info("interview:quit", "Interview quit", { sessionId });
         agent.dispose();
         return;
       }
@@ -923,12 +917,8 @@ export async function cmdStart(
     agent.dispose();
     return;
   }
-  if (!session) {
-    agent.dispose();
-    return;
-  }
-
-  const { id, paths } = session;
+  const activeSession = await ensureSession();
+  const { id, paths } = activeSession;
   logger.info("prd:approved", "PRD confirmed", { length: prdMarkdown.length });
   await writeText(paths.prd, prdMarkdown);
   const taskPrefix = await setSessionSlugAndPrefix(cwd, id, interviewMod.extractPrdTitle(prdMarkdown));

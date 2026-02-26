@@ -127,7 +127,7 @@ const commandExpectations: Record<
     hasExamples: true,
   },
   clean: {
-    descSnippet: "Remove stale sessions",
+    descSnippet: "Remove interview sessions and stale sessions",
     hasExamples: false,
   },
   update: {
