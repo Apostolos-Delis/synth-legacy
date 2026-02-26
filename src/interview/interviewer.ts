@@ -54,6 +54,8 @@ export class Interviewer {
   }
 
   extractPrdMarkdown(response: string): string | null {
+    const codeMatch = response.match(/```markdown\s*([\s\S]*?)\s*```/i);
+    if (codeMatch) return codeMatch[1].trim();
     const match = response.match(/^(# .+)/ms);
     if (!match) return null;
     return response.slice(response.indexOf(match[1]));
