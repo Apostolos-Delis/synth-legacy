@@ -4,7 +4,8 @@ import startCommand from "./start.js";
 import resumeCommand from "./resume.js";
 
 import lsCommand from "./ls.js";
-import showCommand from "./show.js";
+import sessionCommand from "./session.js";
+import logsCommand from "./logs.js";
 import statusCommand from "./status.js";
 import psCommand from "./ps.js";
 import configCommand from "./config.js";
@@ -23,7 +24,8 @@ export const commands = [
   startCommand,
   resumeCommand,
   lsCommand,
-  showCommand,
+  sessionCommand,
+  logsCommand,
   statusCommand,
   psCommand,
   configCommand,
@@ -39,7 +41,7 @@ export const commands = [
 
 export const commandCategories: Record<string, string[]> = {
   "Workflow Commands:": ["start", "resume"],
-  "Inspect Commands:": ["ls", "show", "status", "ps", "config", "doctor", "themes"],
+  "Inspect Commands:": ["ls", "session", "logs", "status", "ps", "config", "doctor", "themes"],
   "System Commands:": ["init", "rm", "clean", "update", "version"],
 };
 
@@ -47,7 +49,8 @@ export {
   startCommand,
   resumeCommand,
   lsCommand,
-  showCommand,
+  sessionCommand,
+  logsCommand,
   statusCommand,
   psCommand,
   configCommand,

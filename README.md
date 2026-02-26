@@ -45,7 +45,8 @@ synth resume
 | `start` | `synth start [--prd <path>]` | Interview → generate tasks → execute → PR |
 | `resume` | `synth resume [<session-id>]` | Resume a paused or interrupted session |
 | `ls` | `synth ls [--all]` | List sessions for the current repo (hides completed by default) |
-| `show` | `synth show <session-id>` | Show detailed session info and task list |
+| `session` | `synth session <session-id>` | Show detailed session info and task list |
+| `logs` | `synth logs <session-id>` | Show session log output |
 | `status` | `synth status [<session-id>]` | Show progress bar and session state |
 | `spawn` | `synth spawn [<session-id>] [--start]` | Run synth in a git worktree (background) |
 | `ps` | `synth ps` | List currently running session instances |

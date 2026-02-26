@@ -123,7 +123,8 @@ With all deferrals applied, `synth version` should drop from ~75ms to ~16ms (Bun
 | `help`     | `tui/theme` (ANSI only) | All others |
 | `init`     | `tui/theme`, `utils/fs` | All others |
 | `ls`       | `tui/theme`, `sessions/registry`, `tasks/store` | All others |
-| `show`     | `tui/theme`, `sessions/registry`, `tasks/store`, `utils/fs` | All others |
+| `session`  | `tui/theme`, `sessions/registry`, `tasks/store`, `utils/fs` | All others |
+| `logs`     | `tui/theme`, `sessions/registry`, `utils/fs` | All others |
 | `status`   | `tui/theme`, `sessions/registry`, `tasks/store`, `run/run` | All others |
 | `config`   | `tui/theme`, `config/loader`, `tui/themes/*` | All others |
 | `themes`   | `tui/theme`, `config/loader`, `tui/themes/*`, `tui/spinners` | All others |

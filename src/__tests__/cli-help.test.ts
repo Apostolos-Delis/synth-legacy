@@ -41,7 +41,8 @@ describe("top-level help", () => {
       "start",
       "resume",
       "ls",
-      "show",
+      "session",
+      "logs",
       "status",
       "config",
       "doctor",
@@ -89,9 +90,13 @@ const commandExpectations: Record<
     descSnippet: "List sessions",
     hasExamples: false,
   },
-  show: {
+  session: {
     descSnippet: "Show session details",
     hasExamples: false,
+  },
+  logs: {
+    descSnippet: "Show session logs",
+    hasExamples: true,
   },
   status: {
     descSnippet: "Show session progress status",
