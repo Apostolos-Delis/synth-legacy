@@ -452,6 +452,7 @@ export async function cmdResumeInternal(
   tuiEnabled: boolean,
   parallelMode: boolean,
   parallelWorkers: number | undefined,
+  agentName?: string,
 ): Promise<void> {
   const baseConfig = await applyTheme(cwd);
   const showToolLogs = baseConfig.tui?.show_tool_logs !== false;
@@ -493,6 +494,11 @@ export async function cmdResumeInternal(
   if (!plan) {
     logError("No session found to resume.");
     process.exit(1);
+  }
+
+  if (agentName && agentName !== plan.metadata.agentName) {
+    await updateSessionMetadata(cwd, plan.metadata.id, { agentName });
+    plan.metadata.agentName = agentName;
   }
 
   // Guard: check worktree mismatch
@@ -948,11 +954,17 @@ const resumeCommand: CommandModule<object, { "session-id"?: string }> = {
         type: "string",
         describe: "Session ID, slug, or numeric index to resume",
       })
+      .option("agent", {
+        type: "string",
+        describe: "Override agent for this session (e.g. claude, codex)",
+      })
       .example("synth resume", "Resume the most recent session")
-      .example("synth resume 2", "Resume session #2"),
+      .example("synth resume 2", "Resume session #2")
+      .example("synth resume --agent codex", "Resume with a different agent"),
   async handler(argv) {
     const cwd = process.cwd();
     const tuiEnabled = process.stdout.isTTY === true && !process.argv.includes("--no-tui");
+    const agentName = argv.agent as string | undefined;
 
     // Parse --parallel [N] / --no-parallel flags from process.argv
     const processArgs = process.argv.slice(2);
@@ -971,7 +983,7 @@ const resumeCommand: CommandModule<object, { "session-id"?: string }> = {
     }
 
     const sessionId = await resolvePlanId(argv["session-id"], cwd);
-    await cmdResumeInternal(sessionId, cwd, tuiEnabled, parallelMode, parallelWorkers);
+    await cmdResumeInternal(sessionId, cwd, tuiEnabled, parallelMode, parallelWorkers, agentName);
   },
 };
 

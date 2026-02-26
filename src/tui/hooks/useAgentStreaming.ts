@@ -4,11 +4,12 @@ import type { AgentToolEvent } from "../../agents/types.js";
 export function useAgentStreaming() {
   const [streamingText, setStreamingText] = useState("");
   const [toolEvents, setToolEvents] = useState<AgentToolEvent[]>([]);
+  const maxStreamingChars = 2400;
 
   const reset = useCallback(() => {
     setStreamingText("");
     setToolEvents([]);
-  }, []);
+  }, [maxStreamingChars]);
 
   const setStreaming = useCallback((text: string, events: AgentToolEvent[] = []) => {
     setStreamingText(text);
@@ -17,7 +18,12 @@ export function useAgentStreaming() {
 
   const appendChunk = useCallback((chunk: string) => {
     if (!chunk) return;
-    setStreamingText((prev) => prev + chunk);
+    setStreamingText((prev) => {
+      const next = prev + chunk;
+      if (next.length <= maxStreamingChars) return next;
+      const sliceStart = Math.max(0, next.length - (maxStreamingChars - 1));
+      return `…${next.slice(sliceStart)}`;
+    });
   }, []);
 
   const appendTool = useCallback((event: AgentToolEvent) => {
