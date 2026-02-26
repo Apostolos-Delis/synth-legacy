@@ -1,6 +1,25 @@
 import type { AgentAdapter } from "../agents/types.js";
 import { loadTemplate } from "../templates/index.js";
 import { truncateDiff } from "../utils/git.js";
+import { getLogger } from "../logging/logger.js";
+
+const TOOL_INPUT_LIMIT = 600;
+const TOOL_OUTPUT_LIMIT = 1200;
+
+function truncate(value: string, limit: number): string {
+  if (value.length <= limit) return value;
+  return `${value.slice(0, limit)}...`;
+}
+
+function toDisplay(value: unknown): string {
+  if (value == null) return "";
+  if (typeof value === "string") return value;
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+}
 
 export type AuditVerdict = "pass" | "warn" | "fail";
 
@@ -47,32 +66,73 @@ export async function prdAudit(
   cwd: string,
   model?: string,
 ): Promise<AuditResult> {
+  const logger = getLogger();
   const templateResult = await loadTemplate(agent.name, cwd, { phase: "audit" });
   const prompt = `${templateResult.template}\n\nPRD:\n\`\`\`\n${prd.slice(0, 30000)}\n\`\`\`\n\nGit diff:\n\`\`\`\n${truncateDiff(diff)}\n\`\`\``;
+
+  const startedAt = Date.now();
+  let toolUseCount = 0;
+  let toolResultCount = 0;
+  logger.info("audit:request", "Audit request started", {
+    prdLength: prd.length,
+    diffLength: diff.length,
+    model,
+  });
 
   const handle = agent.execute(prompt, {
     cwd,
     model,
     skipPermissions: false,
+    onTool: (event) => {
+      if (event.kind === "use") toolUseCount += 1;
+      if (event.kind === "result") toolResultCount += 1;
+      const input = event.input !== undefined ? truncate(toDisplay(event.input), TOOL_INPUT_LIMIT) : undefined;
+      const output = event.output !== undefined ? truncate(toDisplay(event.output), TOOL_OUTPUT_LIMIT) : undefined;
+      logger.debug("audit:tool", "Audit tool event", {
+        kind: event.kind,
+        name: event.name,
+        id: event.id,
+        ...(input !== undefined ? { input } : {}),
+        ...(output !== undefined ? { output } : {}),
+      });
+    },
   });
   const result = await handle.promise;
+  const durationMs = Date.now() - startedAt;
+  logger.info("audit:response", "Audit response complete", {
+    exitCode: result.exitCode,
+    timedOut: result.timedOut,
+    durationMs,
+    stdoutLength: result.stdout.length,
+    stderrLength: result.stderr.length,
+    toolUseCount,
+    toolResultCount,
+  });
   const output = result.stdout;
   if (result.timedOut) {
+    logger.error("audit:timeout", "Audit agent timed out", { durationMs });
     throw new Error("Audit agent timed out");
   }
   if (result.exitCode !== 0) {
+    const stderr = result.stderr ? truncate(result.stderr, 2000) : "";
+    logger.error("audit:exit", "Audit agent exited non-zero", {
+      exitCode: result.exitCode,
+      stderr,
+    });
     throw new Error(`Audit agent exited with code ${result.exitCode}: ${result.stderr}`);
   }
 
   const fencedMatch = output.match(/```json\s*(\{[\s\S]*?\})\s*```/);
   const raw = fencedMatch?.[1] ?? output.match(/\{[\s\S]*\}/)?.[0];
   if (!raw) {
+    logger.warn("audit:parse-failed", "Audit output missing JSON payload");
     return { overall: "warn", stories: [], findings: [], summary: "Could not parse audit output" };
   }
 
   try {
     const parsed = JSON.parse(raw);
     if (!parsed || typeof parsed !== "object") {
+      logger.warn("audit:parse-failed", "Audit output invalid JSON object");
       return { overall: "warn", stories: [], findings: [], summary: "Invalid audit response" };
     }
     return {
@@ -84,6 +144,7 @@ export async function prdAudit(
       summary: parsed.summary ?? "",
     };
   } catch {
+    logger.warn("audit:parse-failed", "Audit output JSON parse error");
     return { overall: "warn", stories: [], findings: [], summary: "Failed to parse audit JSON" };
   }
 }

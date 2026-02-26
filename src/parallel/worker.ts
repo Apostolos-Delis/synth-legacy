@@ -11,6 +11,8 @@ import { Engine } from "../engine/engine.js";
 import { saveTasks } from "../tasks/store.js";
 import { stripAnsi } from "../tui/utils.js";
 import { formatToolEvent } from "../utils/tool-format.js";
+import { getLogger } from "../logging/logger.js";
+import { createEngineLogBridge } from "../logging/engine-bridge.js";
 
 export type WorkerStatus =
   | "idle"
@@ -105,6 +107,15 @@ export class Worker {
       this.config.worktreePath,
     );
 
+    const logger = getLogger();
+    this.engine.on(createEngineLogBridge(logger));
+    logger.info("parallel:worker-start", "Parallel worker started", {
+      workerId: this.id,
+      taskId: this.config.task.id,
+      branch: this.config.branchName,
+      worktreePath: this.config.worktreePath,
+    });
+
     this.engine.on((event) => {
       this.handleEngineEvent(event);
     });
@@ -161,6 +172,13 @@ export class Worker {
         timestamp: new Date().toISOString(),
         workerId: this.id,
       });
+      logger.info("parallel:worker-complete", "Parallel worker completed", {
+        workerId: this.id,
+        taskId: this.config.task.id,
+        iterationsRun: this.currentIteration,
+        durationMs: Date.now() - this.startTime,
+        commitCount: this.commitCount,
+      });
 
       return result;
     } catch (err) {
@@ -185,6 +203,13 @@ export class Worker {
         type: "worker:failed",
         timestamp: new Date().toISOString(),
         workerId: this.id,
+      });
+      logger.error("parallel:worker-failed", "Parallel worker failed", {
+        workerId: this.id,
+        taskId: this.config.task.id,
+        iterationsRun: this.currentIteration,
+        durationMs: Date.now() - this.startTime,
+        error,
       });
 
       return result;

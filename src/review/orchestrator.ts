@@ -10,6 +10,8 @@ import { Engine } from "../engine/engine.js";
 import { saveTasks } from "../tasks/store.js";
 import { ensureDir, readText, writeText, writeJson, fileExists, removeFile } from "../utils/fs.js";
 import { getSessionSlug } from "../sessions/slug.js";
+import { getLogger } from "../logging/logger.js";
+import { createEngineLogBridge } from "../logging/engine-bridge.js";
 
 export interface ReviewResult {
   findings: ReviewFinding[];
@@ -56,10 +58,15 @@ export class ReviewOrchestrator {
   }
 
   async run(onChunk?: (chunk: string) => void): Promise<ReviewResult> {
+    const logger = getLogger();
     // Step 1: Create review/ directory
     await ensureDir(this.sessionPaths.reviewRoot);
 
     this.emit({ type: "state:change", message: "reviewing" });
+    logger.info("review:start", "Review started", {
+      sessionRoot: this.sessionPaths.root,
+      project: this.config.project.name,
+    });
 
     // Step 2: Run Reviewer to generate findings
     this.phase = "generating";
@@ -96,8 +103,12 @@ export class ReviewOrchestrator {
       if (this.stopped) {
         // Interrupted during findings generation — clean up partial state
         await this.cleanupPartialFindings();
+        logger.warn("review:interrupted", "Review interrupted during findings generation");
         throw err;
       }
+      logger.error("review:failed", "Review failed during findings generation", {
+        error: err instanceof Error ? err.message : String(err),
+      });
       throw err;
     }
 
@@ -109,11 +120,15 @@ export class ReviewOrchestrator {
 
     // Step 3: Extract findings and convert to tasks
     const findings = reviewer.extractFindings(response);
+    logger.info("review:findings", "Review findings extracted", {
+      count: findings.length,
+    });
 
     // Handle zero findings — skip execution
     if (findings.length === 0) {
       this.phase = "idle";
       this.emit({ type: "complete", message: "Review produced no findings" });
+      logger.info("review:complete", "Review completed with no findings");
       return { findings, taskFile: null, executed: false };
     }
 
@@ -142,6 +157,7 @@ export class ReviewOrchestrator {
       reviewPaths,
       this.cwd,
     );
+    this.reviewEngine.on(createEngineLogBridge(logger));
 
     // Forward engine events to our listeners
     this.reviewEngine.on((event) => this.emit(event));
@@ -150,6 +166,9 @@ export class ReviewOrchestrator {
 
     // Step 5: No third pass — return immediately after review tasks complete
     this.phase = "idle";
+    logger.info("review:complete", "Review completed with fixes executed", {
+      tasks: taskFile.tasks.length,
+    });
     return { findings, taskFile, executed: true };
   }
 }
