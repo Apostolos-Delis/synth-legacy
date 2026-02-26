@@ -113,6 +113,42 @@
       "durationMs": 207989
     },
     {
+      "id": "JSONL-002",
+      "title": "Update Log Consumers for New Schema",
+      "description": "Adjust log reader logic and TUI LogView to use new field names and render the standardized schema. Update logs-command tests and ensure corrupt line warnings are emitted as structured JSONL diagnostics.",
+      "acceptanceCriteria": [
+        "Log reader and tailer parse `timestamp`/`message` fields and still skip corrupt lines while emitting structured diagnostics.",
+        "TUI LogView renders timestamp, level, event (when present), and message from the new schema.",
+        "logs-command tests pass with updated sample entries."
+      ],
+      "verification": [
+        {
+          "type": "command",
+          "value": "bun test src/__tests__/logs-command.test.ts"
+        },
+        {
+          "type": "command",
+          "value": "bun run typecheck"
+        }
+      ],
+      "priority": 2,
+      "status": "done",
+      "affects": [
+        "src/logging/reader.ts",
+        "src/tui/LogView.tsx",
+        "src/__tests__/logs-command.test.ts"
+      ],
+      "dependsOn": [],
+      "notes": "",
+      "iterationCount": 1,
+      "criteriaCompleted": [
+        true,
+        true,
+        true
+      ],
+      "durationMs": 216463
+    },
+    {
       "id": "JSONL-003",
       "title": "Add Integration Test for Session JSONL Output",
       "description": "Add an integration test that creates a session, logs a message, and asserts the session log line is valid JSONL with required fields and `request_id` present.",

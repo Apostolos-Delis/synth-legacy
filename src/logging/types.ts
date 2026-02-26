@@ -9,7 +9,7 @@ export interface LogError {
 export interface LogEntry {
   timestamp: string;
   level: LogLevel;
-  event: string;
+  event?: string;
   message: string;
   service: string;
   env: string;

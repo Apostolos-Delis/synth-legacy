@@ -1,7 +1,8 @@
-## Iteration 1 - MODU-004: Centralize Prompt Cache in Engine
+## Iteration 1 - JSONL-002: Update Log Consumers for New Schema
 - Status: done
-- Duration: 507s
+- Duration: 216s
 - Criteria: 0/3 observed
+---
 ## Iteration 1 - MODU-009: Add TUI Rendering Integration Test
 - Status: done
 - Duration: 596s

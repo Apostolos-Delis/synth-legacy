@@ -86,13 +86,18 @@ export const LogView = memo(function LogView({
           {entries.map((entry, i) => {
             const levelColor = LEVEL_COLORS[entry.level] ?? colors.fg.muted;
             const label = LEVEL_LABELS[entry.level] ?? entry.level.toUpperCase();
+            const hasEvent = Boolean(entry.event && entry.event.trim() !== "");
             return (
               <text key={i} truncate={true}>
                 <span fg={colors.fg.muted}>{formatTimestamp(entry.timestamp)}</span>
                 {" "}
                 <span fg={levelColor} attributes={boldAttr()}>{label}</span>
-                {" "}
-                <span fg={colors.accent.secondary}>{entry.event}</span>
+                {hasEvent ? (
+                  <>
+                    {" "}
+                    <span fg={colors.accent.secondary}>{entry.event}</span>
+                  </>
+                ) : null}
                 {" "}
                 <span fg={colors.fg.primary}>{entry.message}</span>
               </text>
