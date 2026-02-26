@@ -315,6 +315,7 @@ export async function cmdRun(
         attachParallelLogger(coordinator.on.bind(coordinator), plan.paths.logs);
 
         const workerElapsedByTaskId = new Map<string, number>();
+        const failureReasons = new Map<string, string>();
 
         coordinator.on((event) => {
           applyParallelEvent(event, parallelState, () =>
@@ -350,6 +351,11 @@ export async function cmdRun(
           }
           if (event.type === "merge:failed" || event.type === "merge:skipped") {
             applyTaskStatus(parallelTuiData, event.taskId, "failed");
+            if (event.type === "merge:failed") {
+              failureReasons.set(event.taskId, event.reason ?? "Merge failed");
+            } else {
+              failureReasons.set(event.taskId, event.reason);
+            }
           }
           if (event.type === "task:requeued") {
             applyTaskStatus(parallelTuiData, event.taskId, "open");
@@ -411,9 +417,32 @@ export async function cmdRun(
             ),
           );
         }
+        if (tuiEnabled && tuiData) {
+          const failedCount = result.failedTaskIds.length;
+          const hadError = failedCount > 0 || !!result.error;
+          tuiData.engineState = hadError ? "paused" : "completed";
+          tuiData.currentPhase = hadError
+            ? `Parallel execution completed — ${failedCount} failed`
+            : "Parallel execution completed";
+          tuiData.phaseStartTime = Date.now();
+          if (failedCount > 0) {
+            const summary = `\nFailed tasks: ${result.failedTaskIds.join(", ")}`;
+            tuiData.output += summary;
+            if (tuiData.output.length > MAX_OUTPUT_LENGTH) {
+              tuiData.output = tuiData.output.slice(-MAX_OUTPUT_LENGTH);
+            }
+            for (const taskId of result.failedTaskIds) {
+              const reason = failureReasons.get(taskId);
+              const detail = reason ? `\nFailure reason: ${reason}` : "";
+              appendTaskOutput(tuiData, taskId, `\nFailed${detail}`, MAX_OUTPUT_LENGTH);
+            }
+          }
+          tuiData._notify?.();
+        }
         logger.info("parallel:run-complete", "Parallel execution completed", {
           merged: result.mergedTaskIds.length,
           failed: result.failedTaskIds.length,
+          failedTaskIds: result.failedTaskIds,
         });
         finalState = result.failedTaskIds.length > 0 || result.error ? "paused" : "completed";
       } finally {

@@ -48,7 +48,7 @@ export function ParallelExecutionView({
   }, [state.engineState]);
 
   const { width, height } = useTerminalDimensions();
-  const bodyHeight = height - layout.header.height - layout.footer.height - 1;
+  const bodyHeight = Math.max(1, height - layout.header.height - layout.footer.height);
   const done = state.tasks.filter((t) => t.status === "done").length;
 
   // Top row: left column + output pane (right)
@@ -60,7 +60,13 @@ export function ParallelExecutionView({
 
   // Bottom row for workers + conflict resolution
   const hasConflict = conflict !== null;
-  const bottomHeight = Math.max(6, Math.min(12, Math.floor(bodyHeight * 0.3)));
+  const minTopHeight = 8;
+  const maxBottomHeight = Math.max(0, bodyHeight - minTopHeight);
+  const conflictRows = conflict
+    ? conflict.files.length + 2 + (conflict.summary ? 2 : 0)
+    : 0;
+  const desiredBottomHeight = Math.max(6, workers.length + 2, conflictRows);
+  const bottomHeight = Math.min(desiredBottomHeight, Math.min(12, maxBottomHeight));
   const topHeight = bodyHeight - bottomHeight;
 
   // Split left column: TaskSidebar on top, MergeQueuePanel below (hide sidebar when no tasks)
@@ -81,6 +87,7 @@ export function ParallelExecutionView({
   const clampedIndex = Math.min(selectedTaskIndex, Math.max(0, state.tasks.length - 1));
   const selectedTask = state.tasks[clampedIndex] ?? null;
   const isSelectedTaskActive = selectedTask?.id === state.currentTaskId;
+  const isSelectedTaskRunning = selectedTask?.status === "in_progress";
 
   const storedOutput = selectedTask ? (state.taskOutputMap[selectedTask.id] ?? "") : "";
   const isCompletedWithNoOutput = !isSelectedTaskActive
@@ -145,7 +152,7 @@ export function ParallelExecutionView({
             outputFocused={outputFocused}
             taskDetailFocused={taskDetailFocused}
             taskDetailScrollFocused={navMode === "task-detail-scroll"}
-            autoScroll={isSelectedTaskActive && navMode !== "output-scroll"}
+            autoScroll={navMode !== "output-scroll" && (isSelectedTaskActive || isSelectedTaskRunning)}
           />
         </box>
         <box flexDirection="row" height={bottomHeight}>

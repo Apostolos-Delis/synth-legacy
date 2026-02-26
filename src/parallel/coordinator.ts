@@ -370,6 +370,7 @@ export class ParallelCoordinator {
       log.info("parallel:complete", "Parallel execution completed", {
         mergedCount: mergedTaskIds.length,
         failedCount: failedTaskIds.length,
+        failedTaskIds,
       });
       this.emit({ type: "parallel:completed", timestamp: this.timestamp() });
 

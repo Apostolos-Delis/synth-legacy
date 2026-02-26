@@ -328,7 +328,7 @@ export class Worker {
             type: "worker:output",
             timestamp: new Date().toISOString(),
             workerId: this.id,
-            message: formatted,
+            message: `\n${formatted}\n`,
             taskId: this.config.task.id,
           });
         }

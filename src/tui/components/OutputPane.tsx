@@ -8,9 +8,77 @@ import { TaskDetailHeader } from "./TaskDetailHeader.js";
 
 const MIN_OUTPUT_HEIGHT = 10;
 const MIN_EMPTY_OUTPUT_HEIGHT = 4;
+const TOOL_HEADER_RE = /^\[tool:(use|result)\]\s*(.*)$/;
+const TOOL_INPUT_RE = /^\s{2}input:\s?(.*)$/;
+const TOOL_OUTPUT_RE = /^\s{2}output:\s?(.*)$/;
 
 function wrapLineCount(text: string, width: number): number {
   return wrapText(text, width).length;
+}
+
+type OutputBlock =
+  | { type: "markdown"; content: string }
+  | { type: "tool"; kind: "use" | "result"; name: string; id: string; input: string[]; output: string[] };
+
+function parseOutputBlocks(output: string): OutputBlock[] {
+  if (!output) return [];
+  const lines = output.split("\n");
+  const blocks: OutputBlock[] = [];
+  let markdownLines: string[] = [];
+
+  const flushMarkdown = () => {
+    if (markdownLines.length === 0) return;
+    blocks.push({ type: "markdown", content: markdownLines.join("\n") });
+    markdownLines = [];
+  };
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const headerMatch = TOOL_HEADER_RE.exec(line);
+    if (!headerMatch) {
+      markdownLines.push(line);
+      continue;
+    }
+
+    flushMarkdown();
+
+    const kind = headerMatch[1] as "use" | "result";
+    const headerText = headerMatch[2]?.trim() ?? "";
+    const parts = headerText.length > 0 ? headerText.split(/\s+/) : [];
+    const name = parts.shift() ?? "tool";
+    const id = parts.length > 0 ? ` ${parts.join(" ")}` : "";
+    const input: string[] = [];
+    const outputLines: string[] = [];
+
+    for (let j = i + 1; j < lines.length; j++) {
+      const next = lines[j];
+      if (TOOL_HEADER_RE.test(next)) {
+        i = j - 1;
+        break;
+      }
+      if (next.trim() === "") {
+        i = j - 1;
+        break;
+      }
+      const inputMatch = TOOL_INPUT_RE.exec(next);
+      if (inputMatch) {
+        input.push(inputMatch[1] ?? "");
+        continue;
+      }
+      const outputMatch = TOOL_OUTPUT_RE.exec(next);
+      if (outputMatch) {
+        outputLines.push(outputMatch[1] ?? "");
+        continue;
+      }
+      i = j - 1;
+      break;
+    }
+
+    blocks.push({ type: "tool", kind, name, id, input, output: outputLines });
+  }
+
+  flushMarkdown();
+  return blocks;
 }
 
 function calcHeaderHeight(
@@ -74,6 +142,7 @@ export const OutputPane = memo(function OutputPane({
     [task, width, terminalHeight, height, minOutputHeight],
   );
   const waiting = isThinking && !output;
+  const outputBlocks = useMemo(() => parseOutputBlocks(output), [output]);
 
   return (
     <box width={width} height={height} flexDirection="column" overflow="hidden">
@@ -112,7 +181,37 @@ export const OutputPane = memo(function OutputPane({
               </text>
             )
           ) : (
-            <markdown content={output} syntaxStyle={markdownSyntaxStyle()} />
+            outputBlocks.map((block, idx) => {
+              if (block.type === "markdown") {
+                return (
+                  <markdown key={`md-${idx}`} content={block.content} syntaxStyle={markdownSyntaxStyle()} />
+                );
+              }
+              const labelColor = block.kind === "use" ? colors.status.info : colors.status.success;
+              const kindText = block.kind === "use" ? "tool use" : "tool result";
+              return (
+                <box key={`tool-${idx}`} style={{ flexDirection: "column" }}>
+                  <text>
+                    <span fg={labelColor}>{block.kind === "use" ? "\u2192" : "\u2190"}</span>
+                    <span fg={colors.fg.muted}>{` ${kindText} `}</span>
+                    <span fg={colors.accent.primary}>{block.name}</span>
+                    {block.id && <span fg={colors.fg.dim}>{block.id}</span>}
+                  </text>
+                  {block.input.map((line, lineIdx) => (
+                    <text key={`tool-in-${idx}-${lineIdx}`}>
+                      <span fg={colors.fg.muted}>{"  input:"}</span>
+                      <span fg={colors.fg.dim}>{` ${line}`}</span>
+                    </text>
+                  ))}
+                  {block.output.map((line, lineIdx) => (
+                    <text key={`tool-out-${idx}-${lineIdx}`}>
+                      <span fg={colors.fg.muted}>{"  output:"}</span>
+                      <span fg={colors.fg.dim}>{` ${line}`}</span>
+                    </text>
+                  ))}
+                </box>
+              );
+            })
           )}
         </scrollbox>
       </box>
