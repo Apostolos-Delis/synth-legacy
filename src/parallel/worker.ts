@@ -273,6 +273,7 @@ export class Worker {
   private async prepareWorkerSession(
     workerSessionPaths: SessionPaths,
   ): Promise<void> {
+    await rm(join(this.config.worktreePath, ".synth-session"), { recursive: true, force: true });
     await rm(workerSessionPaths.root, { recursive: true, force: true });
     await mkdir(workerSessionPaths.root, { recursive: true });
     await mkdir(workerSessionPaths.logs, { recursive: true });
