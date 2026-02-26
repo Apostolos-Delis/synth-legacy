@@ -1,5 +1,4 @@
 import { memo, useMemo, type ReactNode } from "react";
-import { useTerminalDimensions } from "@opentui/react";
 import type { Task } from "../../tasks/types.js";
 import { colors, markdownSyntaxStyle } from "../theme.js";
 import { wrapText } from "../utils.js";
@@ -11,10 +10,6 @@ const MIN_EMPTY_OUTPUT_HEIGHT = 4;
 const TOOL_HEADER_RE = /^\[tool:(use|result)\]\s*(.*)$/;
 const TOOL_INPUT_RE = /^\s{2}input:\s?(.*)$/;
 const TOOL_OUTPUT_RE = /^\s{2}output:\s?(.*)$/;
-
-function wrapLineCount(text: string, width: number): number {
-  return wrapText(text, width).length;
-}
 
 type OutputBlock =
   | { type: "markdown"; content: string }
@@ -158,25 +153,11 @@ function parseOutputBlocks(output: string): OutputBlock[] {
 }
 
 function calcHeaderHeight(
-  task: Task,
-  width: number,
-  terminalHeight: number,
   paneHeight: number,
   minOutputHeight: number,
 ): number {
-  // Usable text width inside bordered box
-  const innerWidth = Math.max(1, width - 6);
-
-  // Lines: border(2) + title(1) + blank(1) + description(N) + blank(1) + section header(0|1) + criteria(M)
-  const descLines = wrapLineCount(task.description, innerWidth);
-  const criteriaLines = task.acceptanceCriteria.length;
-  const sectionHeaderHeight = criteriaLines > 0 ? 1 : 0;
-  const contentHeight = 2 + 1 + 1 + descLines + 1 + sectionHeaderHeight + criteriaLines;
-
-  const maxFromTerminal = Math.floor(terminalHeight * 0.5);
-  const maxFromPane = paneHeight - minOutputHeight;
-
-  return Math.max(4, Math.min(contentHeight, maxFromTerminal, maxFromPane));
+  const maxFromPane = Math.max(0, paneHeight - minOutputHeight);
+  return maxFromPane;
 }
 
 interface OutputPaneProps {
@@ -210,14 +191,15 @@ export const OutputPane = memo(function OutputPane({
 }: OutputPaneProps): ReactNode {
   // Output is pre-stripped of ANSI codes in the event handler for minimal render-path latency.
 
-  const { height: terminalHeight } = useTerminalDimensions();
   const outputIsEmpty = output.trim().length === 0 || output === "No output recorded";
   const minOutputHeight = outputIsEmpty && !isThinking ? MIN_EMPTY_OUTPUT_HEIGHT : MIN_OUTPUT_HEIGHT;
   const outputInnerWidth = Math.max(1, width - 6);
   const headerHeight = useMemo(
-    () => (task ? calcHeaderHeight(task, width, terminalHeight, height, minOutputHeight) : 0),
-    [task, width, terminalHeight, height, minOutputHeight],
+    () => (task ? calcHeaderHeight(height, minOutputHeight) : 0),
+    [task, height, minOutputHeight],
   );
+  const outputHeight = Math.max(1, height - headerHeight);
+  const outputScrollHeight = Math.max(1, outputHeight - 2);
   const waiting = isThinking && !output;
   const outputBlocks = useMemo(() => parseOutputBlocks(output), [output]);
 
@@ -238,13 +220,13 @@ export const OutputPane = memo(function OutputPane({
       expanded.forEach((expandedLine, expandedIdx) => {
         const wrapped = wrapText(expandedLine, contentWidth);
         wrapped.forEach((segment, segIdx) => {
-        const prefix = segIdx === 0 ? labelText : indent;
-        nodes.push(
-          <text key={`${keyPrefix}-${lineIdx}-${expandedIdx}-${segIdx}`}>
-            <span fg={colors.fg.muted}>{prefix}</span>
-            <span fg={valueColor}>{` ${segment}`}</span>
-          </text>,
-        );
+          const prefix = segIdx === 0 ? labelText : indent;
+          nodes.push(
+            <text key={`${keyPrefix}-${lineIdx}-${expandedIdx}-${segIdx}`}>
+              <span fg={colors.fg.muted}>{prefix}</span>
+              <span fg={valueColor}>{` ${segment}`}</span>
+            </text>,
+          );
         });
       });
     });
@@ -264,7 +246,7 @@ export const OutputPane = memo(function OutputPane({
       )}
       <box
         width={width}
-        flexGrow={1}
+        height={outputHeight}
         border={true}
         borderColor={(outputScrollFocused || outputFocused) ? colors.border.active : colors.border.normal}
         title={outputScrollFocused ? "Output (scrolling \u2014 Esc to exit)" : "Output"}
@@ -272,7 +254,7 @@ export const OutputPane = memo(function OutputPane({
         overflow="hidden"
       >
         <scrollbox
-          flexGrow={1}
+          height={outputScrollHeight}
           focused={outputScrollFocused}
           stickyScroll={autoScroll}
           stickyStart="bottom"
@@ -301,7 +283,7 @@ export const OutputPane = memo(function OutputPane({
                 <box key={`tool-${idx}`} style={{ flexDirection: "column" }}>
                   <text>
                     <span fg={labelColor}>{block.kind === "use" ? "\u2192" : "\u2190"}</span>
-                    <span fg={colors.fg.secondary}>{` ${kindText} `}</span>
+                    <span fg={colors.fg.primary}>{` ${kindText} `}</span>
                     <span fg={colors.accent.primary}>{block.name}</span>
                     {block.id && <span fg={colors.fg.muted}>{block.id}</span>}
                   </text>
