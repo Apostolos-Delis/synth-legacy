@@ -18,17 +18,41 @@ function toDisplay(value: unknown): string {
   }
 }
 
-export function formatToolEvent(event: AgentToolEvent): string {
+export function getToolEventDisplay(event: AgentToolEvent): {
+  kindLabel: string;
+  kindText: string;
+  name: string;
+  id: string;
+  input: string;
+  output: string;
+} {
+  const isUse = event.kind === "use";
+  const kindLabel = isUse ? "→" : "←";
+  const kindText = isUse ? "tool use" : "tool result";
+  const name = event.name || "tool";
   const id = event.id ? ` ${event.id}` : "";
-  const lines: string[] = [`[tool:${event.kind}] ${event.name}${id}`];
+  const input = event.input !== undefined ? truncate(toDisplay(event.input), INPUT_LIMIT) : "";
+  const output = event.output !== undefined ? truncate(toDisplay(event.output), OUTPUT_LIMIT) : "";
 
-  if (event.input !== undefined) {
-    const input = truncate(toDisplay(event.input), INPUT_LIMIT);
-    lines.push(`  input: ${input}`);
+  return {
+    kindLabel,
+    kindText,
+    name,
+    id,
+    input,
+    output,
+  };
+}
+
+export function formatToolEvent(event: AgentToolEvent): string {
+  const display = getToolEventDisplay(event);
+  const lines: string[] = [`[tool:${event.kind}] ${display.name}${display.id}`];
+
+  if (display.input) {
+    lines.push(`  input: ${display.input}`);
   }
-  if (event.output !== undefined) {
-    const output = truncate(toDisplay(event.output), OUTPUT_LIMIT);
-    lines.push(`  output: ${output}`);
+  if (display.output) {
+    lines.push(`  output: ${display.output}`);
   }
 
   return lines.join("\n");

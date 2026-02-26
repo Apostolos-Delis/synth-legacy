@@ -1,29 +1,12 @@
 import type { ReactNode } from "react";
 import type { AgentToolEvent } from "../../agents/types.js";
 import { colors } from "../theme.js";
+import { getToolEventDisplay } from "../../utils/tool-format.js";
 
 interface AgentStreamingBodyProps {
   streamingText: string;
   toolEvents: AgentToolEvent[];
   paddingLeft?: number;
-}
-
-const INPUT_LIMIT = 600;
-const OUTPUT_LIMIT = 1200;
-
-function truncate(value: string, limit: number): string {
-  if (value.length <= limit) return value;
-  return `${value.slice(0, limit)}...`;
-}
-
-function toDisplay(value: unknown): string {
-  if (value == null) return "";
-  if (typeof value === "string") return value;
-  try {
-    return JSON.stringify(value);
-  } catch {
-    return String(value);
-  }
 }
 
 export function AgentStreamingBody({
@@ -41,33 +24,28 @@ export function AgentStreamingBody({
       {visibleToolEvents.length > 0 && (
         <box style={{ flexDirection: "column", gap: 0 }}>
           {visibleToolEvents.map((event, idx) => {
+            const display = getToolEventDisplay(event);
             const isUse = event.kind === "use";
-            const kindLabel = isUse ? "→" : "←";
-            const kindText = isUse ? "tool use" : "tool result";
-            const name = event.name || "tool";
-            const id = event.id ? ` ${event.id}` : "";
             const labelColor = isUse ? colors.status.info : colors.status.success;
-            const input = event.input !== undefined ? truncate(toDisplay(event.input), INPUT_LIMIT) : "";
-            const output = event.output !== undefined ? truncate(toDisplay(event.output), OUTPUT_LIMIT) : "";
 
             return (
-              <box key={`${event.kind}-${name}-${idx}`} style={{ flexDirection: "column" }}>
+              <box key={`${event.kind}-${display.name}-${idx}`} style={{ flexDirection: "column" }}>
                 <text>
-                  <span fg={labelColor}>{kindLabel}</span>
-                  <span fg={colors.fg.muted}>{` ${kindText} `}</span>
-                  <span fg={colors.accent.primary}>{name}</span>
-                  {id && <span fg={colors.fg.dim}>{id}</span>}
+                  <span fg={labelColor}>{display.kindLabel}</span>
+                  <span fg={colors.fg.muted}>{` ${display.kindText} `}</span>
+                  <span fg={colors.accent.primary}>{display.name}</span>
+                  {display.id && <span fg={colors.fg.dim}>{display.id}</span>}
                 </text>
-                {input && (
+                {display.input && (
                   <text>
                     <span fg={colors.fg.muted}>  input:</span>
-                    <span fg={colors.fg.dim}>{` ${input}`}</span>
+                    <span fg={colors.fg.dim}>{` ${display.input}`}</span>
                   </text>
                 )}
-                {output && (
+                {display.output && (
                   <text>
                     <span fg={colors.fg.muted}>  output:</span>
-                    <span fg={colors.fg.dim}>{` ${output}`}</span>
+                    <span fg={colors.fg.dim}>{` ${display.output}`}</span>
                   </text>
                 )}
               </box>
