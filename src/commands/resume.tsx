@@ -16,6 +16,7 @@ import type { BackgroundAuditController, BackgroundAuditState, BackgroundAuditSt
 import { spawn } from "../utils/process.js";
 import { formatToolEvent } from "../utils/tool-format.js";
 import { getLogger } from "../logging/logger.js";
+import { checkoutBranch, getCurrentBranch } from "../utils/git.js";
 
 import {
   log,
@@ -100,6 +101,7 @@ async function resumeInterview(
   cwd: string,
   tuiEnabled: boolean,
   localCmdRun: (sessionId?: string, startIteration?: number, tuiContext?: TuiContext) => Promise<void>,
+  restoreBranch?: () => Promise<void>,
 ): Promise<void> {
   const config = await applyTheme(cwd);
   if (plan.metadata.agentName && plan.metadata.agentName !== config.agent.name) {
@@ -146,6 +148,10 @@ async function resumeInterview(
     const sigintHandler = () => {
       cleanup();
       agent.dispose();
+      if (restoreBranch) {
+        void restoreBranch().finally(() => process.exit(0));
+        return;
+      }
       process.exit(0);
     };
     process.on("SIGINT", sigintHandler);
@@ -195,6 +201,7 @@ async function resumeInterview(
       process.off("SIGINT", sigintHandler);
       cleanup();
       agent.dispose();
+      await restoreBranch?.();
       return;
     }
 
@@ -203,6 +210,7 @@ async function resumeInterview(
       process.off("SIGINT", sigintHandler);
       cleanup();
       agent.dispose();
+      await restoreBranch?.();
       return;
     }
 
@@ -238,6 +246,7 @@ async function resumeInterview(
       cleanup();
       agent.dispose();
       log(`\nSession saved. Resume later with: ${fmt.bold(`synth resume ${id}`)}`);
+      await restoreBranch?.();
       return;
     }
 
@@ -313,6 +322,7 @@ async function resumeInterview(
       cleanup();
       agent.dispose();
       log(`\nSession saved. Resume later with: ${fmt.bold(`synth resume ${id}`)}`);
+      await restoreBranch?.();
       return;
     }
 
@@ -355,6 +365,7 @@ async function resumeInterview(
       if (userInput === null) {
         logger.info("interview:quit", "Interview quit", { sessionId: id });
         agent.dispose();
+        await restoreBranch?.();
         return;
       }
 
@@ -376,6 +387,7 @@ async function resumeInterview(
         const confirmation = await askQuestion();
         if (confirmation === null) {
           agent.dispose();
+          await restoreBranch?.();
           return;
         }
         if (confirmation.trim()) {
@@ -465,6 +477,15 @@ export async function cmdResumeInternal(
 ): Promise<void> {
   const baseConfig = await applyTheme(cwd);
   const showToolLogs = baseConfig.tui?.show_tool_logs !== false;
+  const originalBranch = await getCurrentBranch(cwd).catch(() => null);
+  const restoreOriginalBranch = async () => {
+    if (!originalBranch) return;
+    try {
+      await checkoutBranch(originalBranch, cwd);
+    } catch (err) {
+      log(fmt.warn(`Failed to restore branch '${originalBranch}': ${err instanceof Error ? err.message : String(err)}`));
+    }
+  };
   // Build local cmdFinalize wrapper
   const localCmdFinalize = (
     sid?: string,
@@ -535,7 +556,7 @@ export async function cmdResumeInternal(
         log(fmt.info(msgCount > 0
           ? `Resuming interview for session ${id} (${msgCount} messages saved)`
           : `Starting fresh interview for session ${id}`));
-        await resumeInterview(plan, savedState, cwd, tuiEnabled, localCmdRun);
+        await resumeInterview(plan, savedState, cwd, tuiEnabled, localCmdRun, restoreOriginalBranch);
         return;
       }
       // Interview is done but status wasn't updated — fall through to execution

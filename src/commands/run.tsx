@@ -17,6 +17,7 @@ import type { FinalizeUiOptions } from "./finalize.js";
 import type { BackgroundAuditController, BackgroundAuditState, BackgroundAuditStatus } from "../finalize/chat-types.js";
 import { createEngineLogBridge } from "../logging/engine-bridge.js";
 import { getLogger } from "../logging/logger.js";
+import { checkoutBranch, getCurrentBranch } from "../utils/git.js";
 import {
   applyTaskStatus,
   resetTaskOutput,
@@ -103,6 +104,15 @@ export async function cmdRun(
   const config = await applyTheme(cwd);
   const showToolLogs = config.tui?.show_tool_logs !== false;
   const logger = getLogger();
+  const originalBranch = await getCurrentBranch(cwd).catch(() => null);
+  const restoreOriginalBranch = async () => {
+    if (!originalBranch) return;
+    try {
+      await checkoutBranch(originalBranch, cwd);
+    } catch (err) {
+      log(fmt.warn(`Failed to restore branch '${originalBranch}': ${err instanceof Error ? err.message : String(err)}`));
+    }
+  };
 
   // Apply parallel default from config if not explicitly set via CLI flags
   if (!ctx.parallelMode && parallelWorkers === undefined) {
@@ -756,13 +766,15 @@ export async function cmdRun(
       if (root) root.unmount();
       if (renderer) renderer.destroy();
     }
-    // Don't overwrite completed status if SIGINT arrives during completion view
-    if ((engine && engine.getState() === "completed") || finalState === "completed") return;
-    await runMod.endRun(plan!.paths, "interrupted");
-    await updateSessionMetadata(cwd, plan!.metadata.id, { status: "paused" });
-    if (!tuiEnabled) {
-      log(`\n${fmt.warn(`Session interrupted. Resume with: synth resume ${plan!.metadata.id}`)}`);
+    const shouldSkipStatusUpdate = (engine && engine.getState() === "completed") || finalState === "completed";
+    if (!shouldSkipStatusUpdate) {
+      await runMod.endRun(plan!.paths, "interrupted");
+      await updateSessionMetadata(cwd, plan!.metadata.id, { status: "paused" });
+      if (!tuiEnabled) {
+        log(`\n${fmt.warn(`Session interrupted. Resume with: synth resume ${plan!.metadata.id}`)}`);
+      }
     }
+    await restoreOriginalBranch();
   };
 
   const onSigInt = () => { cleanup().then(() => process.exit(0)); };

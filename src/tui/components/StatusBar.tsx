@@ -20,6 +20,7 @@ interface StatusBarProps {
   navMode?: NavMode;
   currentTaskTokens?: number | null;
   parallelStatus?: ParallelStatusInfo | null;
+  exitArmed?: boolean;
 }
 
 const STATE_DISPLAY: Record<EngineState, { label: string; color: string; indicator: string }> = {
@@ -48,15 +49,18 @@ export const StatusBar = memo(function StatusBar({
   navMode,
   currentTaskTokens,
   parallelStatus,
+  exitArmed = false,
 }: StatusBarProps): ReactNode {
   const display = STATE_DISPLAY[state];
   const elapsed = Math.round(elapsedMs / 1000);
 
   const isParallel = parallelStatus != null;
-  const navHints = navMode === "output-scroll"
-    ? isParallel
-      ? "j/k:scroll  w:workers  m:merge  tab:next  esc:back  q:quit"
-      : "j/k:scroll  esc:back  q:quit"
+  const navHints = exitArmed
+    ? "Press q/esc again to quit"
+    : navMode === "output-scroll"
+      ? isParallel
+        ? "j/k:scroll  w:workers  m:merge  tab:next  esc:back  q:quit"
+        : "j/k:scroll  esc:back  q:quit"
     : navMode === "task-detail-scroll"
       ? isParallel
         ? "j/k:scroll  w:workers  m:merge  tab:next  esc:back  q:quit"
@@ -126,5 +130,6 @@ export const StatusBar = memo(function StatusBar({
   prev.navMode === next.navMode &&
   prev.currentTaskTokens === next.currentTaskTokens &&
   prev.parallelStatus === next.parallelStatus &&
+  prev.exitArmed === next.exitArmed &&
   Math.floor(prev.elapsedMs / 1000) === Math.floor(next.elapsedMs / 1000),
 );

@@ -17,9 +17,10 @@ interface ExecutionViewProps {
   parallel?: ParallelHeaderInfo | null;
   parallelCompletion?: ParallelCompletionInfo | null;
   parallelStatus?: ParallelStatusInfo | null;
+  exitArmed?: boolean;
 }
 
-export function ExecutionView({ state, selectedTaskIndex, navMode, detailFocus, parallel, parallelCompletion, parallelStatus }: ExecutionViewProps): ReactNode {
+export function ExecutionView({ state, selectedTaskIndex, navMode, detailFocus, parallel, parallelCompletion, parallelStatus, exitArmed }: ExecutionViewProps): ReactNode {
   const [, tick] = useState(0);
   useEffect(() => {
     if (state.engineState !== "executing" && state.engineState !== "reviewing") return;
@@ -115,6 +116,7 @@ export function ExecutionView({ state, selectedTaskIndex, navMode, detailFocus, 
             : null
         }
         parallelStatus={parallelStatus}
+        exitArmed={exitArmed}
       />
     </box>
   );

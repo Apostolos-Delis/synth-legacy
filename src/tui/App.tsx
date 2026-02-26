@@ -8,9 +8,9 @@ import { HistoryView } from "./HistoryView.js";
 import { ConfigView } from "./ConfigView.js";
 import { CompletionView } from "./CompletionView.js";
 import { HelpOverlay } from "./components/HelpOverlay.js";
-import { ConfirmationDialog } from "./components/ConfirmationDialog.js";
 import { ToastContainer } from "./components/Toast.js";
 import { useToast } from "./hooks/useToast.js";
+import { useExitConfirm } from "./hooks/useExitConfirm.js";
 import type { ParallelHeaderInfo, ParallelCompletionInfo } from "./components/Header.js";
 import type { ParallelStatusInfo } from "./components/StatusBar.js";
 import type { WorkerInfo } from "./components/WorkerPanel.js";
@@ -49,11 +49,11 @@ export function App({
 }: AppProps): ReactNode {
   const [view, setView] = useState<ViewMode>(defaultView);
   const [showHelp, setShowHelp] = useState(false);
-  const [showQuitConfirm, setShowQuitConfirm] = useState(false);
   const [selectedTaskIndex, setSelectedTaskIndex] = useState(0);
   const [navMode, setNavMode] = useState<NavMode>("task-scroll");
   const [detailFocus, setDetailFocus] = useState<"task" | "output">("task");
   const { toasts, showSuccess, showInfo, showWarning } = useToast();
+  const { exitArmed, requestQuit } = useExitConfirm();
 
   // Hide cursor — no text input fields exist in execution/dashboard/completion views
   const renderer = useRenderer();
@@ -64,8 +64,6 @@ export function App({
   // Use refs for modal states and view so the key handler callback stays stable
   const showHelpRef = useRef(showHelp);
   showHelpRef.current = showHelp;
-  const showQuitConfirmRef = useRef(showQuitConfirm);
-  showQuitConfirmRef.current = showQuitConfirm;
   const viewRef = useRef(view);
   viewRef.current = view;
   const engineStateRef = useRef(engineData.engineState);
@@ -129,6 +127,14 @@ export function App({
   const historyState: TuiState = { ...engineData, view: "history" as ViewMode };
   const configState: TuiState = { ...engineData, view: "config" as ViewMode };
 
+  const attemptQuit = useCallback(() => {
+    if (requestQuit()) {
+      onQuit?.();
+      return;
+    }
+    showWarning("Press q/esc again to quit");
+  }, [onQuit, requestQuit, showWarning]);
+
   const handleKeyboard = useCallback(
     (key: { name: string; ctrl?: boolean; meta?: boolean }) => {
       // Help overlay takes precedence
@@ -139,21 +145,10 @@ export function App({
         return;
       }
 
-      // Quit confirmation dialog
-      if (showQuitConfirmRef.current) {
-        if (key.name === "y") {
-          setShowQuitConfirm(false);
-          onQuit?.();
-        } else if (key.name === "n" || key.name === "escape") {
-          setShowQuitConfirm(false);
-        }
-        return;
-      }
-
       // Completion view responds to q/Esc to quit, Enter to review, and f to finalize
       if (viewRef.current === "completion") {
         if (key.name === "q" || key.name === "escape") {
-          onQuit?.();
+          attemptQuit();
         } else if (key.name === "return" && onReviewStart) {
           onReviewStart();
         } else if (key.name === "f" && onFinalize) {
@@ -167,11 +162,9 @@ export function App({
         return;
       }
 
-      // Ctrl+C shows confirmation during execution, or is ignored otherwise
+      // Ctrl+C shows quit confirmation
       if (key.name === "c" && key.ctrl) {
-        if (engineStateRef.current === "executing") {
-          setShowQuitConfirm(true);
-        }
+        attemptQuit();
         return;
       }
 
@@ -305,14 +298,14 @@ export function App({
           if (viewRef.current === "dashboard") {
             setView("execution");
           } else {
-            onQuit?.();
+            attemptQuit();
           }
           break;
         case "escape":
           if (viewRef.current === "dashboard") {
             setView("execution");
           } else {
-            onQuit?.();
+            attemptQuit();
           }
           break;
         case "d":
@@ -333,7 +326,7 @@ export function App({
           break;
       }
     },
-    [onQuit, onFinalize, onReviewStart, onPause, onResume],
+    [attemptQuit, onFinalize, onReviewStart, onPause, onResume],
   );
 
   useKeyboard(handleKeyboard);
@@ -375,6 +368,7 @@ export function App({
             workers={workers}
             mergeItems={mergeItems}
             conflict={conflict}
+            exitArmed={exitArmed}
           />
         ) : (
           <ExecutionView
@@ -385,6 +379,7 @@ export function App({
             parallel={parallel}
             parallelCompletion={parallelCompletion}
             parallelStatus={parallelStatus}
+            exitArmed={exitArmed}
           />
         )}
       </box>
@@ -399,11 +394,6 @@ export function App({
       </box>
       <ToastContainer toasts={toasts} />
       <HelpOverlay visible={showHelp} />
-      <ConfirmationDialog
-        visible={showQuitConfirm}
-        title="Quit Synth?"
-        message="Execution will be paused. You can resume later."
-      />
     </box>
   );
 }

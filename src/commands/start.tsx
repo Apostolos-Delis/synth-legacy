@@ -11,6 +11,7 @@ import { deriveSessionSlug, deriveTaskPrefix } from "../sessions/slug.js";
 import { saveTasks, loadTasks, getProgress } from "../tasks/store.js";
 import { writeText, readText, fileExists, writeJson } from "../utils/fs.js";
 import { spawn } from "../utils/process.js";
+import { checkoutBranch, getCurrentBranch } from "../utils/git.js";
 import { formatToolEvent } from "../utils/tool-format.js";
 import { ansi, fmt, PRIORITY_COLORS } from "../tui/theme.js";
 import { createSpinner } from "../tui/spinner.js";
@@ -123,6 +124,7 @@ export async function resumeInterview(
   plan: NonNullable<Awaited<ReturnType<typeof getSession>>>,
   savedState: InterviewState,
   ctx: StartContext,
+  restoreBranch?: () => Promise<void>,
 ): Promise<void> {
   const { cwd, tuiEnabled } = ctx;
   const config = await applyTheme(cwd);
@@ -166,6 +168,10 @@ export async function resumeInterview(
     const sigintHandler = () => {
       cleanup();
       agent.dispose();
+      if (restoreBranch) {
+        void restoreBranch().finally(() => process.exit(0));
+        return;
+      }
       process.exit(0);
     };
     process.on("SIGINT", sigintHandler);
@@ -193,6 +199,7 @@ export async function resumeInterview(
       process.off("SIGINT", sigintHandler);
       cleanup();
       agent.dispose();
+      await restoreBranch?.();
       return;
     }
 
@@ -201,6 +208,7 @@ export async function resumeInterview(
       process.off("SIGINT", sigintHandler);
       cleanup();
       agent.dispose();
+      await restoreBranch?.();
       return;
     }
 
@@ -236,6 +244,7 @@ export async function resumeInterview(
       cleanup();
       agent.dispose();
       log(`\nSession saved. Resume later with: ${fmt.bold(`synth resume ${id}`)}`);
+      await restoreBranch?.();
       return;
     }
 
@@ -307,6 +316,7 @@ export async function resumeInterview(
       cleanup();
       agent.dispose();
       log(`\nSession saved. Resume later with: ${fmt.bold(`synth resume ${id}`)}`);
+      await restoreBranch?.();
       return;
     }
 
@@ -347,6 +357,7 @@ export async function resumeInterview(
       const userInput = await askQuestion();
       if (userInput === null) {
         agent.dispose();
+        await restoreBranch?.();
         return;
       }
 
@@ -433,6 +444,15 @@ export async function cmdStart(
     config.agent.model = undefined;
   }
   const showToolLogs = config.tui?.show_tool_logs !== false;
+  const originalBranch = await getCurrentBranch(cwd).catch(() => null);
+  const restoreOriginalBranch = async () => {
+    if (!originalBranch) return;
+    try {
+      await checkoutBranch(originalBranch, cwd);
+    } catch (err) {
+      log(fmt.warn(`Failed to restore branch '${originalBranch}': ${err instanceof Error ? err.message : String(err)}`));
+    }
+  };
   const repoRoot = cwd;
   let sessionCwd = cwd;
 
@@ -662,7 +682,7 @@ export async function cmdStart(
     const sigintHandler = () => {
       cleanup();
       agent.dispose();
-      process.exit(0);
+      void restoreOriginalBranch().finally(() => process.exit(0));
     };
     process.on("SIGINT", sigintHandler);
 
@@ -717,6 +737,7 @@ export async function cmdStart(
       process.off("SIGINT", sigintHandler);
       cleanup();
       agent.dispose();
+      await restoreOriginalBranch();
       return;
     }
 
@@ -726,6 +747,7 @@ export async function cmdStart(
       process.off("SIGINT", sigintHandler);
       cleanup();
       agent.dispose();
+      await restoreOriginalBranch();
       return;
     }
 
@@ -768,6 +790,7 @@ export async function cmdStart(
       cleanup();
       agent.dispose();
       log(`\nSession saved. Resume later with: ${fmt.bold(`synth resume ${id}`)}`);
+      await restoreOriginalBranch();
       return;
     }
 
@@ -836,6 +859,7 @@ export async function cmdStart(
       cleanup();
       agent.dispose();
       log(`\nSession saved. Resume later with: ${fmt.bold(`synth resume ${id}`)}`);
+      await restoreOriginalBranch();
       return;
     }
 
@@ -869,6 +893,7 @@ export async function cmdStart(
         const sessionId = (session as Session | null)?.id;
         logger.info("interview:quit", "Interview quit", { sessionId });
         agent.dispose();
+        await restoreOriginalBranch();
         return;
       }
 

@@ -26,6 +26,7 @@ interface ParallelExecutionViewProps {
   workers: WorkerInfo[];
   mergeItems: MergeQueueItem[];
   conflict: ConflictInfo | null;
+  exitArmed?: boolean;
 }
 
 export function ParallelExecutionView({
@@ -39,6 +40,7 @@ export function ParallelExecutionView({
   workers,
   mergeItems,
   conflict,
+  exitArmed,
 }: ParallelExecutionViewProps): ReactNode {
   const [, tick] = useState(0);
   useEffect(() => {
@@ -185,6 +187,7 @@ export function ParallelExecutionView({
             : null
         }
         parallelStatus={parallelStatus}
+        exitArmed={exitArmed}
       />
     </box>
   );
