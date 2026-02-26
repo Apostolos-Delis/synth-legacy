@@ -117,6 +117,44 @@
         true
       ],
       "durationMs": 552169
+    },
+    {
+      "id": "MODU-002",
+      "title": "Introduce Structured Log Context",
+      "description": "Extend logging types and logger API to require `sessionId`, `phase`, and `component`, and update log reader and engine log bridge accordingly.",
+      "acceptanceCriteria": [
+        "All `LogEntry` records include `level`, `sessionId`, `phase`, and `component` fields.",
+        "The engine log bridge attaches the structured context without callers hand-building it.",
+        "Log reader still parses JSONL entries and tests pass."
+      ],
+      "verification": [
+        {
+          "type": "command",
+          "value": "bun run typecheck"
+        },
+        {
+          "type": "command",
+          "value": "bun test src/__tests__/logger.test.ts"
+        }
+      ],
+      "priority": 1,
+      "status": "done",
+      "affects": [
+        "src/logging/types.ts",
+        "src/logging/logger.ts",
+        "src/logging/engine-bridge.ts",
+        "src/logging/reader.ts",
+        "src/__tests__/logger.test.ts"
+      ],
+      "dependsOn": [],
+      "notes": "Iteration 1: timed out\nIteration 2: timed out",
+      "iterationCount": 3,
+      "criteriaCompleted": [
+        true,
+        true,
+        true
+      ],
+      "durationMs": 227454
     }
   ]
 }
