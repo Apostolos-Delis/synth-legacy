@@ -1,7 +1,7 @@
 {
   "project": "synth",
-  "branchName": "synth-parallel/MODU-004",
-  "description": "Worker w-MODU-004-0: Centralize Prompt Cache in Engine",
+  "branchName": "synth-parallel/MODU-009",
+  "description": "Worker w-MODU-009-2: Add TUI Rendering Integration Test",
   "tasks": [
     {
       "id": "MODU-004",
@@ -44,6 +44,34 @@
         true
       ],
       "durationMs": 507043
+    },
+    {
+      "id": "MODU-009",
+      "title": "Add TUI Rendering Integration Test",
+      "description": "Create an integration test that renders TUI views using mocked engine state and verifies render output without invoking business logic.",
+      "acceptanceCriteria": [
+        "Test uses mocked `TuiEngineData`/events and does not execute agents or build prompts.",
+        "Render output includes expected labels/sections for the mocked state."
+      ],
+      "verification": [
+        {
+          "type": "command",
+          "value": "bun test src/__tests__/tui-render.test.tsx"
+        }
+      ],
+      "priority": 3,
+      "status": "done",
+      "affects": [
+        "src/__tests__/tui-render.test.tsx"
+      ],
+      "dependsOn": [],
+      "notes": "",
+      "iterationCount": 1,
+      "criteriaCompleted": [
+        true,
+        true
+      ],
+      "durationMs": 596176
     }
   ]
 }
