@@ -242,6 +242,7 @@ export async function cmdRun(
       // Wire parallel execution to the TUI (or fall back to log-based output)
       const { attachParallelLogger } = await import("../finalize/parallel-bridge.js");
       let parallelDestroyed = false;
+      const failureReasons = new Map<string, string>();
 
       if (tuiEnabled) {
         const { createInitialTuiState, applyParallelEvent } = await import("../finalize/parallel-bridge.js");
@@ -315,7 +316,6 @@ export async function cmdRun(
         attachParallelLogger(coordinator.on.bind(coordinator), plan.paths.logs);
 
         const workerElapsedByTaskId = new Map<string, number>();
-        const failureReasons = new Map<string, string>();
 
         coordinator.on((event) => {
           applyParallelEvent(event, parallelState, () =>

@@ -13,7 +13,7 @@ import {
   saveParallelSession,
   deleteParallelSession,
   cleanupStaleParallelState,
-  reconcileTasksFromGitLog,
+  reconcileTasksFromParallelState,
   type ParallelSessionState,
 } from "./session.js";
 import { persistTaskStatus } from "../tasks/store.js";
@@ -145,15 +145,14 @@ export class ParallelCoordinator {
     });
     this.registerSigintHandler();
 
-    // Clean stale parallel state from previous runs/crashes
-    await cleanupStaleParallelState(this.repoRoot, this.sessionPaths);
-
-    // Reconcile tasks that were already merged in a previous run
-    const reconciledIds = await reconcileTasksFromGitLog(
-      this.repoRoot,
+    // Reconcile tasks that were already merged in a previous parallel run
+    const reconciledIds = await reconcileTasksFromParallelState(
       this.sessionPaths,
       this.tasks,
     );
+
+    // Clean stale parallel state from previous runs/crashes
+    await cleanupStaleParallelState(this.repoRoot, this.sessionPaths);
     const reconciledSet = new Set(reconciledIds);
 
     this.originalBranch = await getCurrentBranch(this.repoRoot);
@@ -181,6 +180,136 @@ export class ParallelCoordinator {
     try {
       const groups = [...this.analysis.groups];
 
+      let mergeChain = Promise.resolve();
+      const handleWorkerResult = async (result: WorkerResult): Promise<void> => {
+        if (typeof result.durationMs === "number") {
+          durationByTaskId.set(result.taskId, result.durationMs);
+        }
+        const hasCommits = await this.branchHasNewCommits(result.branch);
+        if (!hasCommits) {
+          const count = this.requeueCounts.get(result.taskId) ?? 0;
+          if (count < this.maxRequeueCount) {
+            this.requeueCounts.set(result.taskId, count + 1);
+            this.pendingRequeue.add(result.taskId);
+            await this.queueTaskStatus(result.taskId, "open");
+            this.emit({
+              type: "task:requeued",
+              timestamp: this.timestamp(),
+              taskId: result.taskId,
+              attempt: count + 1,
+              maxAttempts: this.maxRequeueCount,
+            });
+          } else {
+            await this.queueTaskStatus(result.taskId, "failed");
+            this.emit({
+              type: "merge:skipped",
+              timestamp: this.timestamp(),
+              taskId: result.taskId,
+              reason: "Worker produced no commits",
+            });
+            failedTaskIds.push(result.taskId);
+          }
+          return;
+        }
+
+        const op = this.mergeEngine!.enqueue(result);
+        log.info("parallel:merge-queued", `Merge queued for task ${result.taskId}`, {
+          taskId: result.taskId,
+          operationId: op.id,
+        });
+        this.emit({
+          type: "merge:queued",
+          timestamp: this.timestamp(),
+          operationId: op.id,
+          taskId: result.taskId,
+        });
+
+        const processed = await this.mergeEngine!.processNext();
+        if (!processed) return;
+
+        this.emit({
+          type: "merge:started",
+          timestamp: this.timestamp(),
+          operationId: processed.id,
+          taskId: processed.taskId,
+        });
+
+        if (processed.status === "completed") {
+          mergedTaskIds.push(processed.taskId);
+          await this.persistTaskDone(processed.taskId, durationByTaskId.get(processed.taskId));
+          this.emit({
+            type: "merge:completed",
+            timestamp: this.timestamp(),
+            operationId: processed.id,
+            taskId: processed.taskId,
+          });
+        } else if (processed.status === "conflicted") {
+          this.emit({
+            type: "conflict:detected",
+            timestamp: this.timestamp(),
+            taskId: processed.taskId,
+            taskTitle: processed.taskTitle,
+            files: processed.conflictedFiles ?? [],
+          });
+
+          if (this.aiConflictResolution) {
+            this.emit({
+              type: "conflict:ai-resolving",
+              timestamp: this.timestamp(),
+              taskId: processed.taskId,
+            });
+
+            const task = taskMap.get(processed.taskId);
+            const context = await this.buildConflictContext(task, mergedTaskIds);
+            const resolution = await resolveConflicts(
+              processed,
+              this.repoRoot,
+              this.agent,
+              context,
+            );
+
+            if (resolution.resolved) {
+              processed.status = "completed";
+              processed.error = undefined;
+              this.emit({
+                type: "conflict:resolved",
+                timestamp: this.timestamp(),
+                taskId: processed.taskId,
+                resolvedCount: resolution.resolvedCount,
+                failedCount: resolution.failedCount,
+              });
+              mergedTaskIds.push(processed.taskId);
+              await this.persistTaskDone(processed.taskId, durationByTaskId.get(processed.taskId));
+              this.emit({
+                type: "merge:completed",
+                timestamp: this.timestamp(),
+                operationId: processed.id,
+                taskId: processed.taskId,
+              });
+            } else {
+              this.handleFailedMerge(processed, failedTaskIds);
+            }
+          } else {
+            this.handleFailedMerge(processed, failedTaskIds);
+          }
+        } else {
+          await this.queueTaskStatus(processed.taskId, "failed");
+          this.emit({
+            type: "merge:failed",
+            timestamp: this.timestamp(),
+            operationId: processed.id,
+            taskId: processed.taskId,
+            reason: processed.error,
+          });
+          failedTaskIds.push(processed.taskId);
+        }
+      };
+
+      const queueMerge = (result: WorkerResult): Promise<void> => {
+        mergeChain = mergeChain.then(() => handleWorkerResult(result));
+        return mergeChain;
+      };
+
       for (let gi = 0; gi < groups.length; gi++) {
         if (this.aborted) break;
 
@@ -201,117 +330,7 @@ export class ParallelCoordinator {
           .map((id) => taskMap.get(id))
           .filter((t): t is Task => t !== undefined);
 
-        const results = await this.executeWave(groupTasks, effectiveWorkers);
-
-        for (const result of results) {
-          if (typeof result.durationMs === "number") {
-            durationByTaskId.set(result.taskId, result.durationMs);
-          }
-          const hasCommits = await this.branchHasNewCommits(result.branch);
-          if (!hasCommits) {
-            await this.queueTaskStatus(result.taskId, "failed");
-            this.emit({
-              type: "merge:skipped",
-              timestamp: this.timestamp(),
-              taskId: result.taskId,
-              reason: "Worker produced no commits",
-            });
-            failedTaskIds.push(result.taskId);
-            continue;
-          }
-
-          const op = this.mergeEngine!.enqueue(result);
-          log.info("parallel:merge-queued", `Merge queued for task ${result.taskId}`, {
-            taskId: result.taskId,
-            operationId: op.id,
-          });
-          this.emit({
-            type: "merge:queued",
-            timestamp: this.timestamp(),
-            operationId: op.id,
-            taskId: result.taskId,
-          });
-
-          const processed = await this.mergeEngine!.processNext();
-          if (!processed) continue;
-
-          this.emit({
-            type: "merge:started",
-            timestamp: this.timestamp(),
-            operationId: processed.id,
-            taskId: processed.taskId,
-          });
-
-          if (processed.status === "completed") {
-            mergedTaskIds.push(processed.taskId);
-            await this.persistTaskDone(processed.taskId, durationByTaskId.get(processed.taskId));
-            this.emit({
-              type: "merge:completed",
-              timestamp: this.timestamp(),
-              operationId: processed.id,
-              taskId: processed.taskId,
-            });
-          } else if (processed.status === "conflicted") {
-            this.emit({
-              type: "conflict:detected",
-              timestamp: this.timestamp(),
-              taskId: processed.taskId,
-              taskTitle: processed.taskTitle,
-              files: processed.conflictedFiles ?? [],
-            });
-
-            if (this.aiConflictResolution) {
-              this.emit({
-                type: "conflict:ai-resolving",
-                timestamp: this.timestamp(),
-                taskId: processed.taskId,
-              });
-
-              const task = taskMap.get(processed.taskId);
-              const context = await this.buildConflictContext(task, mergedTaskIds);
-              const resolution = await resolveConflicts(
-                processed,
-                this.repoRoot,
-                this.agent,
-                context,
-              );
-
-              if (resolution.resolved) {
-                processed.status = "completed";
-                processed.error = undefined;
-                this.emit({
-                  type: "conflict:resolved",
-                  timestamp: this.timestamp(),
-                  taskId: processed.taskId,
-                  resolvedCount: resolution.resolvedCount,
-                  failedCount: resolution.failedCount,
-                });
-                mergedTaskIds.push(processed.taskId);
-                await this.persistTaskDone(processed.taskId, durationByTaskId.get(processed.taskId));
-                this.emit({
-                  type: "merge:completed",
-                  timestamp: this.timestamp(),
-                  operationId: processed.id,
-                  taskId: processed.taskId,
-                });
-              } else {
-                this.handleFailedMerge(processed, failedTaskIds);
-              }
-            } else {
-              this.handleFailedMerge(processed, failedTaskIds);
-            }
-          } else {
-            await this.queueTaskStatus(processed.taskId, "failed");
-            this.emit({
-              type: "merge:failed",
-              timestamp: this.timestamp(),
-              operationId: processed.id,
-              taskId: processed.taskId,
-              reason: processed.error,
-            });
-            failedTaskIds.push(processed.taskId);
-          }
-        }
+        await this.executeWave(groupTasks, effectiveWorkers, queueMerge);
 
         await this.worktreeManager!.cleanupAll();
 
@@ -503,6 +522,7 @@ export class ParallelCoordinator {
   private async executeWave(
     tasks: Task[],
     effectiveWorkers: number,
+    onResult?: (result: WorkerResult) => Promise<void>,
   ): Promise<WorkerResult[]> {
     const results: WorkerResult[] = [];
     const batches: Task[][] = [];
@@ -588,6 +608,9 @@ export class ParallelCoordinator {
               timestamp: this.timestamp(),
               workerId,
             });
+            if (onResult) {
+              await onResult(result);
+            }
             return result;
           } catch {
             getLogger().debug("parallel:worker-complete", `Worker ${workerId} failed`, {

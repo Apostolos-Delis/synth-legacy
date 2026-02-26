@@ -165,20 +165,20 @@ describe("buildPrompt", () => {
     });
   });
 
-  test("includes session slug in commit message instructions", async () => {
+  test("avoids manual commit instructions even when slug provided", async () => {
     await withTmpDir(async (dir) => {
       const paths = makeSessionPaths(dir);
       const prompt = await buildPrompt(makeTask(), paths, dir, 1, "claude", "jwt-auth");
-      expect(prompt).toContain("feat: [jwt-auth]");
-      expect(prompt).not.toContain("session-slug");
+      expect(prompt).toContain("auto-commits after task completion");
+      expect(prompt).not.toContain("feat: [jwt-auth]");
     });
   });
 
-  test("uses 'session-slug' placeholder when slug not provided", async () => {
+  test("does not include commit message placeholders when slug not provided", async () => {
     await withTmpDir(async (dir) => {
       const paths = makeSessionPaths(dir);
       const prompt = await buildPrompt(makeTask(), paths, dir, 1);
-      expect(prompt).toContain("feat: [session-slug]");
+      expect(prompt).not.toContain("feat: [session-slug]");
     });
   });
 });

@@ -1,3 +1,5 @@
+import { mkdirSync } from "node:fs";
+import { join } from "node:path";
 import type {
   AgentAdapter,
   AgentDetectResult,
@@ -43,6 +45,17 @@ export abstract class BaseAgentAdapter implements AgentAdapter {
   execute(prompt: string, options: AgentExecuteOptions): AgentExecutionHandle {
     const trace = globalTrace();
     const cmd = this.buildCmd(prompt, options);
+    const env: Record<string, string> = {};
+    if (options.cwd) {
+      const tmpDir = join(options.cwd, ".synth-tmp");
+      try {
+        mkdirSync(tmpDir, { recursive: true });
+        env.TMPDIR = tmpDir;
+        env.TMP = tmpDir;
+        env.TEMP = tmpDir;
+      } catch {
+      }
+    }
 
     trace.startPhase("agent:spawn");
     const handle = spawn({
@@ -52,6 +65,7 @@ export abstract class BaseAgentAdapter implements AgentAdapter {
       stdin: options.stdin,
       onStdout: options.onStdout,
       onStderr: options.onStderr,
+      env,
     });
     trace.endPhase("agent:spawn");
 

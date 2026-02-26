@@ -65,7 +65,8 @@ export function ParallelExecutionView({
   const conflictRows = conflict
     ? conflict.files.length + 2 + (conflict.summary ? 2 : 0)
     : 0;
-  const desiredBottomHeight = Math.max(6, workers.length + 2, conflictRows);
+  const minBottomHeight = conflict ? 6 : 3;
+  const desiredBottomHeight = Math.max(minBottomHeight, workers.length + 2, conflictRows);
   const bottomHeight = Math.min(desiredBottomHeight, Math.min(12, maxBottomHeight));
   const topHeight = bodyHeight - bottomHeight;
 

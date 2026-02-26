@@ -20,6 +20,82 @@ type OutputBlock =
   | { type: "markdown"; content: string }
   | { type: "tool"; kind: "use" | "result"; name: string; id: string; input: string[]; output: string[] };
 
+function expandToolLine(line: string, label: "input" | "output"): string[] {
+  const trimmed = line.trim();
+  if (!(trimmed.startsWith("{") && trimmed.endsWith("}"))) return [line];
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(trimmed);
+  } catch {
+    return [line];
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return [line];
+
+  const obj = parsed as Record<string, unknown>;
+  const lines: string[] = [];
+
+  const pushValue = (key: string, value: unknown, prefixKey: boolean) => {
+    if (value == null) {
+      lines.push(prefixKey ? `${key}: null` : "null");
+      return;
+    }
+    if (typeof value === "string") {
+      if (key === "output" || key === "stdout" || key === "stderr") {
+        const parts = value.split("\n");
+        if (parts.length === 0) {
+          lines.push(prefixKey ? `${key}:` : "");
+          return;
+        }
+        for (const part of parts) {
+          if (prefixKey) {
+            lines.push(`${key}: ${part}`);
+          } else {
+            lines.push(part);
+          }
+        }
+        return;
+      }
+      lines.push(prefixKey ? `${key}: ${value}` : value);
+      return;
+    }
+    try {
+      const serialized = JSON.stringify(value);
+      lines.push(prefixKey ? `${key}: ${serialized}` : serialized);
+    } catch {
+      lines.push(prefixKey ? `${key}: ${String(value)}` : String(value));
+    }
+  };
+
+  if (label === "input") {
+    if (typeof obj.command === "string") {
+      lines.push(obj.command);
+    }
+    for (const [key, value] of Object.entries(obj)) {
+      if (key === "command") continue;
+      pushValue(key, value, true);
+    }
+  } else {
+    if (typeof obj.output === "string") {
+      pushValue("output", obj.output, false);
+    }
+    if (typeof obj.stdout === "string" && obj.stdout !== obj.output) {
+      pushValue("stdout", obj.stdout, true);
+    }
+    if (typeof obj.stderr === "string") {
+      pushValue("stderr", obj.stderr, true);
+    }
+    if ("exitCode" in obj) {
+      pushValue("exitCode", obj.exitCode, true);
+    }
+    for (const [key, value] of Object.entries(obj)) {
+      if (key === "output" || key === "stdout" || key === "stderr" || key === "exitCode") continue;
+      pushValue(key, value, true);
+    }
+  }
+
+  return lines.length > 0 ? lines : [line];
+}
+
 function parseOutputBlocks(output: string): OutputBlock[] {
   if (!output) return [];
   const lines = output.split("\n");
@@ -137,12 +213,42 @@ export const OutputPane = memo(function OutputPane({
   const { height: terminalHeight } = useTerminalDimensions();
   const outputIsEmpty = output.trim().length === 0 || output === "No output recorded";
   const minOutputHeight = outputIsEmpty && !isThinking ? MIN_EMPTY_OUTPUT_HEIGHT : MIN_OUTPUT_HEIGHT;
+  const outputInnerWidth = Math.max(1, width - 6);
   const headerHeight = useMemo(
     () => (task ? calcHeaderHeight(task, width, terminalHeight, height, minOutputHeight) : 0),
     [task, width, terminalHeight, height, minOutputHeight],
   );
   const waiting = isThinking && !output;
   const outputBlocks = useMemo(() => parseOutputBlocks(output), [output]);
+
+  const renderLabeledLines = (
+    label: "input" | "output",
+    lines: string[],
+    keyPrefix: string,
+  ): ReactNode[] => {
+    if (lines.length === 0) return [];
+    const labelText = `  ${label}:`;
+    const indent = " ".repeat(labelText.length);
+    const contentWidth = Math.max(1, outputInnerWidth - labelText.length - 1);
+    const nodes: ReactNode[] = [];
+
+    lines.forEach((line, lineIdx) => {
+      const expanded = expandToolLine(line, label);
+      expanded.forEach((expandedLine, expandedIdx) => {
+        const wrapped = wrapText(expandedLine, contentWidth);
+        wrapped.forEach((segment, segIdx) => {
+        const prefix = segIdx === 0 ? labelText : indent;
+        nodes.push(
+          <text key={`${keyPrefix}-${lineIdx}-${expandedIdx}-${segIdx}`}>
+            <span fg={colors.fg.muted}>{prefix}</span>
+            <span fg={colors.fg.dim}>{` ${segment}`}</span>
+          </text>,
+        );
+        });
+      });
+    });
+    return nodes;
+  };
 
   return (
     <box width={width} height={height} flexDirection="column" overflow="hidden">
@@ -197,18 +303,8 @@ export const OutputPane = memo(function OutputPane({
                     <span fg={colors.accent.primary}>{block.name}</span>
                     {block.id && <span fg={colors.fg.dim}>{block.id}</span>}
                   </text>
-                  {block.input.map((line, lineIdx) => (
-                    <text key={`tool-in-${idx}-${lineIdx}`}>
-                      <span fg={colors.fg.muted}>{"  input:"}</span>
-                      <span fg={colors.fg.dim}>{` ${line}`}</span>
-                    </text>
-                  ))}
-                  {block.output.map((line, lineIdx) => (
-                    <text key={`tool-out-${idx}-${lineIdx}`}>
-                      <span fg={colors.fg.muted}>{"  output:"}</span>
-                      <span fg={colors.fg.dim}>{` ${line}`}</span>
-                    </text>
-                  ))}
+                  {renderLabeledLines("input", block.input, `tool-in-${idx}`)}
+                  {renderLabeledLines("output", block.output, `tool-out-${idx}`)}
                 </box>
               );
             })

@@ -197,3 +197,26 @@ export async function reconcileTasksFromGitLog(
 
   return reconciledIds;
 }
+
+export async function reconcileTasksFromParallelState(
+  sessionPaths: SessionPaths,
+  tasks: Task[],
+): Promise<string[]> {
+  const state = await loadParallelSession(sessionPaths);
+  if (!state) return [];
+
+  const openTaskIds = new Set(
+    tasks.filter((t) => t.status !== "done" && t.status !== "skipped").map((t) => t.id),
+  );
+
+  const reconciledIds = state.mergedTaskIds.filter((id) => openTaskIds.has(id));
+  if (reconciledIds.length === 0) return [];
+
+  let taskFile = await loadTasks(sessionPaths.tasks);
+  for (const taskId of reconciledIds) {
+    taskFile = updateTaskStatus(taskFile, taskId, "done", { notes: "Reconciled from previous parallel session" });
+  }
+  await saveTasks(sessionPaths.tasks, taskFile);
+
+  return reconciledIds;
+}

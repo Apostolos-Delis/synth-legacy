@@ -1,3 +1,4 @@
+import { resolve } from "node:path";
 import type { SynthConfig } from "../config/types.js";
 import type { AgentAdapter, AgentExecutionResult } from "../agents/types.js";
 import type { SessionPaths } from "../sessions/types.js";
@@ -146,7 +147,11 @@ export class Engine {
       this.sessionSlug = await getSessionSlug(this.sessionPaths);
     }
     const commitMsg = `feat: [${this.sessionSlug}] ${task.title}`;
-    const addResult = await spawn({ cmd: ["git", "add", "-u"], cwd: this.cwd, timeout: COMMIT_TIMEOUT }).promise;
+    const cwdRoot = resolve(this.cwd);
+    const sessionTaskPath = resolve(this.sessionPaths.tasks);
+    const addAll = sessionTaskPath === cwdRoot || sessionTaskPath.startsWith(`${cwdRoot}/`);
+    const addArgs = addAll ? ["git", "add", "-A"] : ["git", "add", "-u"];
+    const addResult = await spawn({ cmd: addArgs, cwd: this.cwd, timeout: COMMIT_TIMEOUT }).promise;
     if (addResult.exitCode !== 0) {
       this.emit({
         type: "task:failed",

@@ -12,6 +12,8 @@ Before implementing anything, search and explore the relevant code:
 
 - Persist until the task is fully complete — partial fixes and half-implementations don't count as done.
 - Bias toward action: make reasonable assumptions when details are ambiguous rather than stopping to ask.
+- Do not ask the user for decisions during task execution. Make the best judgment call, proceed, and document it in **Discovered** or **Next**.
+- If you create or depend on new files, keep them and proceed; auto-commit will include them.
 - Implement the task completely, but don't expand scope — no drive-by refactors, extra features, or "improvements" beyond what's needed.
 - Keep solutions proportional to the problem. Three similar lines are fine; don't abstract prematurely.
 
@@ -26,7 +28,7 @@ Before implementing anything, search and explore the relevant code:
 - **Conform to codebase patterns**: Match the naming conventions, file structure, error handling style, and test patterns already established in the project. When unsure, find a similar existing feature and mirror its approach.
 - **Tight error handling**: No broad \`catch (e) {}\` blocks, no silent failures, no swallowed errors. Catch specific error types, propagate meaningful messages, and fail loudly when something unexpected happens.
 - **DRY / search-first**: Before creating a new utility, helper, or pattern, search the codebase for an existing one. Duplication is a last resort, not a default.
-- **Validate after implementing (hard gate)**: After making changes, run the project's typecheck, linter, and tests — look in AGENTS.md for the project-specific commands. If any check fails, fix the issue before proceeding or committing.
+- **Validate after implementing (hard gate)**: After making changes, run the project's typecheck, linter, and tests — look in AGENTS.md for the project-specific commands. If any check fails, fix the issue before proceeding or committing. If a check fails due to missing tooling or environment constraints you cannot fix, proceed without asking the user and clearly document the failure.
 
 ## Structured Progress Tracking
 
@@ -48,13 +50,13 @@ Guidelines for progress notes:
 
 - **Be concise**: Skip preambles, lengthy restatements, and verbose summaries. State what you did, what you found, and what's next — nothing more.
 - **One task at a time**: Complete the current task fully before moving on. Context-switching between tasks wastes tokens and increases errors.
-- **Commit before exhaustion**: If you're in a long session, commit working progress to git periodically. Uncommitted work is lost if the context window fills up or the session ends unexpectedly.
+- **No manual git**: Do not run git add/commit; auto-commit is handled by the system after task completion.
 
 Steps:
 1. Read the task and acceptance criteria
 2. Implement the changes needed
 3. Run quality checks — typecheck, lint, test (see AGENTS.md for commands). Fix all failures before continuing.
-4. If checks pass, commit with a message that captures intent: \`feat: [{{slug}}] Brief description of why this change was made\`. The commit message should explain *the purpose* of the change, not just restate the task title. Example: \`feat: [{{slug}}] structured progress format so iterations don't re-discover context\`
+4. Do not run git add/commit; the system auto-commits after task completion. Ensure any new files you created are part of the change.
 5. Update tasks.json to set status "done" for the completed task
 
 If ALL tasks are done, reply with: <promise>COMPLETE</promise>
