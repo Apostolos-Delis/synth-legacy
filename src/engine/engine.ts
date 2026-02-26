@@ -179,16 +179,26 @@ export class Engine {
       this.sessionSlug = await getSessionSlug(this.sessionPaths);
     }
     const commitMsg = `feat: [${this.sessionSlug}] ${task.title}`;
-    const cwdRoot = resolve(this.cwd);
-    const sessionTaskPath = resolve(this.sessionPaths.tasks);
-    const addAll = sessionTaskPath === cwdRoot || sessionTaskPath.startsWith(`${cwdRoot}/`);
-    const addArgs = addAll ? ["git", "add", "-A"] : ["git", "add", "-u"];
+    const addArgs = ["git", "add", "-A", "--", "."];
     const addResult = await spawn({ cmd: addArgs, cwd: this.cwd, timeout: COMMIT_TIMEOUT }).promise;
     if (addResult.exitCode !== 0) {
       this.emit({
         type: "task:failed",
         taskId: task.id,
         message: `git add failed (exit ${addResult.exitCode}): ${addResult.stderr}`,
+      });
+      return;
+    }
+    const stagedCheck = await spawn({
+      cmd: ["git", "diff", "--cached", "--quiet"],
+      cwd: this.cwd,
+      timeout: COMMIT_TIMEOUT,
+    }).promise;
+    if (stagedCheck.exitCode === 0) {
+      this.emit({
+        type: "task:failed",
+        taskId: task.id,
+        message: "No staged changes after git add -A",
       });
       return;
     }
