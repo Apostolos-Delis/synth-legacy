@@ -155,7 +155,7 @@ export async function isSessionComplete(path: string): Promise<boolean> {
     for (let i = lines.length - 1; i >= 0; i--) {
       try {
         const entry = JSON.parse(lines[i]) as LogEntry;
-        if (entry.event === "state:change" && entry.msg === "completed") {
+        if (entry.event === "state:change" && entry.message === "completed") {
           return true;
         }
       } catch {

@@ -25,16 +25,23 @@ describe("Logger", () => {
 
         const levels = ["debug", "info", "warn", "error"] as const;
         const events = ["d:evt", "i:evt", "w:evt", "e:evt"];
-        const msgs = ["debug msg", "info msg", "warn msg", "error msg"];
+        const messages = ["debug msg", "info msg", "warn msg", "error msg"];
 
         for (let i = 0; i < 4; i++) {
           const entry = JSON.parse(lines[i]) as LogEntry;
           expect(entry.level).toBe(levels[i]);
           expect(entry.event).toBe(events[i]);
-          expect(entry.msg).toBe(msgs[i]);
-          expect(entry.ts).toBeTruthy();
-          // ts should be a valid ISO date
-          expect(Number.isNaN(Date.parse(entry.ts))).toBe(false);
+          expect(entry.message).toBe(messages[i]);
+          expect(entry.timestamp).toBeTruthy();
+          expect(entry.service).toBeTruthy();
+          expect(entry.env).toBeTruthy();
+          // timestamp should be a valid ISO date
+          expect(Number.isNaN(Date.parse(entry.timestamp))).toBe(false);
+          if (entry.level === "error") {
+            expect(entry.error).toBeTruthy();
+            expect(entry.error?.type).toBeTruthy();
+            expect(entry.error?.message).toBe("error msg");
+          }
         }
       });
     });
@@ -68,6 +75,28 @@ describe("Logger", () => {
         expect("meta" in entry).toBe(false);
       });
     });
+
+    test("non-serializable or oversized meta is safely truncated", async () => {
+      await withTmpDir(async (dir) => {
+        const logPath = join(dir, "test.log");
+        const logger = new Logger(logPath);
+        const meta: Record<string, unknown> = {
+          payload: "x".repeat(20_000),
+        };
+        meta.self = meta;
+
+        logger.info("test", "big meta", meta);
+
+        await Bun.sleep(100);
+
+        const content = await readFile(logPath, "utf-8");
+        const entry = JSON.parse(content.trim()) as LogEntry;
+        expect(entry.meta).toMatchObject({
+          truncated: true,
+        });
+        expect(typeof entry.meta?.preview).toBe("string");
+      });
+    });
   });
 
   describe("subscribers", () => {
@@ -81,8 +110,8 @@ describe("Logger", () => {
       expect(entries).toHaveLength(1);
       expect(entries[0].level).toBe("info");
       expect(entries[0].event).toBe("test:event");
-      expect(entries[0].msg).toBe("hello");
-      expect(entries[0].ts).toBeTruthy();
+      expect(entries[0].message).toBe("hello");
+      expect(entries[0].timestamp).toBeTruthy();
     });
 
     test("multiple subscribers all receive entries", () => {
@@ -181,7 +210,7 @@ describe("Logger", () => {
     test("initLogger creates logger and getLogger returns it", async () => {
       await withTmpDir(async (dir) => {
         const logPath = join(dir, "singleton.log");
-        const created = initLogger(logPath);
+        const created = initLogger(logPath, { context: { request_id: "req-1" } });
         const retrieved = getLogger();
 
         expect(retrieved).toBe(created);
@@ -192,7 +221,8 @@ describe("Logger", () => {
         const content = await readFile(logPath, "utf-8");
         const entry = JSON.parse(content.trim()) as LogEntry;
         expect(entry.event).toBe("test");
-        expect(entry.msg).toBe("singleton works");
+        expect(entry.message).toBe("singleton works");
+        expect(entry.context?.request_id).toBe("req-1");
       });
     });
   });

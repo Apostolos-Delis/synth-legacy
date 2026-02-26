@@ -1,9 +1,5 @@
-## Iteration 1 - MODU-004: Centralize Prompt Cache in Engine
+## Iteration 2 - JSONL-001: Implement Structured JSONL Logger Core
 - Status: done
-- Duration: 507s
-- Criteria: 0/3 observed
-## Iteration 1 - MODU-009: Add TUI Rendering Integration Test
-- Status: done
-- Duration: 596s
-- Criteria: 0/2 observed
+- Duration: 208s
+- Criteria: 0/4 observed
 ---

@@ -6,11 +6,49 @@ import { withTmpDir } from "./helpers.js";
 import type { LogEntry } from "../logging/types.js";
 
 const sampleEntries: LogEntry[] = [
-  { ts: "2026-01-15T10:00:00.000Z", level: "info", event: "session:start", msg: "Session started" },
-  { ts: "2026-01-15T10:00:01.000Z", level: "debug", event: "task:begin", msg: "Starting task US-001" },
-  { ts: "2026-01-15T10:00:02.000Z", level: "warn", event: "rate:limit", msg: "Approaching rate limit", meta: { remaining: 5 } },
-  { ts: "2026-01-15T10:00:03.000Z", level: "error", event: "task:fail", msg: "Task failed", meta: { error: "timeout" } },
-  { ts: "2026-01-15T10:00:04.000Z", level: "info", event: "state:change", msg: "completed" },
+  {
+    timestamp: "2026-01-15T10:00:00.000Z",
+    level: "info",
+    event: "session:start",
+    message: "Session started",
+    service: "synth",
+    env: "test",
+  },
+  {
+    timestamp: "2026-01-15T10:00:01.000Z",
+    level: "debug",
+    event: "task:begin",
+    message: "Starting task US-001",
+    service: "synth",
+    env: "test",
+  },
+  {
+    timestamp: "2026-01-15T10:00:02.000Z",
+    level: "warn",
+    event: "rate:limit",
+    message: "Approaching rate limit",
+    service: "synth",
+    env: "test",
+    meta: { remaining: 5 },
+  },
+  {
+    timestamp: "2026-01-15T10:00:03.000Z",
+    level: "error",
+    event: "task:fail",
+    message: "Task failed",
+    service: "synth",
+    env: "test",
+    meta: { error: "timeout" },
+    error: { type: "Error", message: "timeout" },
+  },
+  {
+    timestamp: "2026-01-15T10:00:04.000Z",
+    level: "info",
+    event: "state:change",
+    message: "completed",
+    service: "synth",
+    env: "test",
+  },
 ];
 
 function entriesToJsonl(entries: LogEntry[]): string {
@@ -30,10 +68,10 @@ describe("logs command — readLogFile", () => {
 
       expect(results).toHaveLength(sampleEntries.length);
       for (let i = 0; i < sampleEntries.length; i++) {
-        expect(results[i].ts).toBe(sampleEntries[i].ts);
+        expect(results[i].timestamp).toBe(sampleEntries[i].timestamp);
         expect(results[i].level).toBe(sampleEntries[i].level);
         expect(results[i].event).toBe(sampleEntries[i].event);
-        expect(results[i].msg).toBe(sampleEntries[i].msg);
+        expect(results[i].message).toBe(sampleEntries[i].message);
         if (sampleEntries[i].meta) {
           expect(results[i].meta).toEqual(sampleEntries[i].meta);
         }

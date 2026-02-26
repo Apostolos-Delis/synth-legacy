@@ -88,13 +88,13 @@ export const LogView = memo(function LogView({
             const label = LEVEL_LABELS[entry.level] ?? entry.level.toUpperCase();
             return (
               <text key={i} truncate={true}>
-                <span fg={colors.fg.muted}>{formatTimestamp(entry.ts)}</span>
+                <span fg={colors.fg.muted}>{formatTimestamp(entry.timestamp)}</span>
                 {" "}
                 <span fg={levelColor} attributes={boldAttr()}>{label}</span>
                 {" "}
                 <span fg={colors.accent.secondary}>{entry.event}</span>
                 {" "}
-                <span fg={colors.fg.primary}>{entry.msg}</span>
+                <span fg={colors.fg.primary}>{entry.message}</span>
               </text>
             );
           })}

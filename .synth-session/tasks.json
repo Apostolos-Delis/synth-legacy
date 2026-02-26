@@ -1,77 +1,46 @@
 {
   "project": "synth",
-  "branchName": "synth-parallel/MODU-009",
-  "description": "Worker w-MODU-009-2: Add TUI Rendering Integration Test",
+  "branchName": "synth-parallel/JSONL-001",
+  "description": "Worker w-JSONL-001-0: Implement Structured JSONL Logger Core",
   "tasks": [
     {
-      "id": "MODU-004",
-      "title": "Centralize Prompt Cache in Engine",
-      "description": "Move prompt file caching into an engine module with documented keys/invalidation and hit/miss logging; keep `buildPrompt` pure.",
+      "id": "JSONL-001",
+      "title": "Implement Structured JSONL Logger Core",
+      "description": "Update the logging schema to required JSONL fields and implement safe formatting in the logger (service/env defaults, context normalization for request/job IDs and duration, error object enrichment, truncation/circular handling, and structured fallback on write failures). Update session logger initialization and logger unit tests to reflect the new schema.",
       "acceptanceCriteria": [
-        "Prompt cache reads/writes occur only in `src/engine` and `buildPrompt` no longer manages caching.",
-        "Cache keys and invalidation rules are documented in the new module and tests cover hit/miss behavior.",
-        "Cache usage is logged with hit/miss metrics and includes `sessionId`, `phase`, and `component`."
+        "Each log line includes `timestamp`, `level`, `message`, `service`, and `env`.",
+        "Error-level logs always include a structured `error` object with `type` and `message` (and `stack` when available).",
+        "Non-serializable or oversized metadata does not throw and is safely stringified/truncated; write failures emit a minimal JSONL line to stderr without crashing.",
+        "Session initialization sets a default `request_id` context so all session logs include it."
       ],
       "verification": [
+        {
+          "type": "command",
+          "value": "bun test src/__tests__/logger.test.ts"
+        },
         {
           "type": "command",
           "value": "bun run typecheck"
-        },
-        {
-          "type": "command",
-          "value": "bun test src/__tests__/prompt-build.test.ts"
-        },
-        {
-          "type": "command",
-          "value": "bun test src/__tests__/prompt-cache.test.ts"
         }
       ],
-      "priority": 2,
+      "priority": 1,
       "status": "done",
       "affects": [
-        "src/engine/engine.ts",
-        "src/engine/prompt-cache.ts",
-        "src/prompts/build.ts",
-        "src/__tests__/prompt-build.test.ts",
-        "src/__tests__/prompt-cache.test.ts"
+        "src/logging/types.ts",
+        "src/logging/logger.ts",
+        "src/sessions/registry.ts",
+        "src/__tests__/logger.test.ts"
       ],
       "dependsOn": [],
-      "notes": "",
-      "iterationCount": 1,
+      "notes": "Iteration 1: timed out",
+      "iterationCount": 2,
       "criteriaCompleted": [
+        true,
         true,
         true,
         true
       ],
-      "durationMs": 507043
-    },
-    {
-      "id": "MODU-009",
-      "title": "Add TUI Rendering Integration Test",
-      "description": "Create an integration test that renders TUI views using mocked engine state and verifies render output without invoking business logic.",
-      "acceptanceCriteria": [
-        "Test uses mocked `TuiEngineData`/events and does not execute agents or build prompts.",
-        "Render output includes expected labels/sections for the mocked state."
-      ],
-      "verification": [
-        {
-          "type": "command",
-          "value": "bun test src/__tests__/tui-render.test.tsx"
-        }
-      ],
-      "priority": 3,
-      "status": "done",
-      "affects": [
-        "src/__tests__/tui-render.test.tsx"
-      ],
-      "dependsOn": [],
-      "notes": "",
-      "iterationCount": 1,
-      "criteriaCompleted": [
-        true,
-        true
-      ],
-      "durationMs": 596176
+      "durationMs": 207989
     }
   ]
 }

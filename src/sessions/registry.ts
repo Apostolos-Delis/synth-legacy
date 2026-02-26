@@ -67,7 +67,7 @@ export async function createSession(
 
   await ensureDir(paths.root);
   await ensureDir(paths.logs);
-  initLogger(paths.sessionLog);
+  initLogger(paths.sessionLog, { context: { request_id: id } });
 
   const now = new Date().toISOString();
   const metadata: SessionMetadata = {
@@ -103,7 +103,7 @@ export async function getSession(
   if (!(await fileExists(metaPath))) return null;
 
   const metadata = await readJson<SessionMetadata>(metaPath);
-  initLogger(paths.sessionLog);
+  initLogger(paths.sessionLog, { context: { request_id: sessionId } });
   return { paths, metadata };
 }
 
