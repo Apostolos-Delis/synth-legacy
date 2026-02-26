@@ -58,6 +58,7 @@ export const TaskDetailHeader = memo(function TaskDetailHeader({
 
   const criteria = task.acceptanceCriteria;
   const completed = task.criteriaCompleted;
+  const dependencies = task.dependsOn?.filter(Boolean) ?? [];
 
   const criteriaRows: ReactNode[] = [];
   for (let i = 0; i < criteria.length; i++) {
@@ -100,6 +101,23 @@ export const TaskDetailHeader = memo(function TaskDetailHeader({
       <span>{padLine("", innerWidth)}</span>
     </text>,
   );
+  if (dependencies.length > 0) {
+    const depPrefix = "Depends on: ";
+    const depWidth = Math.max(1, innerWidth - depPrefix.length);
+    const depLines = wrapText(dependencies.join(", "), depWidth);
+    for (let i = 0; i < depLines.length; i++) {
+      const prefix = i === 0 ? depPrefix : " ".repeat(depPrefix.length);
+      const lineText = `${prefix}${depLines[i]}`;
+      const pad = padLine("", Math.max(0, innerWidth - lineText.length));
+      contentRows.push(
+        <text key={`dep-${i}`}>
+          <span fg={colors.fg.secondary}>{prefix}</span>
+          <span fg={colors.fg.primary}>{depLines[i]}</span>
+          <span>{pad}</span>
+        </text>,
+      );
+    }
+  }
   if (criteria.length > 0) {
     contentRows.push(
       <text key="ac-header">

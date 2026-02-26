@@ -7,6 +7,7 @@ import { TaskDetailHeader } from "./TaskDetailHeader.js";
 
 const MIN_OUTPUT_HEIGHT = 10;
 const MIN_EMPTY_OUTPUT_HEIGHT = 4;
+const MIN_HEADER_HEIGHT = 4;
 const TOOL_HEADER_RE = /^\[tool:(use|result)\]\s*(.*)$/;
 const TOOL_INPUT_RE = /^\s{2}input:\s?(.*)$/;
 const TOOL_OUTPUT_RE = /^\s{2}output:\s?(.*)$/;
@@ -157,7 +158,9 @@ function calcHeaderHeight(
   minOutputHeight: number,
 ): number {
   const maxFromPane = Math.max(0, paneHeight - minOutputHeight);
-  return maxFromPane;
+  const halfHeight = Math.floor(paneHeight / 2);
+  const desired = Math.max(MIN_HEADER_HEIGHT, halfHeight);
+  return Math.max(0, Math.min(maxFromPane, desired));
 }
 
 interface OutputPaneProps {
@@ -256,8 +259,15 @@ export const OutputPane = memo(function OutputPane({
         <scrollbox
           height={outputScrollHeight}
           focused={outputScrollFocused}
-          stickyScroll={autoScroll}
+          stickyScroll={!outputScrollFocused && autoScroll}
           stickyStart="bottom"
+          verticalScrollbarOptions={{
+            showArrows: false,
+            trackOptions: {
+              backgroundColor: colors.bg.secondary,
+              foregroundColor: colors.border.normal,
+            },
+          }}
           style={{ flexDirection: "column" }}
         >
           {waiting ? (

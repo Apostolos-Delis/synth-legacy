@@ -270,6 +270,33 @@ describe("TaskDetailHeader word-wrap line counting", () => {
   });
 });
 
+describe("TaskDetailHeader dependencies", () => {
+  function formatDependencyLines(dependsOn: string[], innerWidth: number): string[] {
+    if (dependsOn.length === 0) return [];
+    const depPrefix = "Depends on: ";
+    const depWidth = Math.max(1, innerWidth - depPrefix.length);
+    const depLines = wrapText(dependsOn.join(", "), depWidth);
+    return depLines.map((line, idx) => `${idx === 0 ? depPrefix : " ".repeat(depPrefix.length)}${line}`);
+  }
+
+  test("formats dependencies with label", () => {
+    const lines = formatDependencyLines(["TUI-001", "TUI-002"], 80);
+    expect(lines).toEqual(["Depends on: TUI-001, TUI-002"]);
+  });
+
+  test("wraps dependencies with indentation", () => {
+    const lines = formatDependencyLines(["TASK-1", "TASK-2", "TASK-3", "TASK-4"], 18);
+    const depPrefix = "Depends on: ";
+    expect(lines.length).toBeGreaterThan(1);
+    expect(lines[1].startsWith(" ".repeat(depPrefix.length))).toBe(true);
+  });
+
+  test("no dependencies yields no lines", () => {
+    const lines = formatDependencyLines([], 40);
+    expect(lines).toEqual([]);
+  });
+});
+
 describe("TaskDetailHeader criteria row limit", () => {
   test("maxCriteriaRows calculation respects height", () => {
     // Component: maxCriteriaRows = Math.max(0, height - 2 - 4)

@@ -99,7 +99,7 @@ export function ExecutionView({ state, selectedTaskIndex, navMode, detailFocus, 
           outputFocused={outputFocused}
           taskDetailFocused={taskDetailFocused}
           taskDetailScrollFocused={navMode === "task-detail-scroll"}
-          autoScroll={isSelectedTaskActive && navMode === "task-scroll"}
+          autoScroll={isSelectedTaskActive && navMode !== "output-scroll"}
         />
       </box>
       <StatusBar
