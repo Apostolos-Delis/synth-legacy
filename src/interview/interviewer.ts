@@ -83,7 +83,7 @@ function getRetrySuffix(response: string): string | null {
     "let me look at the codebase",
   ];
   if (deferrals.some((d) => trimmed.startsWith(d)) || trimmed.includes("before asking targeted questions")) {
-    return "You already explored the codebase using tools. Summarize key findings and ask the next targeted questions or provide the full PRD now. Do not defer.";
+    return "Use tools now to explore the codebase (read key files and structure). Then summarize key findings and ask the next targeted questions or provide the full PRD now. Do not defer.";
   }
   if (
     trimmed.includes("what do you want to build") ||
