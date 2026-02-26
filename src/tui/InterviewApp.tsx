@@ -25,6 +25,7 @@ interface InterviewAppProps {
     onTool?: (event: AgentToolEvent) => void,
     onReset?: () => void,
   ) => Promise<{ response: string; done: boolean }>;
+  onPersistMessages?: (messages: InterviewMessage[]) => void | Promise<void>;
   onComplete: () => void;
   onQuit: () => void;
   initialMessages?: InterviewMessage[];
@@ -78,7 +79,14 @@ function MessageBubble({
   );
 }
 
-export function InterviewApp({ sessionId, onSendMessage, onComplete, onQuit, initialMessages }: InterviewAppProps): ReactNode {
+export function InterviewApp({
+  sessionId,
+  onSendMessage,
+  onComplete,
+  onQuit,
+  initialMessages,
+  onPersistMessages,
+}: InterviewAppProps): ReactNode {
   const [messages, setMessages] = useState<InterviewMessage[]>(
     initialMessages && initialMessages.length > 0
       ? [{ role: "assistant", content: WELCOME_MESSAGE }, ...initialMessages]
@@ -137,15 +145,21 @@ export function InterviewApp({ sessionId, onSendMessage, onComplete, onQuit, ini
     try {
       const { response, done } = await onSendMessage(value, handleStreamChunk, appendTool, resetStreaming);
       const elapsed = Date.now() - startTime;
+      let nextMessages: InterviewMessage[] | null = null;
       setMessages((prev) => {
         if (prev.length === 0) return prev;
         const last = prev[prev.length - 1];
         if (last.role !== "assistant") {
-          return [...prev, { role: "assistant", content: response, durationMs: elapsed }];
+          nextMessages = [...prev, { role: "assistant", content: response, durationMs: elapsed }];
+          return nextMessages;
         }
         const updated = { ...last, content: response, durationMs: elapsed };
-        return [...prev.slice(0, -1), updated];
+        nextMessages = [...prev.slice(0, -1), updated];
+        return nextMessages;
       });
+      if (nextMessages) {
+        onPersistMessages?.(nextMessages);
+      }
       resetStreaming();
       setIsLoading(false);
 
@@ -155,16 +169,27 @@ export function InterviewApp({ sessionId, onSendMessage, onComplete, onQuit, ini
       }
     } catch (err) {
       resetStreaming();
+      let nextMessages: InterviewMessage[] | null = null;
       setMessages((prev) => {
         const message = { role: "assistant" as const, content: `Error: ${err instanceof Error ? err.message : "Agent failed to respond"}` };
-        if (prev.length === 0) return [message];
+        if (prev.length === 0) {
+          nextMessages = [message];
+          return nextMessages;
+        }
         const last = prev[prev.length - 1];
-        if (last.role !== "assistant") return [...prev, message];
-        return [...prev.slice(0, -1), message];
+        if (last.role !== "assistant") {
+          nextMessages = [...prev, message];
+          return nextMessages;
+        }
+        nextMessages = [...prev.slice(0, -1), message];
+        return nextMessages;
       });
+      if (nextMessages) {
+        onPersistMessages?.(nextMessages);
+      }
       setIsLoading(false);
     }
-  }, [isLoading, onSendMessage, onComplete, onQuit, handleStreamChunk, appendTool, resetStreaming]);
+  }, [isLoading, onSendMessage, onComplete, onQuit, handleStreamChunk, appendTool, resetStreaming, onPersistMessages]);
 
   useKeyboard(useCallback((key: { name: string; shift?: boolean; ctrl?: boolean; meta?: boolean; option?: boolean; preventDefault?: () => void }) => {
     const textarea = textareaRef.current;

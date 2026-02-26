@@ -156,7 +156,7 @@ async function resumeInterview(
       planRoot.render(
         <tui.InterviewApp
           sessionId={id}
-          initialMessages={savedState.interviewerHistory}
+          initialMessages={savedState.messages.length > 0 ? savedState.messages : savedState.interviewerHistory}
           onSendMessage={async (msg, onChunk, onTool, onReset) => {
             logger.info("interview:prompt", "User message", { length: msg.length });
             try {
@@ -175,6 +175,14 @@ async function resumeInterview(
               logger.error("interview:error", "Interview failed", { error: err instanceof Error ? err.message : String(err) });
               throw err;
             }
+          }}
+          onPersistMessages={async (messages) => {
+            const state: import("../interview/types.js").InterviewState = {
+              messages,
+              interviewerHistory: interviewer.getHistory(),
+              prdPending: !prdMarkdown,
+            };
+            await writeJson(paths.interview, state);
           }}
           onComplete={() => resolve(true)}
           onQuit={() => resolve(false)}

@@ -1,9 +1,7 @@
 import type { AgentExecuteOptions, AgentExecutionHandle, AgentExecutionResult, AgentToolEvent } from "./types.js";
 import type { DoctorCheckResult } from "../doctor/types.js";
 import { BaseAgentAdapter } from "./base.js";
-import { join } from "node:path";
-import { homedir } from "node:os";
-import { fileExists } from "../utils/fs.js";
+import { spawn } from "../utils/process.js";
 
 const READ_ONLY_TOOLS = ["Read", "Glob", "Grep"];
 
@@ -402,9 +400,16 @@ export class ClaudeAdapter extends BaseAgentAdapter {
   }
 
   override async checkAuth(): Promise<DoctorCheckResult | null> {
-    const credPath = join(homedir(), ".claude", "credentials.json");
-    if (await fileExists(credPath)) {
-      return { name: "claude auth", status: "pass", message: "credentials file found" };
+    try {
+      const result = await spawn({ cmd: ["claude", "auth", "status"], timeout: 10_000 }).promise;
+      if (result.exitCode === 0) {
+        const data = JSON.parse(result.stdout.trim());
+        if (data.loggedIn) {
+          return { name: "claude auth", status: "pass", message: data.email ?? "authenticated" };
+        }
+      }
+    } catch {
+      // fall through to warn
     }
     return { name: "claude auth", status: "warn", message: "could not verify authentication", suggestion: "run: claude login" };
   }

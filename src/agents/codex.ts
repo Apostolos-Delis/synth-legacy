@@ -1,6 +1,9 @@
 import type { AgentExecuteOptions, AgentExecutionHandle, AgentExecutionResult, AgentToolEvent } from "./types.js";
 import type { DoctorCheckResult } from "../doctor/types.js";
 import { BaseAgentAdapter } from "./base.js";
+import { join } from "node:path";
+import { homedir } from "node:os";
+import { fileExists, readText } from "../utils/fs.js";
 
 export function buildCodexCmd(_prompt: string, options: Pick<AgentExecuteOptions, "readOnly" | "model">): string[] {
   const args: string[] = ["codex"];
@@ -190,6 +193,17 @@ export class CodexAdapter extends BaseAgentAdapter {
     if (process.env.OPENAI_API_KEY) {
       return { name: "codex auth", status: "pass", message: "OPENAI_API_KEY set" };
     }
-    return { name: "codex auth", status: "fail", message: "OPENAI_API_KEY not set", suggestion: "set OPENAI_API_KEY environment variable" };
+    try {
+      const authPath = join(homedir(), ".codex", "auth.json");
+      if (await fileExists(authPath)) {
+        const data = JSON.parse(await readText(authPath));
+        if (data.OPENAI_API_KEY) {
+          return { name: "codex auth", status: "pass", message: "authenticated via codex login" };
+        }
+      }
+    } catch {
+      // fall through to fail
+    }
+    return { name: "codex auth", status: "fail", message: "OPENAI_API_KEY not set", suggestion: "set OPENAI_API_KEY or run: codex login" };
   }
 }

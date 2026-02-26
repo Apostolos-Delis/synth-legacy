@@ -680,6 +680,14 @@ export async function cmdStart(
               throw err;
             }
           }}
+          onPersistMessages={async (messages) => {
+            const state: InterviewState = {
+              messages,
+              interviewerHistory: interviewer.getHistory(),
+              prdPending: !prdMarkdown,
+            };
+            await writeJson(paths.interview, state);
+          }}
           onComplete={() => resolve(true)}
           onQuit={() => resolve(false)}
         />,
