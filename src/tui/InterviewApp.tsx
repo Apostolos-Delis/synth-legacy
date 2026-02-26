@@ -68,6 +68,18 @@ export function InterviewApp({ sessionId, onSendMessage, onComplete, onQuit, ini
   const { inputLineCount, setInputLineCount, syncLineCount } = useSyncLineCount(textareaRef, destroyedRef);
   const { exitArmed, requestQuit } = useExitConfirm();
 
+  const handleStreamChunk = useCallback((chunk: string) => {
+    if (!chunk) return;
+    appendChunk(chunk);
+    setMessages((prev) => {
+      if (prev.length === 0) return prev;
+      const last = prev[prev.length - 1];
+      if (last.role !== "assistant") return prev;
+      const updated = { ...last, content: last.content + chunk };
+      return [...prev.slice(0, -1), updated];
+    });
+  }, [appendChunk]);
+
   const handleSubmit = useCallback(async () => {
     if (isLoading) return;
     const textarea = textareaRef.current;
@@ -87,19 +99,24 @@ export function InterviewApp({ sessionId, onSendMessage, onComplete, onQuit, ini
     textarea.editBuffer.setText("");
     setInputLineCount(1);
     const userMsg: InterviewMessage = { role: "user", content: value };
-    setMessages((prev) => [...prev, userMsg]);
+    setMessages((prev) => [...prev, userMsg, { role: "assistant", content: "" }]);
     setIsLoading(true);
     const startTime = Date.now();
     setLoadingStartTime(startTime);
     resetStreaming();
 
     try {
-      const { response, done } = await onSendMessage(value, appendChunk, appendTool);
+      const { response, done } = await onSendMessage(value, handleStreamChunk, appendTool);
       resetStreaming();
       const elapsed = Date.now() - startTime;
       const durationLabel = elapsed > 0 ? `\n\n_Generated in ${formatDuration(elapsed)}_` : "";
-      const assistantMsg: InterviewMessage = { role: "assistant", content: `${response}${durationLabel}` };
-      setMessages((prev) => [...prev, assistantMsg]);
+      setMessages((prev) => {
+        if (prev.length === 0) return prev;
+        const last = prev[prev.length - 1];
+        if (last.role !== "assistant") return prev;
+        const updated = { ...last, content: `${response}${durationLabel}` };
+        return [...prev.slice(0, -1), updated];
+      });
       setIsLoading(false);
 
       if (done) {
@@ -108,13 +125,18 @@ export function InterviewApp({ sessionId, onSendMessage, onComplete, onQuit, ini
       }
     } catch (err) {
       resetStreaming();
-      setMessages((prev) => [
-        ...prev,
-        { role: "assistant", content: `Error: ${err instanceof Error ? err.message : "Agent failed to respond"}` },
-      ]);
+      setMessages((prev) => {
+        if (prev.length === 0) {
+          return [{ role: "assistant", content: `Error: ${err instanceof Error ? err.message : "Agent failed to respond"}` }];
+        }
+        const last = prev[prev.length - 1];
+        const message = { role: "assistant" as const, content: `Error: ${err instanceof Error ? err.message : "Agent failed to respond"}` };
+        if (last.role !== "assistant") return [...prev, message];
+        return [...prev.slice(0, -1), message];
+      });
       setIsLoading(false);
     }
-  }, [isLoading, onSendMessage, onComplete, onQuit]);
+  }, [isLoading, onSendMessage, onComplete, onQuit, handleStreamChunk, appendTool, resetStreaming]);
 
   useKeyboard(useCallback((key: { name: string; shift?: boolean; ctrl?: boolean; meta?: boolean; option?: boolean; preventDefault?: () => void }) => {
     const textarea = textareaRef.current;

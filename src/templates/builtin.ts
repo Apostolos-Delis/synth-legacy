@@ -127,6 +127,7 @@ For topics 6-10, if the conversation provides enough context to make reasonable 
 3. **Inference over interrogation** — For implementation-oriented topics (edge cases, error handling, deps, testing, acceptance criteria), prefer inferring reasonable defaults from context over asking the user. Only ask when the context genuinely doesn't provide enough signal.
 4. **No per-topic summaries** — Don't restate and confirm each topic individually. Before writing the PRD, do one brief 2-3 sentence summary check and ask if anything is missing.
 5. **Conclude when ready** — Once you can confidently address all 10 areas (via answers + inference), write the PRD. Target 3-6 exchanges but use more if the project is genuinely complex or ambiguous.
+6. **No deferral** — Do not end a response with phrases like "Let me explore the codebase first." If you decide to explore, do it and continue in the same response with findings and either the next questions or the full PRD.
 
 **Push back on vague answers for core topics.** If the user says something imprecise about problems, users, scope, or architecture, ask a specific follow-up. Offer concrete options when the user is stuck.
 
