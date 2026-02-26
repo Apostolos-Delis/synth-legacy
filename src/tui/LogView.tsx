@@ -1,4 +1,4 @@
-import { memo, useState, useEffect, useRef, useCallback, type ReactNode } from "react";
+import { memo, useState, useEffect, useRef, useCallback, useMemo, type ReactNode } from "react";
 import type { LogEntry, LogSubscriber } from "../logging/types.js";
 import { colors, boldAttr } from "./theme.js";
 
@@ -39,6 +39,7 @@ export const LogView = memo(function LogView({
   width,
   height,
   focused = false,
+  filter,
   onSubscribe,
 }: LogViewProps): ReactNode {
   const [entries, setEntries] = useState<LogEntry[]>([]);
@@ -60,6 +61,17 @@ export const LogView = memo(function LogView({
     return unsubscribe;
   }, [onSubscribe, handleEntry]);
 
+  const normalizedFilter = (filter ?? "").trim().toLowerCase();
+  const filteredEntries = useMemo(() => {
+    if (!normalizedFilter) return entries;
+    return entries.filter((entry) => {
+      if (entry.message.toLowerCase().includes(normalizedFilter)) return true;
+      if (entry.event && entry.event.toLowerCase().includes(normalizedFilter)) return true;
+      if (entry.level.toLowerCase().includes(normalizedFilter)) return true;
+      return false;
+    });
+  }, [entries, normalizedFilter]);
+
   return (
     <box
       width={width}
@@ -70,10 +82,12 @@ export const LogView = memo(function LogView({
       flexDirection="column"
       overflow="hidden"
     >
-      {entries.length === 0 ? (
+      {filteredEntries.length === 0 ? (
         <box flexGrow={1} style={{ paddingLeft: 1 }}>
           <text>
-            <span fg={colors.fg.muted}>No log entries yet.</span>
+            <span fg={colors.fg.muted}>
+              {normalizedFilter ? "No log entries match the filter." : "No log entries yet."}
+            </span>
           </text>
         </box>
       ) : (
@@ -84,7 +98,7 @@ export const LogView = memo(function LogView({
           stickyStart="bottom"
           style={{ flexDirection: "column" }}
         >
-          {entries.map((entry, i) => {
+          {filteredEntries.map((entry, i) => {
             const levelColor = LEVEL_COLORS[entry.level] ?? colors.fg.muted;
             const label = LEVEL_LABELS[entry.level] ?? entry.level.toUpperCase();
             const hasEvent = Boolean(entry.event && entry.event.trim() !== "");
