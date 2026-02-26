@@ -6,7 +6,7 @@ import type { AgentToolEvent } from "../agents/types.js";
 import { WELCOME_MESSAGE } from "../interview/interviewer.js";
 import { boldAttr, colors, markdownSyntaxStyle } from "./theme.js";
 import { PhaseIndicator } from "./components/PhaseIndicator.js";
-import { AgentStreamingBubble } from "./components/AgentStreamingBubble.js";
+import { AgentStreamingBody } from "./components/AgentStreamingBody.js";
 import { openInEditor } from "../utils/editor.js";
 import { copyToClipboard } from "../utils/clipboard.js";
 import { formatDuration } from "../utils/format.js";
@@ -19,13 +19,32 @@ import { useExitConfirm } from "./hooks/useExitConfirm.js";
 
 interface InterviewAppProps {
   sessionId?: string;
-  onSendMessage: (msg: string, onChunk: (chunk: string) => void, onTool?: (event: AgentToolEvent) => void) => Promise<{ response: string; done: boolean }>;
+  onSendMessage: (
+    msg: string,
+    onChunk: (chunk: string) => void,
+    onTool?: (event: AgentToolEvent) => void,
+    onReset?: () => void,
+  ) => Promise<{ response: string; done: boolean }>;
   onComplete: () => void;
   onQuit: () => void;
   initialMessages?: InterviewMessage[];
 }
 
-function MessageBubble({ message }: { message: InterviewMessage }): ReactNode {
+function MessageBubble({
+  message,
+  isStreaming,
+  streamingText,
+  toolEvents,
+  loadingStartTime,
+  phaseLabel,
+}: {
+  message: InterviewMessage;
+  isStreaming: boolean;
+  streamingText: string;
+  toolEvents: AgentToolEvent[];
+  loadingStartTime: number;
+  phaseLabel: string;
+}): ReactNode {
   const isUser = message.role === "user";
   const roleColor = isUser ? colors.accent.primary : colors.accent.secondary;
   const roleLabel = isUser ? "You" : "Synth";
@@ -34,9 +53,16 @@ function MessageBubble({ message }: { message: InterviewMessage }): ReactNode {
     <box style={{ width: "100%", flexDirection: "column", marginBottom: 1 }}>
       <box style={{ flexDirection: "row", gap: 1 }}>
         <text fg={roleColor} attributes={boldAttr()}>{roleLabel}</text>
+        {!isUser && isStreaming ? (
+          <PhaseIndicator phase={phaseLabel} startTime={loadingStartTime} />
+        ) : null}
       </box>
       <box style={{ paddingLeft: 2 }}>
-        <markdown content={message.content} syntaxStyle={markdownSyntaxStyle()} />
+        {isUser || !isStreaming ? (
+          <markdown content={message.content} syntaxStyle={markdownSyntaxStyle()} />
+        ) : (
+          <AgentStreamingBody streamingText={streamingText} toolEvents={toolEvents} />
+        )}
       </box>
     </box>
   );
@@ -51,6 +77,7 @@ export function InterviewApp({ sessionId, onSendMessage, onComplete, onQuit, ini
   const [isLoading, setIsLoading] = useState(false);
   const [loadingStartTime, setLoadingStartTime] = useState(0);
   const {
+    streamingText,
     toolEvents,
     hasStreaming,
     appendChunk,
@@ -70,13 +97,6 @@ export function InterviewApp({ sessionId, onSendMessage, onComplete, onQuit, ini
   const handleStreamChunk = useCallback((chunk: string) => {
     if (!chunk) return;
     appendChunk(chunk);
-    setMessages((prev) => {
-      if (prev.length === 0) return prev;
-      const last = prev[prev.length - 1];
-      if (last.role !== "assistant") return prev;
-      const updated = { ...last, content: last.content + chunk };
-      return [...prev.slice(0, -1), updated];
-    });
   }, [appendChunk]);
 
   const handleSubmit = useCallback(async () => {
@@ -105,17 +125,17 @@ export function InterviewApp({ sessionId, onSendMessage, onComplete, onQuit, ini
     resetStreaming();
 
     try {
-      const { response, done } = await onSendMessage(value, handleStreamChunk, appendTool);
-      resetStreaming();
+      const { response, done } = await onSendMessage(value, handleStreamChunk, appendTool, resetStreaming);
       const elapsed = Date.now() - startTime;
       const durationLabel = elapsed > 0 ? `\n\n_Generated in ${formatDuration(elapsed)}_` : "";
       setMessages((prev) => {
         if (prev.length === 0) return prev;
         const last = prev[prev.length - 1];
-        if (last.role !== "assistant") return prev;
+        if (last.role !== "assistant") return [...prev, { role: "assistant", content: `${response}${durationLabel}` }];
         const updated = { ...last, content: `${response}${durationLabel}` };
         return [...prev.slice(0, -1), updated];
       });
+      resetStreaming();
       setIsLoading(false);
 
       if (done) {
@@ -125,11 +145,9 @@ export function InterviewApp({ sessionId, onSendMessage, onComplete, onQuit, ini
     } catch (err) {
       resetStreaming();
       setMessages((prev) => {
-        if (prev.length === 0) {
-          return [{ role: "assistant", content: `Error: ${err instanceof Error ? err.message : "Agent failed to respond"}` }];
-        }
-        const last = prev[prev.length - 1];
         const message = { role: "assistant" as const, content: `Error: ${err instanceof Error ? err.message : "Agent failed to respond"}` };
+        if (prev.length === 0) return [message];
+        const last = prev[prev.length - 1];
         if (last.role !== "assistant") return [...prev, message];
         return [...prev.slice(0, -1), message];
       });
@@ -333,18 +351,21 @@ export function InterviewApp({ sessionId, onSendMessage, onComplete, onQuit, ini
         }}
       >
         <scrollbox height={messageScrollHeight} stickyScroll={true} stickyStart="bottom">
-          {messages.map((msg, i) => (
-            <MessageBubble key={i} message={msg} />
-          ))}
-          <AgentStreamingBubble
-            isLoading={isLoading}
-            loadingStartTime={loadingStartTime}
-            streamingText=""
-            toolEvents={toolEvents}
-            phaseLabel="Generating response..."
-          />
-
-
+          {messages.map((msg, i) => {
+            const isStreaming = isLoading && msg.role === "assistant" && i === messages.length - 1;
+            const phase = (streamingText.length > 0 || toolEvents.length > 0) ? "Streaming response..." : "Generating response...";
+            return (
+              <MessageBubble
+                key={i}
+                message={msg}
+                isStreaming={isStreaming}
+                streamingText={streamingText}
+                toolEvents={toolEvents}
+                loadingStartTime={loadingStartTime}
+                phaseLabel={phase}
+              />
+            );
+          })}
         </scrollbox>
       </box>
 

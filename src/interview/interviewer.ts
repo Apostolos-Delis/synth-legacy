@@ -36,15 +36,20 @@ export class Interviewer {
     this.engine.setSystemPrompt(result.template);
   }
 
-  async respond(userMessage: string, onChunk?: (chunk: string) => void, onTool?: (event: AgentToolEvent) => void): Promise<string> {
+  async respond(
+    userMessage: string,
+    onChunk?: (chunk: string) => void,
+    onTool?: (event: AgentToolEvent) => void,
+    onReset?: () => void,
+  ): Promise<string> {
     await this.templateReady;
-    const response = await this.engine.send(userMessage, onChunk, onTool);
-    if (shouldRetryInterview(response)) {
-      return this.engine.retryLast(
-        "You already explored the codebase using tools. Summarize key findings and ask the next targeted questions or provide the full PRD now. Do not defer.",
-        onChunk,
-        onTool,
-      );
+    let response = await this.engine.send(userMessage, onChunk, onTool);
+    const retrySuffix =
+      "You already explored the codebase using tools. Summarize key findings and ask the next targeted questions or provide the full PRD now. Do not defer.";
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      if (!shouldRetryInterview(response)) return response;
+      onReset?.();
+      response = await this.engine.retryLast(retrySuffix, onChunk, onTool);
     }
     return response;
   }

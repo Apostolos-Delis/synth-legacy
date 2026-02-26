@@ -172,8 +172,8 @@ export async function resumeInterview(
         <tui.InterviewApp
           sessionId={id}
           initialMessages={savedState.interviewerHistory}
-          onSendMessage={async (msg, onChunk, onTool) => {
-            const response = await interviewer.respond(msg, onChunk, showToolLogs ? onTool : undefined);
+          onSendMessage={async (msg, onChunk, onTool, onReset) => {
+            const response = await interviewer.respond(msg, onChunk, showToolLogs ? onTool : undefined, onReset);
             const extractedMd = interviewer.extractPrdMarkdown(response);
             if (extractedMd) prdMarkdown = extractedMd;
             return { response, done: !!extractedMd };

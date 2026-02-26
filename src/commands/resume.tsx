@@ -153,10 +153,10 @@ async function resumeInterview(
         <tui.InterviewApp
           sessionId={id}
           initialMessages={savedState.interviewerHistory}
-          onSendMessage={async (msg, onChunk, onTool) => {
+          onSendMessage={async (msg, onChunk, onTool, onReset) => {
             logger.info("interview:prompt", "User message", { length: msg.length });
             try {
-              const response = await interviewer.respond(msg, onChunk, showToolLogs ? onTool : undefined);
+              const response = await interviewer.respond(msg, onChunk, showToolLogs ? onTool : undefined, onReset);
               logger.info("interview:response", "Assistant response", { length: response.length });
               if (!response.trim()) {
                 logger.warn("interview:empty-response", "Assistant returned empty response");

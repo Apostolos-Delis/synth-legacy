@@ -35,6 +35,9 @@ export function AgentStreamingBody({
 
   return (
     <box style={{ paddingLeft, flexDirection: "column" }}>
+      {streamingText && (
+        <markdown content={streamingText} syntaxStyle={markdownSyntaxStyle()} streaming={true} />
+      )}
       {visibleToolEvents.length > 0 && (
         <box style={{ flexDirection: "column", gap: 0 }}>
           {visibleToolEvents.map((event, idx) => {
@@ -71,9 +74,6 @@ export function AgentStreamingBody({
             );
           })}
         </box>
-      )}
-      {streamingText && (
-        <markdown content={streamingText} syntaxStyle={markdownSyntaxStyle()} streaming={true} />
       )}
     </box>
   );
