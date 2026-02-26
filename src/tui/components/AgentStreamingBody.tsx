@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import type { AgentToolEvent } from "../../agents/types.js";
-import { colors, markdownSyntaxStyle } from "../theme.js";
+import { colors } from "../theme.js";
 
 interface AgentStreamingBodyProps {
   streamingText: string;
@@ -36,7 +36,7 @@ export function AgentStreamingBody({
   return (
     <box style={{ paddingLeft, flexDirection: "column" }}>
       {streamingText && (
-        <markdown content={streamingText} syntaxStyle={markdownSyntaxStyle()} streaming={true} />
+        <text fg={colors.fg.primary}>{streamingText}</text>
       )}
       {visibleToolEvents.length > 0 && (
         <box style={{ flexDirection: "column", gap: 0 }}>
