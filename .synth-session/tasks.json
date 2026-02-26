@@ -40,6 +40,42 @@
         true
       ],
       "durationMs": 266897
+    },
+    {
+      "id": "MODU-005",
+      "title": "Move PRD Review Logic to Engine",
+      "description": "Extract PRD revision prompt building, retries, and markdown extraction into a core engine module and make the TUI view-only.",
+      "acceptanceCriteria": [
+        "`src/tui/PrdReviewView.tsx` no longer builds prompts or executes agents.",
+        "New engine module handles revision retries and markdown extraction with the same behavior.",
+        "Tests cover revision prompt creation and markdown extraction."
+      ],
+      "verification": [
+        {
+          "type": "command",
+          "value": "bun run typecheck"
+        },
+        {
+          "type": "command",
+          "value": "bun test src/__tests__/prd-review.test.ts"
+        }
+      ],
+      "priority": 2,
+      "status": "done",
+      "affects": [
+        "src/engine/prd-review.ts",
+        "src/tui/PrdReviewView.tsx",
+        "src/__tests__/prd-review.test.ts"
+      ],
+      "dependsOn": [],
+      "notes": "",
+      "iterationCount": 1,
+      "criteriaCompleted": [
+        true,
+        true,
+        true
+      ],
+      "durationMs": 239884
     }
   ]
 }

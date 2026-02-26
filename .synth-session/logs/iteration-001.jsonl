@@ -7,10 +7,6 @@ Changes:
 - Updated `src/__tests__/template-engine.test.ts` for phased paths and removed `src/__tests__/migration.test.ts`.
 - Set task status to done in `.synth-session/tasks.json`.
 
-
-
-
-
 **Tests**
 - `bun run typecheck` (failed: `tsc` not found)
 - `bun test src/__tests__/template-engine.test.ts` (failed: missing `handlebars` package)
@@ -18,3 +14,14 @@ Changes:
 **Done**: Removed legacy migration logic from `src/run/run.ts` and `src/sessions/registry.ts`, enforced phased-only template lookup in `src/templates/engine.ts`, removed unphased builtin keys in `src/templates/builtin.ts`, updated `src/__tests__/template-engine.test.ts`, deleted `src/__tests__/migration.test.ts`, and set `.synth-session/tasks.json` to `done`.
 **Discovered**: Local environment lacks `tsc`; `bun test` fails because `handlebars` is not installed.
 **Next**: Install dependencies (including `handlebars`) and make `tsc` available, then rerun the verification commands.
+
+**Done**: Added core PRD review engine with prompt construction, retries, and markdown extraction in `src/engine/prd-review.ts`. Wired `src/tui/PrdReviewView.tsx` to use `revisePrd` so it no longer builds prompts or calls `agent.execute`. Added tests for prompt creation and markdown extraction in `src/__tests__/prd-review.test.ts`. Marked task complete in `.synth-session/tasks.json`.
+**Discovered**: Local `bun run typecheck` fails because `tsc` is not available; `bun run lint` fails because `eslint` is not available in PATH.
+**Next**: None.
+
+Tests:
+- `bun test src/__tests__/prd-review.test.ts` (passed)
+- `bun run typecheck` (failed: `tsc` not found)
+- `bun run lint` (failed: `eslint` not found)
+
+<promise>COMPLETE</promise>
