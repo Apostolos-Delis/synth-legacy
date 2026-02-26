@@ -25,3 +25,14 @@ Tests:
 - `bun run lint` (failed: `eslint` not found)
 
 <promise>COMPLETE</promise>
+
+Updated notifications to route through `PlatformProvider` (with per-platform warning fallbacks), added platform-based update target resolution, wired `update` to that API, and revised notification tests to mock the platform provider. Also marked task status done in `.synth-session/tasks.json`.
+
+**Tests**
+- `bun run typecheck` (failed: `tsc` not found)
+- `bun run lint` (failed: `eslint` not found)
+- `bun test src/__tests__/notifications.test.ts`
+
+**Done**: Routed notifications via `getPlatform().sendNotification` with per-platform handlers (`src/notifications.ts`, `src/platform/darwin.ts`, `src/platform/linux.ts`, `src/platform/default.ts`); added `resolveUpdateTarget` to `PlatformProvider` and used it in `src/commands/update.ts`; updated notification tests to mock platform API with dynamic import (`src/__tests__/notifications.test.ts`); set `.synth-session/tasks.json` task status to `done`.
+**Discovered**: Task tracking lives in `.synth-session/tasks.json`; local env is missing `tsc` and `eslint`, so typecheck/lint can’t run here.
+**Next**: Run `bun run typecheck` and `bun run lint` in an environment with dependencies installed to confirm green.

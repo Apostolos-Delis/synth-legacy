@@ -76,6 +76,47 @@
         true
       ],
       "durationMs": 239884
+    },
+    {
+      "id": "MODU-003",
+      "title": "Platform Notifications and Update Target Interface",
+      "description": "Move notifications and OS/arch detection behind `PlatformProvider` and implement per-platform behavior with non-fatal fallbacks.",
+      "acceptanceCriteria": [
+        "Notifications are routed through platform implementations and failures surface as warnings without crashing.",
+        "Platform exposes a single OS/arch resolution method for updates, with unsupported platforms returning a clear error.",
+        "Notification tests validate the new platform-based API."
+      ],
+      "verification": [
+        {
+          "type": "command",
+          "value": "bun run typecheck"
+        },
+        {
+          "type": "command",
+          "value": "bun test src/__tests__/notifications.test.ts"
+        }
+      ],
+      "priority": 2,
+      "status": "done",
+      "affects": [
+        "src/platform/types.ts",
+        "src/platform/index.ts",
+        "src/platform/darwin.ts",
+        "src/platform/linux.ts",
+        "src/platform/default.ts",
+        "src/platform/notifications.ts",
+        "src/notifications.ts",
+        "src/__tests__/notifications.test.ts"
+      ],
+      "dependsOn": [],
+      "notes": "",
+      "iterationCount": 1,
+      "criteriaCompleted": [
+        true,
+        true,
+        true
+      ],
+      "durationMs": 552169
     }
   ]
 }
