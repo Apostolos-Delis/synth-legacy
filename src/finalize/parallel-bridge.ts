@@ -285,6 +285,22 @@ export function attachParallelLogger(
     }).catch(() => {});
   };
 
+  const flushNow = (): void => {
+    if (flushTimer) {
+      clearTimeout(flushTimer);
+      flushTimer = null;
+    }
+    flush();
+  };
+
+  const handleExit = (): void => {
+    flushNow();
+  };
+
+  process.on("beforeExit", handleExit);
+  process.on("SIGINT", handleExit);
+  process.on("SIGTERM", handleExit);
+
   const scheduleFlush = (): void => {
     if (flushTimer) return;
     flushTimer = setTimeout(() => {
