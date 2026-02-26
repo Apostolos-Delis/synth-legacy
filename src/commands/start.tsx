@@ -35,6 +35,7 @@ export interface StartContext {
   tuiEnabled: boolean;
   parallelMode: boolean;
   parallelWorkers: number | undefined;
+  agentName?: string;
 }
 
 // ── Exported helpers ──
@@ -422,6 +423,10 @@ export async function cmdStart(
 ): Promise<void> {
   const { cwd, tuiEnabled } = ctx;
   const config = await applyTheme(cwd);
+  const agentName = ctx.agentName ?? config.agent.name;
+  if (agentName !== config.agent.name) {
+    config.agent.name = agentName;
+  }
   const showToolLogs = config.tui?.show_tool_logs !== false;
   const repoRoot = cwd;
   let sessionCwd = cwd;
@@ -443,6 +448,7 @@ export async function cmdStart(
     const prdContent = await readText(prdPath);
     const prdTitle = prdContent.match(/^#\s+(.+)$/m)?.[1]?.trim() || "Generated from PRD";
     const { id, paths } = await createSession(cwd, prdTitle);
+    await updateSessionMetadata(cwd, id, { agentName });
 
     // Create worktree if -w flag is set
     if (useWorktree) {
@@ -599,6 +605,7 @@ export async function cmdStart(
 
   // Create session early so we have paths for interview state persistence
   const { id, paths } = await createSession(cwd, "");
+  await updateSessionMetadata(cwd, id, { agentName });
   const logger = getLogger();
 
   // Create worktree if -w flag is set (use session ID as fallback name before PRD title is known)
@@ -966,12 +973,18 @@ const startCommand: CommandModule = {
         type: "string",
         describe: "Run in a git worktree",
       })
+      .option("agent", {
+        type: "string",
+        describe: "Override agent for this session (e.g. claude, codex)",
+      })
       .example("synth start", "Start a new interactive session")
       .example("synth start --prd spec.md", "Start from an existing PRD")
-      .example("synth start -w my-feature --prd spec.md", "Start in a worktree from PRD"),
+      .example("synth start -w my-feature --prd spec.md", "Start in a worktree from PRD")
+      .example("synth start --agent codex", "Start with a different agent"),
   async handler(argv) {
     const cwd = process.cwd();
     const tuiEnabled = process.stdout.isTTY === true && !process.argv.includes("--no-tui");
+    const agentName = argv.agent as string | undefined;
 
     // Parse parallel flags from process.argv (global options, not start-specific)
     const rawArgs = process.argv.slice(2);
@@ -1001,6 +1014,7 @@ const startCommand: CommandModule = {
       tuiEnabled,
       parallelMode,
       parallelWorkers,
+      agentName,
     });
   },
 };

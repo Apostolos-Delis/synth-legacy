@@ -102,6 +102,9 @@ async function resumeInterview(
   localCmdRun: (sessionId?: string, startIteration?: number, tuiContext?: TuiContext) => Promise<void>,
 ): Promise<void> {
   const config = await applyTheme(cwd);
+  if (plan.metadata.agentName && plan.metadata.agentName !== config.agent.name) {
+    config.agent.name = plan.metadata.agentName;
+  }
   const showToolLogs = config.tui?.show_tool_logs !== false;
   const logger = getLogger();
 
@@ -571,6 +574,9 @@ export async function cmdResumeInternal(
 
     case "reviewing": {
       const config = await applyTheme(cwd);
+      if (plan.metadata.agentName && plan.metadata.agentName !== config.agent.name) {
+        config.agent.name = plan.metadata.agentName;
+      }
       const [{ getAgent }, runMod] = await Promise.all([
         loadAgentRegistry(),
         loadRunModule(),

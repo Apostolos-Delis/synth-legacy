@@ -7,6 +7,7 @@ export interface SessionMetadata {
   status: "interviewing" | "planning" | "executing" | "reviewing" | "paused" | "blocked" | "completed" | "finalizing" | "finalized" | "failed";
   taskCount: number;
   tasksCompleted: number;
+  agentName?: string;
   slug?: string;
   branch?: string;
   worktreePath?: string;

@@ -124,6 +124,10 @@ export async function cmdRun(
     process.exit(1);
   }
 
+  if (plan.metadata.agentName && plan.metadata.agentName !== config.agent.name) {
+    config.agent.name = plan.metadata.agentName;
+  }
+
   logger.info("run:start", "Run started", {
     sessionId: plan.metadata.id,
     startIteration,
