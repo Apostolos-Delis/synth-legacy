@@ -1,5 +1,6 @@
 import { mkdirSync } from "node:fs";
-import { join } from "node:path";
+import { homedir } from "node:os";
+import { basename, join } from "node:path";
 import type {
   AgentAdapter,
   AgentDetectResult,
@@ -47,7 +48,9 @@ export abstract class BaseAgentAdapter implements AgentAdapter {
     const cmd = this.buildCmd(prompt, options);
     const env: Record<string, string> = {};
     if (options.cwd) {
-      const tmpDir = join(options.cwd, ".synth-tmp");
+      const repoName = basename(options.cwd) || "repo";
+      const runId = `${process.pid}-${Date.now()}`;
+      const tmpDir = join(homedir(), ".synth", "tmp", repoName, runId);
       try {
         mkdirSync(tmpDir, { recursive: true });
         env.TMPDIR = tmpDir;
