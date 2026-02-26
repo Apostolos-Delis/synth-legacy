@@ -12,7 +12,7 @@ const SHORTCUTS: Record<ViewMode, string> = {
   dashboard: "q:quit  p:pause/resume  Esc:back",
   history: "j/k:navigate  Enter:view  Esc:back",
   config: "j/k:scroll  Esc:back",
-  interview: "Enter:send  q:quit",
+  interview: "Enter:send  Ctrl+E:proceed  q:quit",
   generating: "Please wait...",
   review: "j/k:navigate  Enter:start execution  Esc/q:save and quit",
   completion: "q:quit",

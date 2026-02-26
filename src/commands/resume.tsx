@@ -323,6 +323,14 @@ async function resumeInterview(
   const agent = getAgent(config.agent.name);
 
   let prdMarkdown: string | null = null;
+  const getLastAssistantMessage = (messages: import("../interview/types.js").InterviewMessage[]): string | null => {
+    for (let i = messages.length - 1; i >= 0; i -= 1) {
+      const msg = messages[i];
+      if (msg.role === "assistant" && msg.content.trim()) return msg.content;
+    }
+    return null;
+  };
+  let lastAssistantResponse: string | null = getLastAssistantMessage(savedState.interviewerHistory);
   const { id, paths } = { id: plan.metadata.id, paths: plan.paths };
 
   const interviewer = new interviewMod.Interviewer(agent, cwd, config.agent.model, async (messages) => {
@@ -370,6 +378,7 @@ async function resumeInterview(
             logger.info("interview:prompt", "User message", { length: msg.length });
             try {
               const response = await interviewer.respond(msg, onChunk, showToolLogs ? onTool : undefined, onReset);
+              lastAssistantResponse = response;
               logger.info("interview:response", "Assistant response", { length: response.length });
               if (!response.trim()) {
                 logger.warn("interview:empty-response", "Assistant returned empty response");
@@ -386,6 +395,9 @@ async function resumeInterview(
             }
           }}
           onPersistMessages={async (messages) => {
+            if (!lastAssistantResponse) {
+              lastAssistantResponse = getLastAssistantMessage(messages);
+            }
             const state: import("../interview/types.js").InterviewState = {
               messages,
               interviewerHistory: interviewer.getHistory(),
@@ -409,12 +421,18 @@ async function resumeInterview(
     }
 
     if (!prdMarkdown) {
-      logger.warn("prd:missing", "No PRD extracted from interview");
-      process.off("SIGINT", sigintHandler);
-      cleanup();
-      agent.dispose();
-      await restoreBranch?.();
-      return;
+      const fallback = lastAssistantResponse?.trim();
+      if (fallback) {
+        prdMarkdown = fallback;
+        logger.warn("prd:missing", "No PRD extracted; using last assistant response");
+      } else {
+        logger.warn("prd:missing", "No PRD extracted from interview");
+        process.off("SIGINT", sigintHandler);
+        cleanup();
+        agent.dispose();
+        await restoreBranch?.();
+        return;
+      }
     }
 
     // Phase 2: PRD Review (same flow as cmdPlan)

@@ -55,28 +55,29 @@ export const StatusBar = memo(function StatusBar({
   const elapsed = Math.round(elapsedMs / 1000);
 
   const isParallel = parallelStatus != null;
+  const parallelExtras = isParallel ? "  g:graph  l:logs" : "";
   const navHints = exitArmed
     ? "Press q/esc again to quit"
     : navMode === "output-scroll"
       ? isParallel
-        ? "j/k:scroll  w:workers  m:merge  tab:next  esc:back  q:quit"
+        ? `j/k:scroll  w:workers  m:merge  tab:next  esc:back  q:quit${parallelExtras}`
         : "j/k:scroll  esc:back  q:quit"
     : navMode === "task-detail-scroll"
       ? isParallel
-        ? "j/k:scroll  w:workers  m:merge  tab:next  esc:back  q:quit"
+        ? `j/k:scroll  w:workers  m:merge  tab:next  esc:back  q:quit${parallelExtras}`
         : "j/k:scroll  esc:back  q:quit"
       : navMode === "detail-select"
         ? isParallel
-          ? "j/k:focus  enter:scroll  w:workers  m:merge  tab:next  esc:back  q:quit"
+          ? `j/k:focus  enter:scroll  w:workers  m:merge  tab:next  esc:back  q:quit${parallelExtras}`
           : "j/k:focus  enter:scroll  esc:back  q:quit"
         : navMode === "worker-panel"
-          ? "w:output  m:merge  tab:next  esc:back  q:quit"
+          ? `w:output  m:merge  tab:next  esc:back  q:quit${parallelExtras}`
           : navMode === "merge-panel"
-            ? "m:back  w:workers  tab:next  esc:back  q:quit"
+            ? `m:back  w:workers  tab:next  esc:back  q:quit${parallelExtras}`
             : navMode === "conflict-panel"
-              ? "tab:next  esc:back  q:quit"
+              ? `tab:next  esc:back  q:quit${parallelExtras}`
               : isParallel
-                ? "j/k:tasks  enter:scroll  w:workers  m:merge  p:pause  d:dashboard  q:quit"
+                ? `j/k:tasks  enter:scroll  w:workers  m:merge  p:pause  d:dashboard  q:quit${parallelExtras}`
                 : "j/k:tasks  enter:scroll  h:history  p:pause  d:dashboard  q:quit";
 
   const tokenDisplay = currentTaskTokens != null && currentTaskTokens > 0
