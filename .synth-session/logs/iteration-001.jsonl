@@ -1,0 +1,11 @@
+**Done**: Added integration test `src/__tests__/session-log.test.ts` that calls `createSession` and `getLogger`, logs a message with `request_id`, and asserts JSONL fields plus `meta.request_id`. Updated `src/sessions/registry.ts` to honor `SYNTH_HOME` for test isolation. Marked task done in `.synth-session/tasks.json`.
+**Discovered**: `createSession` writes to `~/.synth/sessions/...` at module load, so tests need a `SYNTH_HOME` override to avoid sandbox permission issues.
+**Next**: None.
+
+
+
+
+Tests:
+1. `bun run typecheck` failed: `tsc` not found.
+2. `bun run lint` failed: `eslint` not found.
+3. `bun test src/__tests__/session-log.test.ts` passed.

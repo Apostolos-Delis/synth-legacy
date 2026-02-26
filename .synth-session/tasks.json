@@ -4,6 +4,76 @@
   "description": "Worker w-JSONL-001-0: Implement Structured JSONL Logger Core",
   "tasks": [
     {
+      "id": "MODU-004",
+      "title": "Centralize Prompt Cache in Engine",
+      "description": "Move prompt file caching into an engine module with documented keys/invalidation and hit/miss logging; keep `buildPrompt` pure.",
+      "acceptanceCriteria": [
+        "Prompt cache reads/writes occur only in `src/engine` and `buildPrompt` no longer manages caching.",
+        "Cache keys and invalidation rules are documented in the new module and tests cover hit/miss behavior.",
+        "Cache usage is logged with hit/miss metrics and includes `sessionId`, `phase`, and `component`."
+      ],
+      "verification": [
+        {
+          "type": "command",
+          "value": "bun run typecheck"
+        },
+        {
+          "type": "command",
+          "value": "bun test src/__tests__/prompt-build.test.ts"
+        },
+        {
+          "type": "command",
+          "value": "bun test src/__tests__/prompt-cache.test.ts"
+        }
+      ],
+      "priority": 2,
+      "status": "done",
+      "affects": [
+        "src/engine/engine.ts",
+        "src/engine/prompt-cache.ts",
+        "src/prompts/build.ts",
+        "src/__tests__/prompt-build.test.ts",
+        "src/__tests__/prompt-cache.test.ts"
+      ],
+      "dependsOn": [],
+      "notes": "",
+      "iterationCount": 1,
+      "criteriaCompleted": [
+        true,
+        true,
+        true
+      ],
+      "durationMs": 507043
+    },
+    {
+      "id": "MODU-009",
+      "title": "Add TUI Rendering Integration Test",
+      "description": "Create an integration test that renders TUI views using mocked engine state and verifies render output without invoking business logic.",
+      "acceptanceCriteria": [
+        "Test uses mocked `TuiEngineData`/events and does not execute agents or build prompts.",
+        "Render output includes expected labels/sections for the mocked state."
+      ],
+      "verification": [
+        {
+          "type": "command",
+          "value": "bun test src/__tests__/tui-render.test.tsx"
+        }
+      ],
+      "priority": 3,
+      "status": "done",
+      "affects": [
+        "src/__tests__/tui-render.test.tsx"
+      ],
+      "dependsOn": [],
+      "notes": "",
+      "iterationCount": 1,
+      "criteriaCompleted": [
+        true,
+        true
+      ],
+      "durationMs": 596176
+    },
+    {
       "id": "JSONL-001",
       "title": "Implement Structured JSONL Logger Core",
       "description": "Update the logging schema to required JSONL fields and implement safe formatting in the logger (service/env defaults, context normalization for request/job IDs and duration, error object enrichment, truncation/circular handling, and structured fallback on write failures). Update session logger initialization and logger unit tests to reflect the new schema.",
@@ -41,6 +111,34 @@
         true
       ],
       "durationMs": 207989
+    },
+    {
+      "id": "JSONL-003",
+      "title": "Add Integration Test for Session JSONL Output",
+      "description": "Add an integration test that creates a session, logs a message, and asserts the session log line is valid JSONL with required fields and `request_id` present.",
+      "acceptanceCriteria": [
+        "Test exercises `createSession` + `getLogger` and verifies JSONL output with required fields and `request_id`.",
+        "Test passes without relying on console output."
+      ],
+      "verification": [
+        {
+          "type": "command",
+          "value": "bun test src/__tests__/session-log.test.ts"
+        }
+      ],
+      "priority": 3,
+      "status": "done",
+      "affects": [
+        "src/__tests__/session-log.test.ts"
+      ],
+      "dependsOn": [],
+      "notes": "",
+      "iterationCount": 1,
+      "criteriaCompleted": [
+        true,
+        true
+      ],
+      "durationMs": 159056
     }
   ]
 }
