@@ -5,23 +5,25 @@ import { globalConfigPath } from "./paths.js";
 import { readTomlFile } from "./writer.js";
 import { getLogger } from "../logging/logger.js";
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function deepMerge(base: any, override: any): any {
-  const result = { ...base };
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function deepMerge<T extends Record<string, unknown>>(
+  base: T,
+  override: Record<string, unknown>,
+): T {
+  const result: Record<string, unknown> = { ...base };
   for (const key of Object.keys(override)) {
-    const val = override[key];
-    if (
-      val &&
-      typeof val === "object" &&
-      !Array.isArray(val) &&
-      typeof base[key] === "object"
-    ) {
-      result[key] = deepMerge(base[key], val);
+    const overrideValue = override[key];
+    const baseValue = base[key];
+    if (isPlainObject(overrideValue) && isPlainObject(baseValue)) {
+      result[key] = deepMerge(baseValue, overrideValue);
     } else {
-      result[key] = val;
+      result[key] = overrideValue;
     }
   }
-  return result;
+  return result as T;
 }
 
 export async function loadConfig(
@@ -37,7 +39,7 @@ export async function loadConfig(
   let config: SynthConfig = deepMerge(DEFAULT_CONFIG, globalConfig);
   config = deepMerge(config, fileConfig);
   if (overrides) {
-    config = deepMerge(config, overrides);
+    config = deepMerge(config, overrides as Record<string, unknown>);
   }
 
   // Auto-detect project name from directory if not set

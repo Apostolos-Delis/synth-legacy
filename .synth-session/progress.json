@@ -1,20 +1,5 @@
-## Iteration 1 - MODU-001: Remove Legacy Migration Paths
+## Iteration 1 - MODU-007: Remove Explicit any in Config Merge
 - Status: done
-- Duration: 267s
-- Criteria: 0/3 observed
----
-## Iteration 1 - MODU-005: Move PRD Review Logic to Engine
-- Status: done
-- Duration: 240s
-- Criteria: 0/3 observed
----
-## Iteration 1 - MODU-003: Platform Notifications and Update Target Interface
-- Status: done
-- Duration: 552s
-- Criteria: 0/3 observed
----
-## Iteration 3 - MODU-002: Introduce Structured Log Context
-- Status: done
-- Duration: 227s
+- Duration: 75s
 - Criteria: 0/3 observed
 ---

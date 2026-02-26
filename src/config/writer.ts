@@ -20,13 +20,17 @@ export async function writeTomlFile(
   await writeText(path, toml);
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function lookupDefault(dottedKey: string): { value: any; found: boolean } {
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function lookupDefault(
+  dottedKey: string,
+): { value: unknown; found: boolean } {
   const segments = dottedKey.split(".");
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let current: any = DEFAULT_CONFIG;
+  let current: unknown = DEFAULT_CONFIG;
   for (const seg of segments) {
-    if (current == null || typeof current !== "object" || !(seg in current)) {
+    if (!isPlainObject(current) || !(seg in current)) {
       return { value: undefined, found: false };
     }
     current = current[seg];

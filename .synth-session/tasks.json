@@ -1,16 +1,16 @@
 {
   "project": "synth",
-  "branchName": "synth-parallel/MODU-001",
-  "description": "Worker w-MODU-001-0: Remove Legacy Migration Paths",
+  "branchName": "synth-parallel/MODU-007",
+  "description": "Worker w-MODU-007-0: Remove Explicit any in Config Merge",
   "tasks": [
     {
-      "id": "MODU-001",
-      "title": "Remove Legacy Migration Paths",
-      "description": "Delete legacy plan/session migrations and template fallback logic to enforce hard cutover behavior.",
+      "id": "MODU-007",
+      "title": "Remove Explicit any in Config Merge",
+      "description": "Replace explicit `any` usage in config loader/writer with typed `unknown` or generics and remove eslint disables.",
       "acceptanceCriteria": [
-        "No code in `src/run/run.ts` or `src/sessions/registry.ts` migrates legacy data or reads legacy fields.",
-        "Template lookup in `src/templates/engine.ts` no longer falls back to legacy agent paths.",
-        "Legacy migration tests are removed or updated to reflect the new behavior."
+        "`src/config/loader.ts` and `src/config/writer.ts` have zero explicit `any` usages.",
+        "Typecheck passes without eslint overrides for `no-explicit-any`.",
+        "Config loader tests continue to pass."
       ],
       "verification": [
         {
@@ -19,17 +19,15 @@
         },
         {
           "type": "command",
-          "value": "bun test src/__tests__/template-engine.test.ts"
+          "value": "bun test src/__tests__/config-loader.test.ts"
         }
       ],
-      "priority": 1,
+      "priority": 3,
       "status": "done",
       "affects": [
-        "src/run/run.ts",
-        "src/sessions/registry.ts",
-        "src/templates/engine.ts",
-        "src/__tests__/migration.test.ts",
-        "src/__tests__/template-engine.test.ts"
+        "src/config/loader.ts",
+        "src/config/writer.ts",
+        "src/__tests__/config-loader.test.ts"
       ],
       "dependsOn": [],
       "notes": "",
@@ -39,122 +37,7 @@
         true,
         true
       ],
-      "durationMs": 266897
-    },
-    {
-      "id": "MODU-005",
-      "title": "Move PRD Review Logic to Engine",
-      "description": "Extract PRD revision prompt building, retries, and markdown extraction into a core engine module and make the TUI view-only.",
-      "acceptanceCriteria": [
-        "`src/tui/PrdReviewView.tsx` no longer builds prompts or executes agents.",
-        "New engine module handles revision retries and markdown extraction with the same behavior.",
-        "Tests cover revision prompt creation and markdown extraction."
-      ],
-      "verification": [
-        {
-          "type": "command",
-          "value": "bun run typecheck"
-        },
-        {
-          "type": "command",
-          "value": "bun test src/__tests__/prd-review.test.ts"
-        }
-      ],
-      "priority": 2,
-      "status": "done",
-      "affects": [
-        "src/engine/prd-review.ts",
-        "src/tui/PrdReviewView.tsx",
-        "src/__tests__/prd-review.test.ts"
-      ],
-      "dependsOn": [],
-      "notes": "",
-      "iterationCount": 1,
-      "criteriaCompleted": [
-        true,
-        true,
-        true
-      ],
-      "durationMs": 239884
-    },
-    {
-      "id": "MODU-003",
-      "title": "Platform Notifications and Update Target Interface",
-      "description": "Move notifications and OS/arch detection behind `PlatformProvider` and implement per-platform behavior with non-fatal fallbacks.",
-      "acceptanceCriteria": [
-        "Notifications are routed through platform implementations and failures surface as warnings without crashing.",
-        "Platform exposes a single OS/arch resolution method for updates, with unsupported platforms returning a clear error.",
-        "Notification tests validate the new platform-based API."
-      ],
-      "verification": [
-        {
-          "type": "command",
-          "value": "bun run typecheck"
-        },
-        {
-          "type": "command",
-          "value": "bun test src/__tests__/notifications.test.ts"
-        }
-      ],
-      "priority": 2,
-      "status": "done",
-      "affects": [
-        "src/platform/types.ts",
-        "src/platform/index.ts",
-        "src/platform/darwin.ts",
-        "src/platform/linux.ts",
-        "src/platform/default.ts",
-        "src/platform/notifications.ts",
-        "src/notifications.ts",
-        "src/__tests__/notifications.test.ts"
-      ],
-      "dependsOn": [],
-      "notes": "",
-      "iterationCount": 1,
-      "criteriaCompleted": [
-        true,
-        true,
-        true
-      ],
-      "durationMs": 552169
-    },
-    {
-      "id": "MODU-002",
-      "title": "Introduce Structured Log Context",
-      "description": "Extend logging types and logger API to require `sessionId`, `phase`, and `component`, and update log reader and engine log bridge accordingly.",
-      "acceptanceCriteria": [
-        "All `LogEntry` records include `level`, `sessionId`, `phase`, and `component` fields.",
-        "The engine log bridge attaches the structured context without callers hand-building it.",
-        "Log reader still parses JSONL entries and tests pass."
-      ],
-      "verification": [
-        {
-          "type": "command",
-          "value": "bun run typecheck"
-        },
-        {
-          "type": "command",
-          "value": "bun test src/__tests__/logger.test.ts"
-        }
-      ],
-      "priority": 1,
-      "status": "done",
-      "affects": [
-        "src/logging/types.ts",
-        "src/logging/logger.ts",
-        "src/logging/engine-bridge.ts",
-        "src/logging/reader.ts",
-        "src/__tests__/logger.test.ts"
-      ],
-      "dependsOn": [],
-      "notes": "Iteration 1: timed out\nIteration 2: timed out",
-      "iterationCount": 3,
-      "criteriaCompleted": [
-        true,
-        true,
-        true
-      ],
-      "durationMs": 227454
+      "durationMs": 75261
     }
   ]
 }
