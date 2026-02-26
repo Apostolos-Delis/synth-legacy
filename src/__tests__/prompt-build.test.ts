@@ -1,8 +1,6 @@
 import { describe, test, expect } from "bun:test";
 import { buildPrompt } from "../prompts/build.js";
 import { buildIterationInstructions } from "../prompts/instructions.js";
-import { writeText } from "../utils/fs.js";
-import { join } from "node:path";
 import { makeSessionPaths, makeTask, withTmpDir } from "./helpers.js";
 
 describe("buildPrompt", () => {
@@ -70,39 +68,68 @@ describe("buildPrompt", () => {
     });
   });
 
-  test("includes AGENTS.md content when file exists in cwd", async () => {
+  test("includes project context when provided", async () => {
     await withTmpDir(async (dir) => {
       const paths = makeSessionPaths(dir);
-      await writeText(join(dir, "AGENTS.md"), "# Project Rules\nUse TypeScript only.");
-      const prompt = await buildPrompt(makeTask(), paths, dir, 1);
+      const prompt = await buildPrompt(
+        makeTask(),
+        paths,
+        dir,
+        1,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        { projectContext: "# Project Rules\nUse TypeScript only." },
+      );
       expect(prompt).toContain("Project Context (AGENTS.md)");
       expect(prompt).toContain("Use TypeScript only.");
     });
   });
 
-  test("includes codebase patterns from progress.md", async () => {
+  test("includes codebase patterns when progress is provided", async () => {
     await withTmpDir(async (dir) => {
       const paths = makeSessionPaths(dir);
-      await writeText(paths.progress, `## Codebase Patterns\n- Always use async/await\n- Tests in __tests__\n\n## Other Section\nStuff here`);
-      const prompt = await buildPrompt(makeTask(), paths, dir, 1);
+      const progress = `## Codebase Patterns\n- Always use async/await\n- Tests in __tests__\n\n## Other Section\nStuff here`;
+      const prompt = await buildPrompt(
+        makeTask(),
+        paths,
+        dir,
+        1,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        { progress },
+      );
       expect(prompt).toContain("Codebase Patterns (from previous iterations)");
       expect(prompt).toContain("Always use async/await");
     });
   });
 
-  test("includes recent progress entries", async () => {
+  test("includes recent progress entries when progress is provided", async () => {
     await withTmpDir(async (dir) => {
       const paths = makeSessionPaths(dir);
       const entries = Array.from({ length: 7 }, (_, i) => `Entry ${i + 1}`);
-      await writeText(paths.progress, entries.join("\n---\n"));
-      const prompt = await buildPrompt(makeTask(), paths, dir, 1);
+      const progress = entries.join("\n---\n");
+      const prompt = await buildPrompt(
+        makeTask(),
+        paths,
+        dir,
+        1,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        { progress },
+      );
       expect(prompt).toContain("Recent Progress");
       expect(prompt).toContain("Entry 7");
       expect(prompt).toContain("Entry 3");
     });
   });
 
-  test("omits AGENTS.md section when file doesn't exist", async () => {
+  test("omits project context section when not provided", async () => {
     await withTmpDir(async (dir) => {
       const paths = makeSessionPaths(dir);
       const prompt = await buildPrompt(makeTask(), paths, dir, 1);
@@ -110,7 +137,7 @@ describe("buildPrompt", () => {
     });
   });
 
-  test("omits progress sections when progress.md doesn't exist", async () => {
+  test("omits progress sections when progress is not provided", async () => {
     await withTmpDir(async (dir) => {
       const paths = makeSessionPaths(dir);
       const prompt = await buildPrompt(makeTask(), paths, dir, 1);

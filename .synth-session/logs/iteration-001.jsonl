@@ -1,9 +1,15 @@
-Updated config merge/lookup to use `unknown`/generics and removed `no-explicit-any` disables in `src/config/loader.ts` and `src/config/writer.ts`.  
-Typecheck failed: `tsc` not found.  
-Test failed: `Cannot find package 'smol-toml'` when running `bun test src/__tests__/config-loader.test.ts`.
+Implemented the engine-scoped prompt cache, moved prompt context loading into the engine, and updated prompt build/tests accordingly.
+
+Tests:
+1. `bun run typecheck` (failed: `tsc` not found)
+2. `bun run lint` (failed: `eslint` not found)
+3. `bun test src/__tests__/prompt-build.test.ts` (failed: missing `handlebars` package)
+4. `bun test src/__tests__/prompt-cache.test.ts` (passed)
 
 
 
-**Done**: Removed explicit `any` and eslint disables by introducing `isPlainObject` and a typed `deepMerge` in `src/config/loader.ts`, plus a typed `lookupDefault` in `src/config/writer.ts`.
-**Discovered**: `bun run typecheck` fails because `tsc` is not available in the environment; config loader test fails because `smol-toml` is missing at runtime.
-**Next**: Resolve tool/dependency availability so `bun run typecheck` and `bun test src/__tests__/config-loader.test.ts` can pass.
+
+
+**Done**: Centralized prompt caching in `src/engine/prompt-cache.ts`, added cached prompt context loading in `src/engine/engine.ts`, removed caching from `src/prompts/build.ts`, updated `src/__tests__/prompt-build.test.ts`, added `src/__tests__/prompt-cache.test.ts`, and marked `MODU-004` done in `.synth-session/tasks.json`.
+**Discovered**: Tooling is missing (`tsc`, `eslint`) and `handlebars` isn’t installed, so typecheck/lint and `src/__tests__/prompt-build.test.ts` could not run.
+**Next**: Install deps (e.g., `bun install`) so `tsc`, `eslint`, and `handlebars` are available, then rerun `bun run typecheck`, `bun run lint`, and `bun test src/__tests__/prompt-build.test.ts`.

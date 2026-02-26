@@ -1,4 +1,4 @@
-import { resolve } from "node:path";
+import { basename, resolve } from "node:path";
 import type { SynthConfig } from "../config/types.js";
 import type { AgentAdapter, AgentExecutionResult } from "../agents/types.js";
 import type { SessionPaths } from "../sessions/types.js";
@@ -16,13 +16,14 @@ import { detectRateLimit, getBackoffDelay } from "./rate-limit.js";
 import { runBackpressure } from "./backpressure.js";
 import { loadTasks, saveTasks, updateTaskStatus, allTasksDone, persistTaskStatus } from "../tasks/store.js";
 import { selectNextTask } from "../tasks/selector.js";
-import { buildPrompt } from "../prompts/build.js";
+import { buildPrompt, type PromptContext } from "../prompts/build.js";
 import { appendText, writeText, ensureDir } from "../utils/fs.js";
 import { getSessionSlug } from "../sessions/slug.js";
 import { spawn } from "../utils/process.js";
 import { updateRun } from "../run/run.js";
 import { globalTrace } from "../utils/perf.js";
 import { parseTokenUsageFromOutput } from "./tokens.js";
+import { createPromptCache } from "./prompt-cache.js";
 
 const COMPLETION_PATTERN = /<promise>COMPLETE<\/promise>/;
 
@@ -35,6 +36,8 @@ export class Engine {
   private circuitBreaker: CircuitBreaker;
   private activeInterrupt: (() => void) | null = null;
   private sessionSlug: string | null = null;
+  private sessionId: string | null = null;
+  private promptCache = createPromptCache();
 
   constructor(
     private config: SynthConfig,
@@ -72,6 +75,35 @@ export class Engine {
 
   getIteration(): number {
     return this.iteration;
+  }
+
+  private getSessionId(): string {
+    if (this.sessionId !== null) return this.sessionId;
+    this.sessionId = basename(this.sessionPaths.root);
+    return this.sessionId;
+  }
+
+  private async loadPromptContext(phase: string): Promise<PromptContext> {
+    const sessionId = this.getSessionId();
+    const [agents, progress] = await Promise.all([
+      this.promptCache.readText({
+        path: resolve(this.cwd, "AGENTS.md"),
+        component: "agents",
+        sessionId,
+        phase,
+      }),
+      this.promptCache.readText({
+        path: this.sessionPaths.progress,
+        component: "progress",
+        sessionId,
+        phase,
+      }),
+    ]);
+
+    return {
+      projectContext: agents ?? undefined,
+      progress: progress ?? undefined,
+    };
   }
 
   pause(): void {
@@ -290,6 +322,9 @@ export class Engine {
       await persistTaskStatus(this.sessionPaths, task.id, "in_progress");
 
       this.emit({ type: "phase:building-prompt", timestamp: Date.now() });
+      trace.startPhase("build:read-files");
+      const promptContext = await this.loadPromptContext("build:read-files");
+      trace.endPhase("build:read-files");
       trace.startPhase("engine:prompt-build");
       if (this.sessionSlug === null) {
         this.sessionSlug = await getSessionSlug(this.sessionPaths);
@@ -303,6 +338,7 @@ export class Engine {
         this.sessionSlug,
         this.config.template?.path,
         "execute",
+        promptContext,
       );
       trace.endPhase("engine:prompt-build");
 

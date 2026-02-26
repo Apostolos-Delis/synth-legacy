@@ -1,39 +1,12 @@
-import { join } from "node:path";
-import { stat } from "node:fs/promises";
 import type { Task } from "../tasks/types.js";
 import type { SessionPaths } from "../sessions/types.js";
-import { fileExists, readText } from "../utils/fs.js";
 import { globalTrace } from "../utils/perf.js";
 import { loadTemplate, renderTemplate } from "../templates/index.js";
 import type { TemplatePhase, TemplateVariables } from "../templates/index.js";
 
-interface CacheEntry {
-  content: string;
-  mtimeMs: number;
-}
-
-const fileCache = new Map<string, CacheEntry>();
-
-async function cachedReadText(path: string): Promise<string | null> {
-  try {
-    const st = await stat(path);
-    const cached = fileCache.get(path);
-    if (cached && cached.mtimeMs === st.mtimeMs) {
-      return cached.content;
-    }
-    const content = await readText(path);
-    fileCache.set(path, { content, mtimeMs: st.mtimeMs });
-    return content;
-  } catch {
-    return null;
-  }
-}
-
-async function safeReadText(path: string): Promise<string | null> {
-  if (await fileExists(path)) {
-    return await readText(path);
-  }
-  return null;
+export interface PromptContext {
+  projectContext?: string | null;
+  progress?: string | null;
 }
 
 function extractCodebasePatterns(progress: string): string | undefined {
@@ -51,26 +24,21 @@ function extractRecentProgress(progress: string): string | undefined {
 
 export async function buildPrompt(
   task: Task,
-  sessionPaths: SessionPaths,
+  _sessionPaths: SessionPaths,
   cwd: string,
   iteration: number,
   agentName?: string,
   sessionSlug?: string,
   templatePath?: string,
   phase?: TemplatePhase,
+  context?: PromptContext,
 ): Promise<string> {
   const trace = globalTrace();
   const sections: string[] = [];
   const agent = agentName ?? "default";
 
-  // 1. Read AGENTS.md and progress.md concurrently (needed for template variables)
-  trace.startPhase("build:read-files");
-  const agentsPath = join(cwd, "AGENTS.md");
-  const [agents, progress] = await Promise.all([
-    cachedReadText(agentsPath),
-    safeReadText(sessionPaths.progress),
-  ]);
-  trace.endPhase("build:read-files");
+  const agents = context?.projectContext ?? null;
+  const progress = context?.progress ?? null;
 
   // 2. Extract patterns and progress
   let codebasePatterns: string | undefined;

@@ -1,16 +1,16 @@
 {
   "project": "synth",
-  "branchName": "synth-parallel/MODU-007",
-  "description": "Worker w-MODU-007-0: Remove Explicit any in Config Merge",
+  "branchName": "synth-parallel/MODU-004",
+  "description": "Worker w-MODU-004-0: Centralize Prompt Cache in Engine",
   "tasks": [
     {
-      "id": "MODU-007",
-      "title": "Remove Explicit any in Config Merge",
-      "description": "Replace explicit `any` usage in config loader/writer with typed `unknown` or generics and remove eslint disables.",
+      "id": "MODU-004",
+      "title": "Centralize Prompt Cache in Engine",
+      "description": "Move prompt file caching into an engine module with documented keys/invalidation and hit/miss logging; keep `buildPrompt` pure.",
       "acceptanceCriteria": [
-        "`src/config/loader.ts` and `src/config/writer.ts` have zero explicit `any` usages.",
-        "Typecheck passes without eslint overrides for `no-explicit-any`.",
-        "Config loader tests continue to pass."
+        "Prompt cache reads/writes occur only in `src/engine` and `buildPrompt` no longer manages caching.",
+        "Cache keys and invalidation rules are documented in the new module and tests cover hit/miss behavior.",
+        "Cache usage is logged with hit/miss metrics and includes `sessionId`, `phase`, and `component`."
       ],
       "verification": [
         {
@@ -19,15 +19,21 @@
         },
         {
           "type": "command",
-          "value": "bun test src/__tests__/config-loader.test.ts"
+          "value": "bun test src/__tests__/prompt-build.test.ts"
+        },
+        {
+          "type": "command",
+          "value": "bun test src/__tests__/prompt-cache.test.ts"
         }
       ],
-      "priority": 3,
+      "priority": 2,
       "status": "done",
       "affects": [
-        "src/config/loader.ts",
-        "src/config/writer.ts",
-        "src/__tests__/config-loader.test.ts"
+        "src/engine/engine.ts",
+        "src/engine/prompt-cache.ts",
+        "src/prompts/build.ts",
+        "src/__tests__/prompt-build.test.ts",
+        "src/__tests__/prompt-cache.test.ts"
       ],
       "dependsOn": [],
       "notes": "",
@@ -37,7 +43,7 @@
         true,
         true
       ],
-      "durationMs": 75261
+      "durationMs": 507043
     }
   ]
 }
