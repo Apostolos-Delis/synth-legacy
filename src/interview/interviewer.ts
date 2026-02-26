@@ -44,10 +44,9 @@ export class Interviewer {
   ): Promise<string> {
     await this.templateReady;
     let response = await this.engine.send(userMessage, onChunk, onTool);
-    const retrySuffix =
-      "You already explored the codebase using tools. Summarize key findings and ask the next targeted questions or provide the full PRD now. Do not defer.";
     for (let attempt = 0; attempt < 2; attempt += 1) {
-      if (!shouldRetryInterview(response)) return response;
+      const retrySuffix = getRetrySuffix(response);
+      if (!retrySuffix) return response;
       onReset?.();
       response = await this.engine.retryLast(retrySuffix, onChunk, onTool);
     }
@@ -69,9 +68,9 @@ export class Interviewer {
   }
 }
 
-function shouldRetryInterview(response: string): boolean {
+function getRetrySuffix(response: string): string | null {
   const trimmed = response.trim().toLowerCase();
-  if (!trimmed) return false;
+  if (!trimmed) return null;
   const deferrals = [
     "let me explore",
     "let me take a look",
@@ -83,9 +82,19 @@ function shouldRetryInterview(response: string): boolean {
     "let me review the codebase",
     "let me look at the codebase",
   ];
-  if (deferrals.some((d) => trimmed.startsWith(d))) return true;
-  if (trimmed.includes("before asking targeted questions")) return true;
-  return false;
+  if (deferrals.some((d) => trimmed.startsWith(d)) || trimmed.includes("before asking targeted questions")) {
+    return "You already explored the codebase using tools. Summarize key findings and ask the next targeted questions or provide the full PRD now. Do not defer.";
+  }
+  if (
+    trimmed.includes("what do you want to build") ||
+    trimmed.includes("1-2 sentence") ||
+    trimmed.includes("1–2 sentence") ||
+    trimmed.includes("one or two sentence") ||
+    trimmed.includes("primary goal")
+  ) {
+    return "The user already described the project and goals. Do not ask for a summary. Ask the next targeted questions or provide the full PRD now.";
+  }
+  return null;
 }
 
 export function extractPrdTitle(markdown: string): string {
