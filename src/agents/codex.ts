@@ -79,7 +79,7 @@ class CodexStreamParser {
 
       if (itemType === "agent_message") {
         const text = (item as { text?: unknown }).text;
-        if (typeof text === "string") this.appendText(text);
+        if (typeof text === "string") this.appendAgentMessage(text);
         return;
       }
 
@@ -132,6 +132,18 @@ class CodexStreamParser {
     if (!text) return;
     this.text += text;
     this.callbacks.onText?.(text);
+  }
+
+  private appendAgentMessage(text: string): void {
+    if (!text) return;
+    if (this.text.length > 0) {
+      const last = this.text[this.text.length - 1];
+      const first = text[0];
+      if (last && first && !/\s/.test(last) && !/\s/.test(first)) {
+        this.appendText(" ");
+      }
+    }
+    this.appendText(text);
   }
 
   private emitTool(event: AgentToolEvent): void {
