@@ -159,11 +159,19 @@ export async function cmdRun(
     process.exit(1);
   }
 
-  const taskFile = await loadTasks(plan.paths.tasks);
+  let taskFile = await loadTasks(plan.paths.tasks);
   const cleaned = resetOrphanedTasks(taskFile);
   if (cleaned !== taskFile) {
     await saveTasks(plan.paths.tasks, cleaned);
     log(fmt.warn("Reset orphaned in_progress tasks from previous session"));
+    taskFile = cleaned;
+  }
+  const actionableTasks = taskFile.tasks.filter(
+    (t) => t.status === "open" || t.status === "in_progress",
+  );
+  const hasActionableTasks = actionableTasks.length > 0;
+  if (!hasActionableTasks && !tuiEnabled) {
+    log(fmt.info("No actionable tasks — skipping execution"));
   }
 
   const [{ getAgent }, { Engine: EngineClass }, runMod] = await Promise.all([
@@ -220,11 +228,8 @@ export async function cmdRun(
     : null;
 
   // Parallel execution path
-  if (parallelMode) {
+  if (parallelMode && hasActionableTasks) {
     const { ParallelCoordinator, analyzeTaskGraph } = await loadParallelCoordinator();
-    const actionableTasks = taskFile.tasks.filter(
-      (t) => t.status === "open" || t.status === "in_progress",
-    );
     const analysis = analyzeTaskGraph(actionableTasks);
 
     if (actionableTasks.length < 3 || !analysis.recommendParallel) {
@@ -472,9 +477,11 @@ export async function cmdRun(
   }
 
   if (!usedParallel) {
-    engine = new EngineClass(config, agent, fallbackAgent, plan.paths, cwd);
-    engine.on(createEngineLogBridge(logger));
-    stopExecution = () => engine!.stop();
+    if (hasActionableTasks) {
+      engine = new EngineClass(config, agent, fallbackAgent, plan.paths, cwd);
+      engine.on(createEngineLogBridge(logger));
+      stopExecution = () => engine!.stop();
+    }
 
     if (tuiEnabled) {
       const tui = await loadTui();
@@ -577,7 +584,7 @@ export async function cmdRun(
   const taskStartTimes = new Map<string, number>();
   const tokenAccumulator = new TokenAccumulator();
 
-  if (!usedParallel && tuiEnabled) {
+  if (!usedParallel && tuiEnabled && engine) {
     engine!.on((event) => {
       if (!tuiData) return;
       switch (event.type) {
@@ -729,7 +736,7 @@ export async function cmdRun(
       renderTui();
     });
     renderTui();
-  } else if (!usedParallel) {
+  } else if (!usedParallel && engine) {
     engine!.on((event) => {
       switch (event.type) {
         case "iteration:start":
@@ -794,9 +801,11 @@ export async function cmdRun(
   // Notifications fire regardless of --no-tui; only suppressed in non-TTY (piped) mode
   const notificationsEnabled = config.notifications?.enabled !== false && process.stdout.isTTY === true;
   try {
-    if (!usedParallel) {
+    if (!usedParallel && engine) {
       await engine!.run(startIteration);
       finalState = engine!.getState();
+    } else if (!usedParallel && !engine) {
+      finalState = "completed";
     }
 
     if (!finalState) {

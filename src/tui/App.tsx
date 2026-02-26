@@ -149,8 +149,12 @@ export function App({
       if (viewRef.current === "completion") {
         if (key.name === "q" || key.name === "escape") {
           attemptQuit();
-        } else if (key.name === "return" && onReviewStart) {
-          onReviewStart();
+        } else if (key.name === "return") {
+          if (onReviewStart) {
+            onReviewStart();
+          } else if (onFinalize) {
+            onFinalize();
+          }
         } else if (key.name === "f" && onFinalize) {
           onFinalize();
         }

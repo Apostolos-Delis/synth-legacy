@@ -260,9 +260,9 @@ export function CompletionView({ summary, showFinalizePrompt, showReviewPrompt, 
             <span fg={colors.fg.secondary}>
               {"Press "}
             </span>
-            <span fg={colors.accent.primary} attributes={boldAttr()}>f</span>
+            <span fg={colors.accent.primary} attributes={boldAttr()}>Enter</span>
             <span fg={colors.fg.secondary}>
-              {" to start finalize review, or "}
+              {" to finalize, or "}
             </span>
             <span fg={colors.accent.primary} attributes={boldAttr()}>q</span>
             <span fg={colors.fg.secondary}>{" to exit."}</span>

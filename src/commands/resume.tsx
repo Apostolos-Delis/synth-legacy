@@ -102,6 +102,200 @@ function createBackgroundAudit() {
   return { controller, appendChunk, appendTool, setStatus };
 }
 
+type SessionPlan = NonNullable<Awaited<ReturnType<typeof getSession>>>;
+
+async function renderCompletionTui(
+  plan: SessionPlan,
+  cwd: string,
+  config: import("../config/types.js").SynthConfig,
+  showToolLogs: boolean,
+  localCmdFinalize: (
+    sid?: string,
+    tuiContext?: TuiContext,
+    runContext?: { config: import("../config/types.js").SynthConfig; sessionPaths: SessionPaths },
+    savedConversation?: import("../finalize/chat-types.js").FinalizeMessage[],
+    savedState?: import("../finalize/chat-types.js").OrchestratorState,
+    ctx?: import("./finalize.js").CliContext,
+    options?: import("./finalize.js").FinalizeUiOptions,
+  ) => Promise<void>,
+  options: { allowReview: boolean; allowFinalize: boolean; startAudit: boolean },
+): Promise<void> {
+  if (plan.metadata.agentName && plan.metadata.agentName !== config.agent.name) {
+    config.agent.name = plan.metadata.agentName;
+    config.agent.model = undefined;
+  }
+  const [{ getAgent }, runMod] = await Promise.all([
+    loadAgentRegistry(),
+    loadRunModule(),
+  ]);
+  const agent = getAgent(config.agent.name);
+  const detection = await agent.detect();
+  if (!detection.available) {
+    logError(`Agent '${config.agent.name}' not available: ${detection.error}`);
+    process.exit(1);
+  }
+
+  const tui = await loadTui();
+  const renderer = await tui.createCliRenderer({
+    useKittyKeyboard: { disambiguate: true, alternateKeys: true },
+  });
+  const root = tui.createRoot(renderer);
+  const App = tui.App;
+
+  const run = await runMod.loadRun(plan.paths);
+  const startedAt = run?.startedAt ? new Date(run.startedAt).getTime() : Date.now();
+  const endedAt = run?.endedAt ? new Date(run.endedAt).getTime() : Date.now();
+  const durationMs = Math.max(0, endedAt - startedAt);
+  const totalIterations = run?.currentIteration ?? 0;
+
+  const currentTasks = await loadTasks(plan.paths.tasks);
+  const progress = getProgress(currentTasks);
+  const sinceDate = run?.startedAt ?? new Date(startedAt).toISOString();
+  const gitResult = spawn({ cmd: ["git", "log", "--oneline", `--since=${sinceDate}`], cwd });
+  const { stdout: commitLog } = await gitResult.promise;
+  const commits = commitLog.trim() ? commitLog.trim().split("\n") : [];
+
+  const summaryData: CompletionSummary = {
+    projectName: config.project.name,
+    sessionId: plan.metadata.id,
+    agentName: config.agent.name,
+    totalDurationMs: durationMs,
+    totalIterations,
+    tasks: currentTasks.tasks,
+    progress,
+    commits,
+    summaryFilePath: plan.paths.summary,
+  };
+
+  const taskElapsedMs = Object.fromEntries(
+    currentTasks.tasks
+      .filter((t) => t.durationMs != null)
+      .map((t) => [t.id, t.durationMs as number]),
+  );
+
+  const tuiData: TuiEngineData = {
+    engineState: "completed",
+    iteration: totalIterations,
+    maxIterations: config.execution.max_iterations,
+    tasks: [...currentTasks.tasks],
+    currentTaskId: null,
+    output: "",
+    agentName: config.agent.name,
+    projectName: config.project.name,
+    sessionId: plan.metadata.id,
+    startTime: startedAt,
+    interviewMessages: [],
+    isThinking: false,
+    currentPhase: null,
+    phaseStartTime: null,
+    completionSummary: summaryData,
+    taskOutputMap: {},
+    taskElapsedMs,
+    taskStartTimes: {},
+    iterationEntries: [],
+    configDisplay: JSON.stringify(config, null, 2),
+    tokenUsage: { sessionTotal: { inputTokens: 0, outputTokens: 0, totalTokens: 0 }, taskTotals: {}, hasData: false },
+    ...(options.allowReview ? { reviewStatus: "running" as const } : {}),
+  };
+
+  let completionResolve: ((action: "quit" | "finalize" | "review") => void) | null = null;
+  const renderTui = () => {
+    root.render(
+      <App
+        {...tuiData}
+        onQuit={() => {
+          if (completionResolve) {
+            completionResolve("quit");
+          }
+        }}
+        onFinalize={options.allowFinalize ? () => completionResolve?.("finalize") : undefined}
+        onReviewStart={options.allowReview ? () => completionResolve?.("review") : undefined}
+      />,
+    );
+  };
+
+  renderTui();
+
+  let reviewOrchestrator: import("../finalize/orchestrator.js").FinalizeOrchestrator | null = null;
+  let backgroundAudit: BackgroundAuditController | undefined;
+
+  if (options.allowReview) {
+    const { FinalizeOrchestrator } = await import("../finalize/orchestrator.js");
+    reviewOrchestrator = new FinalizeOrchestrator({ mode: "finalize" });
+    const finalizeConvPath = join(plan.paths.root, "finalize-conversation.json");
+    const finalizeStatePath = join(plan.paths.root, "finalize-state.json");
+    const savedConversation = await fileExists(finalizeConvPath)
+      ? await readJson<FinalizeMessage[]>(finalizeConvPath)
+      : [];
+    const savedState = savedConversation.length > 0 && await fileExists(finalizeStatePath)
+      ? await readJson<OrchestratorState>(finalizeStatePath)
+      : undefined;
+
+    if (savedConversation.length > 0) {
+      reviewOrchestrator.restore(agent, config, plan.paths, cwd, savedConversation, savedState);
+      tuiData.reviewStatus = "ready";
+      renderTui();
+    }
+
+    if (savedConversation.length === 0 && options.startAudit) {
+      const audit = createBackgroundAudit();
+      backgroundAudit = audit.controller;
+
+      reviewOrchestrator.start(agent, config, plan.paths, cwd, (chunk) => {
+        audit.appendChunk(chunk);
+      }, (event) => {
+        if (!showToolLogs) return;
+        audit.appendTool(event);
+      }).then(() => {
+        audit.setStatus("done");
+        tuiData.reviewStatus = "ready";
+        renderTui();
+      }).catch((err) => {
+        const message = err instanceof Error ? err.message : String(err);
+        audit.setStatus("error", message);
+        tuiData.reviewStatus = "error";
+        tuiData.reviewError = message;
+        renderTui();
+      });
+    }
+  }
+
+  while (true) {
+    const completionAction = await new Promise<"quit" | "finalize" | "review">((resolve) => {
+      completionResolve = resolve;
+    });
+    completionResolve = null;
+
+    if (completionAction === "quit") {
+      break;
+    }
+
+    if (completionAction === "review" && reviewOrchestrator) {
+      await localCmdFinalize(plan.metadata.id, { renderer, root }, {
+        config,
+        sessionPaths: plan.paths,
+      }, undefined, undefined, undefined, {
+        mode: "finalize",
+        orchestrator: reviewOrchestrator,
+        backgroundAudit,
+      });
+      break;
+    }
+
+    if (completionAction === "finalize") {
+      await localCmdFinalize(plan.metadata.id, { renderer, root }, {
+        config,
+        sessionPaths: plan.paths,
+      });
+      break;
+    }
+  }
+
+  root.unmount();
+  renderer.destroy();
+  agent.dispose();
+}
+
 // ── Resume interview helper ──
 
 async function resumeInterview(
@@ -589,6 +783,15 @@ export async function cmdResumeInternal(
     }
 
     case "completed": {
+      const config = await applyTheme(cwd);
+      if (tuiEnabled) {
+        await renderCompletionTui(plan, cwd, config, showToolLogs, localCmdFinalize, {
+          allowReview: false,
+          allowFinalize: true,
+          startAudit: false,
+        });
+        return;
+      }
       log(fmt.info(`Session ${id} execution is complete.`));
       const readline = await import("node:readline");
       const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
@@ -619,181 +822,25 @@ export async function cmdResumeInternal(
 
     case "reviewing": {
       const config = await applyTheme(cwd);
+      if (tuiEnabled) {
+        await renderCompletionTui(plan, cwd, config, showToolLogs, localCmdFinalize, {
+          allowReview: true,
+          allowFinalize: false,
+          startAudit: true,
+        });
+        return;
+      }
+
       if (plan.metadata.agentName && plan.metadata.agentName !== config.agent.name) {
         config.agent.name = plan.metadata.agentName;
         config.agent.model = undefined;
       }
-      const [{ getAgent }, runMod] = await Promise.all([
-        loadAgentRegistry(),
-        loadRunModule(),
-      ]);
+      const { getAgent } = await loadAgentRegistry();
       const agent = getAgent(config.agent.name);
       const detection = await agent.detect();
       if (!detection.available) {
         logError(`Agent '${config.agent.name}' not available: ${detection.error}`);
         process.exit(1);
-      }
-
-      if (tuiEnabled) {
-        const tui = await loadTui();
-        const renderer = await tui.createCliRenderer({
-          useKittyKeyboard: { disambiguate: true, alternateKeys: true },
-        });
-        const root = tui.createRoot(renderer);
-        const App = tui.App;
-
-        const run = await runMod.loadRun(plan.paths);
-        const startedAt = run?.startedAt ? new Date(run.startedAt).getTime() : Date.now();
-        const endedAt = run?.endedAt ? new Date(run.endedAt).getTime() : Date.now();
-        const durationMs = Math.max(0, endedAt - startedAt);
-        const totalIterations = run?.currentIteration ?? 0;
-
-        const currentTasks = await loadTasks(plan.paths.tasks);
-        const progress = getProgress(currentTasks);
-        const sinceDate = run?.startedAt ?? new Date(startedAt).toISOString();
-        const gitResult = spawn({ cmd: ["git", "log", "--oneline", `--since=${sinceDate}`], cwd });
-        const { stdout: commitLog } = await gitResult.promise;
-        const commits = commitLog.trim() ? commitLog.trim().split("\n") : [];
-
-        const summaryData: CompletionSummary = {
-          projectName: config.project.name,
-          sessionId: plan.metadata.id,
-          agentName: config.agent.name,
-          totalDurationMs: durationMs,
-          totalIterations,
-          tasks: currentTasks.tasks,
-          progress,
-          commits,
-          summaryFilePath: plan.paths.summary,
-        };
-
-        const taskElapsedMs = Object.fromEntries(
-          currentTasks.tasks
-            .filter((t) => t.durationMs != null)
-            .map((t) => [t.id, t.durationMs as number]),
-        );
-
-        const tuiData: TuiEngineData = {
-          engineState: "completed",
-          iteration: totalIterations,
-          maxIterations: config.execution.max_iterations,
-          tasks: [...currentTasks.tasks],
-          currentTaskId: null,
-          output: "",
-          agentName: config.agent.name,
-          projectName: config.project.name,
-          sessionId: plan.metadata.id,
-          startTime: startedAt,
-          interviewMessages: [],
-          isThinking: false,
-          currentPhase: null,
-          phaseStartTime: null,
-          completionSummary: summaryData,
-          taskOutputMap: {},
-          taskElapsedMs,
-          taskStartTimes: {},
-          iterationEntries: [],
-          configDisplay: JSON.stringify(config, null, 2),
-          tokenUsage: { sessionTotal: { inputTokens: 0, outputTokens: 0, totalTokens: 0 }, taskTotals: {}, hasData: false },
-          reviewStatus: "running",
-        };
-
-        let completionResolve: ((action: "quit" | "finalize" | "review") => void) | null = null;
-        let allowFinalize = false;
-        let allowReview = true;
-
-        const renderTui = () => {
-          root.render(
-            <App
-              {...tuiData}
-              onQuit={() => {
-                if (completionResolve) {
-                  completionResolve("quit");
-                }
-              }}
-              onFinalize={allowFinalize ? () => completionResolve?.("finalize") : undefined}
-              onReviewStart={allowReview ? () => completionResolve?.("review") : undefined}
-            />,
-          );
-        };
-
-        renderTui();
-
-        const { FinalizeOrchestrator } = await import("../finalize/orchestrator.js");
-        const reviewOrchestrator = new FinalizeOrchestrator({ mode: "finalize" });
-        const finalizeConvPath = join(plan.paths.root, "finalize-conversation.json");
-        const finalizeStatePath = join(plan.paths.root, "finalize-state.json");
-        const savedConversation = await fileExists(finalizeConvPath)
-          ? await readJson<FinalizeMessage[]>(finalizeConvPath)
-          : [];
-        const savedState = savedConversation.length > 0 && await fileExists(finalizeStatePath)
-          ? await readJson<OrchestratorState>(finalizeStatePath)
-          : undefined;
-
-        if (savedConversation.length > 0) {
-          reviewOrchestrator.restore(agent, config, plan.paths, cwd, savedConversation, savedState);
-          tuiData.reviewStatus = "ready";
-          renderTui();
-        }
-
-        let backgroundAudit: BackgroundAuditController | undefined;
-        if (savedConversation.length === 0) {
-          const audit = createBackgroundAudit();
-          backgroundAudit = audit.controller;
-
-          reviewOrchestrator.start(agent, config, plan.paths, cwd, (chunk) => {
-            audit.appendChunk(chunk);
-          }, (event) => {
-            if (!showToolLogs) return;
-            audit.appendTool(event);
-          }).then(() => {
-            audit.setStatus("done");
-            tuiData.reviewStatus = "ready";
-            renderTui();
-          }).catch((err) => {
-            const message = err instanceof Error ? err.message : String(err);
-            audit.setStatus("error", message);
-            tuiData.reviewStatus = "error";
-            tuiData.reviewError = message;
-            renderTui();
-          });
-        }
-
-        while (true) {
-          const completionAction = await new Promise<"quit" | "finalize" | "review">((resolve) => {
-            completionResolve = resolve;
-          });
-          completionResolve = null;
-
-          if (completionAction === "quit") {
-            break;
-          }
-
-          if (completionAction === "review") {
-            await localCmdFinalize(id, { renderer, root }, {
-              config,
-              sessionPaths: plan.paths,
-            }, undefined, undefined, undefined, {
-              mode: "finalize",
-              orchestrator: reviewOrchestrator,
-              backgroundAudit,
-            });
-            break;
-          }
-
-          if (completionAction === "finalize") {
-            await localCmdFinalize(id, { renderer, root }, {
-              config,
-              sessionPaths: plan.paths,
-            });
-            break;
-          }
-        }
-
-        root.unmount();
-        renderer.destroy();
-        agent.dispose();
-        return;
       }
 
       const [{ Engine: EngineClass }] = await Promise.all([
@@ -944,6 +991,15 @@ export async function cmdResumeInternal(
   }
 
   if (run.status === "completed") {
+    const config = await applyTheme(cwd);
+    if (tuiEnabled) {
+      await renderCompletionTui(plan, cwd, config, showToolLogs, localCmdFinalize, {
+        allowReview: false,
+        allowFinalize: true,
+        startAudit: false,
+      });
+      return;
+    }
     log(fmt.info(`Session ${id} execution is complete.`));
     const readline = await import("node:readline");
     const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
