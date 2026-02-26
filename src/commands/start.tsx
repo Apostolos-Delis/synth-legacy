@@ -605,35 +605,42 @@ export async function cmdStart(
 
   let prdMarkdown: string | null = null;
 
-  // Create session early so we have paths for interview state persistence
-  const { id, paths } = await createSession(cwd, "");
-  await updateSessionMetadata(cwd, id, { agentName });
   const logger = getLogger();
+  let session: Awaited<ReturnType<typeof createSession>> | null = null;
+  let interviewer: InstanceType<typeof interviewMod.Interviewer> | null = null;
 
   // Create worktree if -w flag is set (use session ID as fallback name before PRD title is known)
   let worktreeBranchName: string | undefined;
-  if (useWorktree) {
-    const wtName = explicitWorktreeName ?? id;
-    const { wtPath, branchName } = await createWorktreeForSession(repoRoot, wtName, tuiEnabled);
-    process.chdir(wtPath);
-    sessionCwd = wtPath;
-    worktreeBranchName = branchName;
-    await updateSessionMetadata(sessionCwd, id, { branch: branchName, worktreePath: wtPath });
-  }
-  logger.info("session:start", `Session ${id} started`, {
-    sessionId: id,
-    cwd: sessionCwd,
-    worktreePath: useWorktree ? sessionCwd : undefined,
-  });
+  const ensureSession = async () => {
+    if (session) return;
+    session = await createSession(cwd, "");
+    await updateSessionMetadata(cwd, session.id, { agentName });
 
-  const interviewer = new interviewMod.Interviewer(agent, sessionCwd, config.agent.model, async (messages) => {
-    const state: InterviewState = {
-      messages: messages as InterviewMessage[],
-      interviewerHistory: messages as InterviewMessage[],
-      prdPending: !prdMarkdown,
-    };
-    await writeJson(paths.interview, state);
-  });
+    if (useWorktree) {
+      const wtName = explicitWorktreeName ?? session.id;
+      const { wtPath, branchName } = await createWorktreeForSession(repoRoot, wtName, tuiEnabled);
+      process.chdir(wtPath);
+      sessionCwd = wtPath;
+      worktreeBranchName = branchName;
+      await updateSessionMetadata(sessionCwd, session.id, { branch: branchName, worktreePath: wtPath });
+    }
+
+    logger.info("session:start", `Session ${session.id} started`, {
+      sessionId: session.id,
+      cwd: sessionCwd,
+      worktreePath: useWorktree ? sessionCwd : undefined,
+    });
+    logger.info("interview:start", "Interview started", { sessionId: session.id });
+
+    interviewer = new interviewMod.Interviewer(agent, sessionCwd, config.agent.model, async (messages) => {
+      const state: InterviewState = {
+        messages: messages as InterviewMessage[],
+        interviewerHistory: messages as InterviewMessage[],
+        prdPending: !prdMarkdown,
+      };
+      await writeJson(session!.paths.interview, state);
+    });
+  };
 
   if (tuiEnabled) {
     const tui = await loadTui();
@@ -656,46 +663,54 @@ export async function cmdStart(
     process.on("SIGINT", sigintHandler);
 
     // Phase 1: Interview
-    logger.info("interview:start", "Interview started", { sessionId: id });
     const interviewResult = await new Promise<boolean>((resolve) => {
-      planRoot.render(
-        <tui.InterviewApp
-          sessionId={id}
-          onSendMessage={async (msg, onChunk, onTool) => {
-            logger.info("interview:prompt", "User message", { length: msg.length });
-            try {
-              const response = await interviewer.respond(msg, onChunk, showToolLogs ? onTool : undefined);
-              logger.info("interview:response", "Assistant response", { length: response.length });
-              if (!response.trim()) {
-                logger.warn("interview:empty-response", "Assistant returned empty response");
+      const renderInterview = () => {
+        planRoot.render(
+          <tui.InterviewApp
+            sessionId={session?.id}
+            onSendMessage={async (msg, onChunk, onTool) => {
+              const hadSession = !!session;
+              await ensureSession();
+              if (!hadSession) renderInterview();
+              logger.info("interview:prompt", "User message", { sessionId: session!.id, length: msg.length });
+              try {
+                const response = await interviewer!.respond(msg, onChunk, showToolLogs ? onTool : undefined);
+                logger.info("interview:response", "Assistant response", { sessionId: session!.id, length: response.length });
+                if (!response.trim()) {
+                  logger.warn("interview:empty-response", "Assistant returned empty response");
+                }
+                const extractedMd = interviewer!.extractPrdMarkdown(response);
+                if (extractedMd) {
+                  prdMarkdown = extractedMd;
+                  logger.info("prd:extracted", "PRD detected in interview response", { length: extractedMd.length });
+                }
+                return { response, done: !!extractedMd };
+              } catch (err) {
+                logger.error("interview:error", "Interview failed", { error: err instanceof Error ? err.message : String(err) });
+                throw err;
               }
-              const extractedMd = interviewer.extractPrdMarkdown(response);
-              if (extractedMd) {
-                prdMarkdown = extractedMd;
-                logger.info("prd:extracted", "PRD detected in interview response", { length: extractedMd.length });
-              }
-              return { response, done: !!extractedMd };
-            } catch (err) {
-              logger.error("interview:error", "Interview failed", { error: err instanceof Error ? err.message : String(err) });
-              throw err;
-            }
-          }}
-          onPersistMessages={async (messages) => {
-            const state: InterviewState = {
-              messages,
-              interviewerHistory: interviewer.getHistory(),
-              prdPending: !prdMarkdown,
-            };
-            await writeJson(paths.interview, state);
-          }}
-          onComplete={() => resolve(true)}
-          onQuit={() => resolve(false)}
-        />,
-      );
+            }}
+            onPersistMessages={async (messages) => {
+              if (!session || !interviewer) return;
+              const state: InterviewState = {
+                messages,
+                interviewerHistory: interviewer.getHistory(),
+                prdPending: !prdMarkdown,
+              };
+              await writeJson(session.paths.interview, state);
+            }}
+            onComplete={() => resolve(true)}
+            onQuit={() => resolve(false)}
+          />,
+        );
+      };
+      renderInterview();
     });
 
     if (!interviewResult) {
-      logger.info("interview:quit", "Interview quit", { sessionId: id });
+      if (session) {
+        logger.info("interview:quit", "Interview quit", { sessionId: session.id });
+      }
       process.off("SIGINT", sigintHandler);
       cleanup();
       agent.dispose();
@@ -703,7 +718,11 @@ export async function cmdStart(
     }
 
     if (!prdMarkdown) {
-      logger.warn("prd:missing", "No PRD extracted from interview");
+      if (session) {
+        logger.warn("prd:missing", "No PRD extracted from interview", { sessionId: session.id });
+      } else {
+        logger.warn("prd:missing", "No PRD extracted from interview");
+      }
       process.off("SIGINT", sigintHandler);
       cleanup();
       agent.dispose();
@@ -711,6 +730,13 @@ export async function cmdStart(
     }
 
     // Phase 2: PRD Review (user can revise before task generation)
+    if (!session) {
+      process.off("SIGINT", sigintHandler);
+      cleanup();
+      agent.dispose();
+      return;
+    }
+    const { id, paths } = session;
     const taskPrefix = await setSessionSlugAndPrefix(cwd, id, interviewMod.extractPrdTitle(prdMarkdown));
 
     // Rename worktree branch to match PRD slug (if auto-generated name was used)
@@ -826,7 +852,6 @@ export async function cmdStart(
   } else {
     log(`\n${ansi.magenta}Synth:${ansi.reset}`);
     log(interviewMod.WELCOME_MESSAGE);
-    logger.info("interview:start", "Interview started", { sessionId: id });
 
     const readline = await import("node:readline");
     const askQuestion = (): Promise<string | null> => {
@@ -846,20 +871,23 @@ export async function cmdStart(
     while (!prdMarkdown) {
       const userInput = await askQuestion();
       if (userInput === null) {
-        logger.info("interview:quit", "Interview quit", { sessionId: id });
+        if (session) {
+          logger.info("interview:quit", "Interview quit", { sessionId: session.id });
+        }
         agent.dispose();
         return;
       }
 
-      logger.info("interview:prompt", "User message", { length: userInput.length });
-      const response = await interviewer.respond(userInput);
-      logger.info("interview:response", "Assistant response", { length: response.length });
+      await ensureSession();
+      logger.info("interview:prompt", "User message", { sessionId: session!.id, length: userInput.length });
+      const response = await interviewer!.respond(userInput);
+      logger.info("interview:response", "Assistant response", { sessionId: session!.id, length: response.length });
       if (!response.trim()) {
         logger.warn("interview:empty-response", "Assistant returned empty response");
       }
       log(`\n${ansi.magenta}Synth:${ansi.reset}`);
       log(response);
-      prdMarkdown = interviewer.extractPrdMarkdown(response);
+      prdMarkdown = interviewer!.extractPrdMarkdown(response);
       if (prdMarkdown) {
         logger.info("prd:extracted", "PRD detected in interview response", { length: prdMarkdown.length });
       }
@@ -873,15 +901,15 @@ export async function cmdStart(
         }
         if (confirmation.trim()) {
           prdMarkdown = null;
-          logger.info("interview:prompt", "User message", { length: confirmation.length });
-          const refinement = await interviewer.respond(confirmation);
-          logger.info("interview:response", "Assistant response", { length: refinement.length });
+          logger.info("interview:prompt", "User message", { sessionId: session!.id, length: confirmation.length });
+          const refinement = await interviewer!.respond(confirmation);
+          logger.info("interview:response", "Assistant response", { sessionId: session!.id, length: refinement.length });
           if (!refinement.trim()) {
             logger.warn("interview:empty-response", "Assistant returned empty response");
           }
           log(`\n${ansi.magenta}Synth:${ansi.reset}`);
           log(refinement);
-          prdMarkdown = interviewer.extractPrdMarkdown(refinement);
+          prdMarkdown = interviewer!.extractPrdMarkdown(refinement);
           if (prdMarkdown) {
             logger.info("prd:extracted", "PRD detected in interview response", { length: prdMarkdown.length });
           }
@@ -895,7 +923,12 @@ export async function cmdStart(
     agent.dispose();
     return;
   }
+  if (!session) {
+    agent.dispose();
+    return;
+  }
 
+  const { id, paths } = session;
   logger.info("prd:approved", "PRD confirmed", { length: prdMarkdown.length });
   await writeText(paths.prd, prdMarkdown);
   const taskPrefix = await setSessionSlugAndPrefix(cwd, id, interviewMod.extractPrdTitle(prdMarkdown));
