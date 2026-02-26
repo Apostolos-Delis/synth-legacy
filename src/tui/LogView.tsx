@@ -31,6 +31,7 @@ interface LogViewProps {
   width: number;
   height: number;
   focused?: boolean;
+  filter?: string;
   onSubscribe?: (subscriber: LogSubscriber) => () => void;
 }
 
