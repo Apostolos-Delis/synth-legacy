@@ -353,11 +353,6 @@ const BUILTIN_TEMPLATES: Record<string, string> = {
   "audit/default": AUDIT_TEMPLATE,
   // Self-review (subset of audit phase)
   "audit/self-review": SELF_REVIEW_TEMPLATE,
-
-  // Backward-compat: un-phased keys resolve to execute/*
-  claude: CLAUDE_TEMPLATE,
-  codex: CODEX_TEMPLATE,
-  default: DEFAULT_TEMPLATE,
 };
 
 export function getBuiltinTemplate(key: string): string | null {

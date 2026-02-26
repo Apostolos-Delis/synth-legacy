@@ -1,0 +1,20 @@
+Removed legacy migration paths and legacy template fallbacks, updated template tests to enforce phased-only lookup, and marked the task done.
+
+Changes:
+- Removed legacy `planId` migration in `src/run/run.ts`.
+- Removed storage migration/ensure hooks from `src/sessions/registry.ts`.
+- Enforced phased-only template lookup in `src/templates/engine.ts` and removed unphased builtin keys in `src/templates/builtin.ts`.
+- Updated `src/__tests__/template-engine.test.ts` for phased paths and removed `src/__tests__/migration.test.ts`.
+- Set task status to done in `.synth-session/tasks.json`.
+
+
+
+
+
+**Tests**
+- `bun run typecheck` (failed: `tsc` not found)
+- `bun test src/__tests__/template-engine.test.ts` (failed: missing `handlebars` package)
+
+**Done**: Removed legacy migration logic from `src/run/run.ts` and `src/sessions/registry.ts`, enforced phased-only template lookup in `src/templates/engine.ts`, removed unphased builtin keys in `src/templates/builtin.ts`, updated `src/__tests__/template-engine.test.ts`, deleted `src/__tests__/migration.test.ts`, and set `.synth-session/tasks.json` to `done`.
+**Discovered**: Local environment lacks `tsc`; `bun test` fails because `handlebars` is not installed.
+**Next**: Install dependencies (including `handlebars`) and make `tsc` available, then rerun the verification commands.

@@ -37,16 +37,7 @@ export async function loadRun(
   sessionPaths: SessionPaths,
 ): Promise<RunMetadata | null> {
   if (!(await fileExists(sessionPaths.run))) return null;
-  const raw = await readJson<RunMetadata & { planId?: string }>(sessionPaths.run);
-
-  // Migrate legacy planId → sessionId
-  if ("planId" in raw && !raw.sessionId) {
-    raw.sessionId = raw.planId!;
-    delete raw.planId;
-    await writeJson(sessionPaths.run, raw);
-  }
-
-  return raw as RunMetadata;
+  return readJson<RunMetadata>(sessionPaths.run);
 }
 
 export async function updateRun(

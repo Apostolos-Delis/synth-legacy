@@ -1,0 +1,45 @@
+{
+  "project": "synth",
+  "branchName": "synth-parallel/MODU-001",
+  "description": "Worker w-MODU-001-0: Remove Legacy Migration Paths",
+  "tasks": [
+    {
+      "id": "MODU-001",
+      "title": "Remove Legacy Migration Paths",
+      "description": "Delete legacy plan/session migrations and template fallback logic to enforce hard cutover behavior.",
+      "acceptanceCriteria": [
+        "No code in `src/run/run.ts` or `src/sessions/registry.ts` migrates legacy data or reads legacy fields.",
+        "Template lookup in `src/templates/engine.ts` no longer falls back to legacy agent paths.",
+        "Legacy migration tests are removed or updated to reflect the new behavior."
+      ],
+      "verification": [
+        {
+          "type": "command",
+          "value": "bun run typecheck"
+        },
+        {
+          "type": "command",
+          "value": "bun test src/__tests__/template-engine.test.ts"
+        }
+      ],
+      "priority": 1,
+      "status": "done",
+      "affects": [
+        "src/run/run.ts",
+        "src/sessions/registry.ts",
+        "src/templates/engine.ts",
+        "src/__tests__/migration.test.ts",
+        "src/__tests__/template-engine.test.ts"
+      ],
+      "dependsOn": [],
+      "notes": "",
+      "iterationCount": 1,
+      "criteriaCompleted": [
+        true,
+        true,
+        true
+      ],
+      "durationMs": 266897
+    }
+  ]
+}

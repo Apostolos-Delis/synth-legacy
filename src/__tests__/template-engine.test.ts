@@ -31,20 +31,20 @@ function makeVariables(overrides?: Partial<TemplateVariables>): TemplateVariable
 }
 
 describe("getBuiltinTemplate", () => {
-  test("returns claude template for 'claude'", () => {
-    const t = getBuiltinTemplate("claude");
+  test("returns claude template for 'execute/claude'", () => {
+    const t = getBuiltinTemplate("execute/claude");
     expect(t).not.toBeNull();
     expect(t).toContain("Agent-Specific Guidance (Claude)");
   });
 
-  test("returns codex template for 'codex'", () => {
-    const t = getBuiltinTemplate("codex");
+  test("returns codex template for 'execute/codex'", () => {
+    const t = getBuiltinTemplate("execute/codex");
     expect(t).not.toBeNull();
     expect(t).toContain("Agent-Specific Guidance (Codex)");
   });
 
-  test("returns default template for 'default'", () => {
-    const t = getBuiltinTemplate("default");
+  test("returns default template for 'execute/default'", () => {
+    const t = getBuiltinTemplate("execute/default");
     expect(t).not.toBeNull();
     expect(t).toContain("autonomous coding agent");
     expect(t).not.toContain("Agent-Specific Guidance");
@@ -57,12 +57,12 @@ describe("getBuiltinTemplate", () => {
 
 describe("getBuiltinTemplateOrDefault", () => {
   test("returns agent template when it exists", () => {
-    const t = getBuiltinTemplateOrDefault("claude");
+    const t = getBuiltinTemplateOrDefault("execute/claude");
     expect(t).toContain("Agent-Specific Guidance (Claude)");
   });
 
   test("falls back to default for unknown agent", () => {
-    const t = getBuiltinTemplateOrDefault("unknown-agent");
+    const t = getBuiltinTemplateOrDefault("execute/unknown-agent");
     expect(t).toContain("autonomous coding agent");
     expect(t).not.toContain("Agent-Specific Guidance");
   });
@@ -88,7 +88,7 @@ describe("loadTemplate", () => {
 
   test("project template overrides builtin", async () => {
     await withTmpDir(async (dir) => {
-      const templateDir = join(dir, "synth-templates");
+      const templateDir = join(dir, "synth-templates", "execute");
       await ensureDir(templateDir);
       await writeText(join(templateDir, "claude.hbs"), "Custom Claude: {{slug}}");
       const result = await loadTemplate("claude", dir);
@@ -101,7 +101,7 @@ describe("loadTemplate", () => {
   test("explicit path overrides project template", async () => {
     await withTmpDir(async (dir) => {
       // Create project template
-      const templateDir = join(dir, "synth-templates");
+      const templateDir = join(dir, "synth-templates", "execute");
       await ensureDir(templateDir);
       await writeText(join(templateDir, "claude.hbs"), "Project template");
 
@@ -126,7 +126,7 @@ describe("loadTemplate", () => {
   test("global template overrides builtin", async () => {
     await withTmpDir(async (dir) => {
       const fakeHome = join(dir, "fakehome");
-      const globalDir = join(fakeHome, ".synth", "templates");
+      const globalDir = join(fakeHome, ".synth", "templates", "execute");
       await ensureDir(globalDir);
       await writeText(join(globalDir, "claude.hbs"), "Global Claude: {{slug}}");
 
@@ -251,10 +251,8 @@ describe("getBuiltinTemplate — phased keys", () => {
     expect(t).toBe(SELF_REVIEW_TEMPLATE);
   });
 
-  test("backward-compat: un-phased 'claude' still works", () => {
-    const phased = getBuiltinTemplate("execute/claude");
-    const unphased = getBuiltinTemplate("claude");
-    expect(phased).toBe(unphased);
+  test("un-phased keys are not available", () => {
+    expect(getBuiltinTemplate("claude")).toBeNull();
   });
 });
 
@@ -332,19 +330,19 @@ describe("loadTemplate — phase-aware", () => {
     });
   });
 
-  test("un-phased project template still works as fallback for execute phase", async () => {
+  test("un-phased project template is ignored for execute phase", async () => {
     await withTmpDir(async (dir) => {
       const templateDir = join(dir, "synth-templates");
       await ensureDir(templateDir);
       await writeText(join(templateDir, "claude.hbs"), "Legacy project template");
 
       const result = await loadTemplate("claude", dir, { phase: "execute" });
-      expect(result.source).toBe("project");
-      expect(result.template).toBe("Legacy project template");
+      expect(result.source).toBe("builtin");
+      expect(result.template).toContain("Agent-Specific Guidance (Claude)");
     });
   });
 
-  test("no phase behaves like legacy (backward compat)", async () => {
+  test("no phase defaults to execute", async () => {
     await withTmpDir(async (dir) => {
       const result = await loadTemplate("claude", dir);
       expect(result.source).toBe("builtin");

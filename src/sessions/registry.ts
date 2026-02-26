@@ -1,6 +1,6 @@
 import { join, basename } from "node:path";
 import { homedir } from "node:os";
-import { readdir, rename, rm } from "node:fs/promises";
+import { readdir, rm } from "node:fs/promises";
 import type { SessionMetadata, SessionPaths } from "./types.js";
 import { generateSessionId } from "./id.js";
 import { ensureDir, fileExists, dirExists, readJson, writeJson } from "../utils/fs.js";
@@ -8,96 +8,7 @@ import { spawn } from "../utils/process.js";
 import { getLogger, initLogger } from "../logging/logger.js";
 
 const SYNTH_HOME = join(homedir(), ".synth");
-const LEGACY_PLANS_DIR = join(SYNTH_HOME, "plans");
 const SESSIONS_DIR = join(SYNTH_HOME, "sessions");
-
-let migrationDone: Promise<void> | null = null;
-
-export async function migrateStorageAt(
-  legacyPlansDir: string,
-  sessionsDir: string,
-): Promise<void> {
-  const plansExist = await dirExists(legacyPlansDir);
-  const sessionsExist = await dirExists(sessionsDir);
-
-  if (!plansExist && !sessionsExist) return;
-
-  if (plansExist && !sessionsExist) {
-    await rename(legacyPlansDir, sessionsDir);
-    console.error(`[synth] Migrated ${legacyPlansDir} → ${sessionsDir}`);
-  } else if (plansExist && sessionsExist) {
-    let skippedCount = 0;
-    const entries = await readdir(legacyPlansDir, { withFileTypes: true });
-    for (const entry of entries) {
-      if (!entry.isDirectory()) continue;
-      const src = join(legacyPlansDir, entry.name);
-      const dest = join(sessionsDir, entry.name);
-      if (await dirExists(dest)) {
-        // Merge: copy subdirectories (session IDs) that don't already exist
-        const subEntries = await readdir(src, { withFileTypes: true });
-        for (const sub of subEntries) {
-          if (!sub.isDirectory()) continue;
-          const subSrc = join(src, sub.name);
-          const subDest = join(dest, sub.name);
-          if (!(await dirExists(subDest))) {
-            await rename(subSrc, subDest);
-            console.error(`[synth] Merged session ${entry.name}/${sub.name} → ${sessionsDir}`);
-          } else {
-            console.error(`warn: skipping migration of ${entry.name}/${sub.name} — already exists in sessions/`);
-            skippedCount++;
-          }
-        }
-      } else {
-        await rename(src, dest);
-        console.error(`[synth] Merged repo ${entry.name} → ${sessionsDir}`);
-      }
-    }
-    // Clean up legacy dir only if no entries were skipped
-    if (skippedCount === 0) {
-      try {
-        await rm(legacyPlansDir, { recursive: true });
-        console.error(`[synth] Removed empty legacy directory ${legacyPlansDir}`);
-      } catch {
-        // Not empty or already gone — fine
-      }
-    } else {
-      console.error(`[synth] ${skippedCount} entries skipped during migration. Please manually resolve the remaining entries in ${legacyPlansDir}`);
-    }
-  }
-
-  // Rename session.json → run.json in all session directories
-  if (await dirExists(sessionsDir)) {
-    const repos = await readdir(sessionsDir, { withFileTypes: true });
-    for (const repo of repos) {
-      if (!repo.isDirectory()) continue;
-      const repoDir = join(sessionsDir, repo.name);
-      const sessions = await readdir(repoDir, { withFileTypes: true });
-      for (const session of sessions) {
-        if (!session.isDirectory()) continue;
-        const oldFile = join(repoDir, session.name, "session.json");
-        const newFile = join(repoDir, session.name, "run.json");
-        if ((await fileExists(oldFile)) && !(await fileExists(newFile))) {
-          await rename(oldFile, newFile);
-          console.error(`[synth] Renamed ${repo.name}/${session.name}/session.json → run.json`);
-        }
-      }
-    }
-  }
-}
-
-async function migrateStorage(): Promise<void> {
-  return migrateStorageAt(LEGACY_PLANS_DIR, SESSIONS_DIR);
-}
-
-function ensureMigration(): Promise<void> {
-  if (!migrationDone) {
-    migrationDone = migrateStorage().catch((err) => {
-      migrationDone = null;
-      throw err;
-    });
-  }
-  return migrationDone;
-}
 
 async function getRepoKey(cwd: string): Promise<string> {
   // Try git remote origin
@@ -150,7 +61,6 @@ export async function createSession(
   cwd: string,
   description: string,
 ): Promise<{ id: string; paths: SessionPaths; metadata: SessionMetadata }> {
-  await ensureMigration();
   const repoKey = await getRepoKey(cwd);
   const id = generateSessionId();
   const paths = sessionPaths(repoKey, id);
@@ -186,7 +96,6 @@ export async function getSession(
   cwd: string,
   sessionId: string,
 ): Promise<{ paths: SessionPaths; metadata: SessionMetadata } | null> {
-  await ensureMigration();
   const repoKey = await getRepoKey(cwd);
   const paths = sessionPaths(repoKey, sessionId);
   const metaPath = join(paths.root, "metadata.json");
@@ -225,7 +134,6 @@ export async function updateSessionMetadata(
 }
 
 export async function listSessions(cwd: string): Promise<SessionMetadata[]> {
-  await ensureMigration();
   const repoKey = await getRepoKey(cwd);
   const repoDir = join(SESSIONS_DIR, repoKey);
 
@@ -258,7 +166,6 @@ export async function getMostRecentSession(
 }
 
 export async function listAllSessions(): Promise<SessionMetadata[]> {
-  await ensureMigration();
   if (!(await dirExists(SESSIONS_DIR))) return [];
 
   const repos = await readdir(SESSIONS_DIR, { withFileTypes: true });
@@ -284,7 +191,6 @@ export async function listAllSessions(): Promise<SessionMetadata[]> {
 }
 
 export async function deleteSession(cwd: string, sessionId: string): Promise<boolean> {
-  await ensureMigration();
   const repoKey = await getRepoKey(cwd);
   const paths = sessionPaths(repoKey, sessionId);
   if (!(await dirExists(paths.root))) return false;
