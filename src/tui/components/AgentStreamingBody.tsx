@@ -31,7 +31,7 @@ export function AgentStreamingBody({
   toolEvents,
   paddingLeft = 2,
 }: AgentStreamingBodyProps): ReactNode {
-  const visibleToolEvents = toolEvents.slice(-2);
+  const visibleToolEvents = toolEvents.slice(-1);
 
   return (
     <box style={{ paddingLeft, flexDirection: "column" }}>
