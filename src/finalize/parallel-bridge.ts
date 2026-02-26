@@ -1,4 +1,5 @@
 import { join } from "node:path";
+import { rename, stat, unlink } from "node:fs/promises";
 import type { ParallelEvent, ParallelEventListener } from "../parallel/events.js";
 import type { WorkerDisplayState } from "../parallel/worker.js";
 import type { WorkerInfo, WorkerStatus } from "../tui/components/WorkerPanel.js";
@@ -246,7 +247,58 @@ export function attachParallelLogger(
   logsDir: string,
 ): void {
   const logPath = join(logsDir, "parallel.jsonl");
+  const maxBytes = 5_000_000;
+  const rotationCount = 3;
+  let buffer = "";
+  let flushTimer: ReturnType<typeof setTimeout> | null = null;
+  let flushChain: Promise<void> = Promise.resolve();
+
+  const rotateIfNeeded = async (): Promise<void> => {
+    let size: number;
+    try {
+      size = (await stat(logPath)).size;
+    } catch {
+      return;
+    }
+    if (size < maxBytes) return;
+    for (let i = rotationCount; i >= 1; i -= 1) {
+      const src = i === 1 ? logPath : `${logPath}.${i - 1}`;
+      const dest = `${logPath}.${i}`;
+      try {
+        await rename(src, dest);
+      } catch {
+      }
+    }
+    try {
+      await unlink(`${logPath}.${rotationCount + 1}`);
+    } catch {
+    }
+  };
+
+  const flush = (): void => {
+    if (!buffer) return;
+    const payload = buffer;
+    buffer = "";
+    flushChain = flushChain.then(async () => {
+      await rotateIfNeeded();
+      await appendText(logPath, payload);
+    }).catch(() => {});
+  };
+
+  const scheduleFlush = (): void => {
+    if (flushTimer) return;
+    flushTimer = setTimeout(() => {
+      flushTimer = null;
+      flush();
+    }, 100);
+  };
+
   on((event) => {
-    appendText(logPath, JSON.stringify(event) + "\n").catch(() => {});
+    buffer += JSON.stringify(event) + "\n";
+    if (buffer.length >= 64_000) {
+      flush();
+      return;
+    }
+    scheduleFlush();
   });
 }
