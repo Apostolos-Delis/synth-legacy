@@ -225,6 +225,7 @@ export const OutputPane = memo(function OutputPane({
     label: "input" | "output",
     lines: string[],
     keyPrefix: string,
+    valueColor: string,
   ): ReactNode[] => {
     if (lines.length === 0) return [];
     const labelText = `  ${label}:`;
@@ -241,7 +242,7 @@ export const OutputPane = memo(function OutputPane({
         nodes.push(
           <text key={`${keyPrefix}-${lineIdx}-${expandedIdx}-${segIdx}`}>
             <span fg={colors.fg.muted}>{prefix}</span>
-            <span fg={colors.fg.dim}>{` ${segment}`}</span>
+            <span fg={valueColor}>{` ${segment}`}</span>
           </text>,
         );
         });
@@ -275,7 +276,6 @@ export const OutputPane = memo(function OutputPane({
           focused={outputScrollFocused}
           stickyScroll={autoScroll}
           stickyStart="bottom"
-          viewportCulling={true}
           style={{ flexDirection: "column" }}
         >
           {waiting ? (
@@ -295,16 +295,18 @@ export const OutputPane = memo(function OutputPane({
               }
               const labelColor = block.kind === "use" ? colors.status.info : colors.status.success;
               const kindText = block.kind === "use" ? "tool use" : "tool result";
+              const inputColor = colors.fg.secondary;
+              const outputColor = colors.fg.primary;
               return (
                 <box key={`tool-${idx}`} style={{ flexDirection: "column" }}>
                   <text>
                     <span fg={labelColor}>{block.kind === "use" ? "\u2192" : "\u2190"}</span>
-                    <span fg={colors.fg.muted}>{` ${kindText} `}</span>
+                    <span fg={colors.fg.secondary}>{` ${kindText} `}</span>
                     <span fg={colors.accent.primary}>{block.name}</span>
-                    {block.id && <span fg={colors.fg.dim}>{block.id}</span>}
+                    {block.id && <span fg={colors.fg.muted}>{block.id}</span>}
                   </text>
-                  {renderLabeledLines("input", block.input, `tool-in-${idx}`)}
-                  {renderLabeledLines("output", block.output, `tool-out-${idx}`)}
+                  {renderLabeledLines("input", block.input, `tool-in-${idx}`, inputColor)}
+                  {renderLabeledLines("output", block.output, `tool-out-${idx}`, outputColor)}
                 </box>
               );
             })
