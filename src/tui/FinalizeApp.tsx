@@ -163,7 +163,7 @@ export function FinalizeApp({
         if (state.status === "running") {
           setIsLoading(true);
           setLoadingStartTime(Date.now());
-          setStreaming(state.buffer);
+          setStreaming(state.buffer, state.toolEvents);
           return;
         }
         if (state.status === "done") {

@@ -1,3 +1,5 @@
+import type { AgentToolEvent } from "../agents/types.js";
+
 export interface ChatOption {
   label: string;
   description: string;
@@ -67,6 +69,7 @@ export type BackgroundAuditStatus = "running" | "done" | "error";
 export interface BackgroundAuditState {
   status: BackgroundAuditStatus;
   buffer: string;
+  toolEvents: AgentToolEvent[];
   error?: string;
 }
 

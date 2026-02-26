@@ -13,6 +13,7 @@ import { ansi, fmt, PRIORITY_COLORS } from "../tui/theme.js";
 import { deriveSessionSlug, deriveTaskPrefix } from "../sessions/slug.js";
 import type { TuiContext, TuiEngineData, CompletionSummary } from "../tui/types.js";
 import type { BackgroundAuditController, BackgroundAuditState, BackgroundAuditStatus, FinalizeMessage, OrchestratorState } from "../finalize/chat-types.js";
+import type { AgentToolEvent } from "../agents/types.js";
 import { spawn } from "../utils/process.js";
 import { formatToolEvent } from "../utils/tool-format.js";
 import { getLogger } from "../logging/logger.js";
@@ -64,7 +65,7 @@ async function setSessionSlugAndPrefix(cwd: string, sessionId: string, title: st
 }
 
 function createBackgroundAudit() {
-  let state: BackgroundAuditState = { status: "running", buffer: "" };
+  let state: BackgroundAuditState = { status: "running", buffer: "", toolEvents: [] };
   const listeners = new Set<(next: BackgroundAuditState) => void>();
 
   const notify = () => {
@@ -85,12 +86,20 @@ function createBackgroundAudit() {
     notify();
   };
 
+  const appendTool = (event: AgentToolEvent) => {
+    state = {
+      ...state,
+      toolEvents: [...state.toolEvents, event].slice(-200),
+    };
+    notify();
+  };
+
   const setStatus = (status: BackgroundAuditStatus, error?: string) => {
     state = { ...state, status, error };
     notify();
   };
 
-  return { controller, appendChunk, setStatus };
+  return { controller, appendChunk, appendTool, setStatus };
 }
 
 // ── Resume interview helper ──
@@ -711,7 +720,7 @@ export async function cmdResumeInternal(
         renderTui();
 
         const { FinalizeOrchestrator } = await import("../finalize/orchestrator.js");
-        const reviewOrchestrator = new FinalizeOrchestrator({ mode: "review" });
+        const reviewOrchestrator = new FinalizeOrchestrator({ mode: "finalize" });
         const finalizeConvPath = join(plan.paths.root, "finalize-conversation.json");
         const finalizeStatePath = join(plan.paths.root, "finalize-state.json");
         const savedConversation = await fileExists(finalizeConvPath)
@@ -734,6 +743,9 @@ export async function cmdResumeInternal(
 
           reviewOrchestrator.start(agent, config, plan.paths, cwd, (chunk) => {
             audit.appendChunk(chunk);
+          }, (event) => {
+            if (!showToolLogs) return;
+            audit.appendTool(event);
           }).then(() => {
             audit.setStatus("done");
             tuiData.reviewStatus = "ready";
@@ -747,9 +759,6 @@ export async function cmdResumeInternal(
           });
         }
 
-        let reviewFixesApplied = 0;
-        let reviewCompleted = false;
-
         while (true) {
           const completionAction = await new Promise<"quit" | "finalize" | "review">((resolve) => {
             completionResolve = resolve;
@@ -761,37 +770,15 @@ export async function cmdResumeInternal(
           }
 
           if (completionAction === "review") {
-            let reviewQuit = false;
             await localCmdFinalize(id, { renderer, root }, {
               config,
               sessionPaths: plan.paths,
             }, undefined, undefined, undefined, {
-              mode: "review",
+              mode: "finalize",
               orchestrator: reviewOrchestrator,
               backgroundAudit,
-              onReviewComplete: (result: { fixesApplied: number }) => {
-                reviewCompleted = true;
-                reviewFixesApplied = result.fixesApplied;
-              },
-              onReviewQuit: () => {
-                reviewQuit = true;
-              },
             });
-
-            if (reviewQuit) {
-              break;
-            }
-
-            if (reviewCompleted) {
-              await updateSessionMetadata(cwd, id, { status: "completed" });
-              allowFinalize = true;
-              allowReview = false;
-              tuiData.reviewStatus = "complete";
-              tuiData.reviewError = undefined;
-              tuiData.completionSummary = { ...summaryData, reviewFixesApplied };
-              renderTui();
-            }
-            continue;
+            break;
           }
 
           if (completionAction === "finalize") {

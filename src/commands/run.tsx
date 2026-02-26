@@ -15,6 +15,7 @@ import { formatToolEvent } from "../utils/tool-format.js";
 import type { TuiEngineData, TuiContext, CompletionSummary } from "../tui/types.js";
 import type { FinalizeUiOptions } from "./finalize.js";
 import type { BackgroundAuditController, BackgroundAuditState, BackgroundAuditStatus } from "../finalize/chat-types.js";
+import type { AgentToolEvent } from "../agents/types.js";
 import { createEngineLogBridge } from "../logging/engine-bridge.js";
 import { getLogger } from "../logging/logger.js";
 import { checkoutBranch, getCurrentBranch } from "../utils/git.js";
@@ -32,7 +33,7 @@ import type { EngineState, IterationResult } from "../engine/types.js";
 const MAX_OUTPUT_LENGTH = 100_000;
 
 function createBackgroundAudit() {
-  let state: BackgroundAuditState = { status: "running", buffer: "" };
+  let state: BackgroundAuditState = { status: "running", buffer: "", toolEvents: [] };
   const listeners = new Set<(next: BackgroundAuditState) => void>();
 
   const notify = () => {
@@ -53,12 +54,20 @@ function createBackgroundAudit() {
     notify();
   };
 
+  const appendTool = (event: AgentToolEvent) => {
+    state = {
+      ...state,
+      toolEvents: [...state.toolEvents, event].slice(-200),
+    };
+    notify();
+  };
+
   const setStatus = (status: BackgroundAuditStatus, error?: string) => {
     state = { ...state, status, error };
     notify();
   };
 
-  return { controller, appendChunk, setStatus };
+  return { controller, appendChunk, appendTool, setStatus };
 }
 
 import {
@@ -832,12 +841,15 @@ export async function cmdRun(
         renderTui();
 
         const { FinalizeOrchestrator } = await import("../finalize/orchestrator.js");
-        const reviewOrchestrator = new FinalizeOrchestrator({ mode: "review" });
+        const reviewOrchestrator = new FinalizeOrchestrator({ mode: "finalize" });
         const audit = createBackgroundAudit();
         const backgroundAudit = audit.controller;
 
         reviewOrchestrator.start(agent, config, plan.paths, cwd, (chunk) => {
           audit.appendChunk(chunk);
+        }, (event) => {
+          if (!showToolLogs) return;
+          audit.appendTool(event);
         }).then(() => {
           audit.setStatus("done");
           if (tuiData) {
@@ -854,9 +866,6 @@ export async function cmdRun(
           }
         });
 
-        let reviewFixesApplied = 0;
-        let reviewCompleted = false;
-
         while (true) {
           const completionAction = await new Promise<"quit" | "finalize" | "review">((resolve) => {
             completionResolve = resolve;
@@ -868,39 +877,15 @@ export async function cmdRun(
           }
 
           if (completionAction === "review") {
-            let reviewQuit = false;
             await cmdFinalize(plan.metadata.id, { renderer: renderer!, root: root! }, {
               config,
               sessionPaths: plan.paths,
             }, undefined, undefined, { cwd, tuiEnabled }, {
-              mode: "review",
+              mode: "finalize",
               orchestrator: reviewOrchestrator,
               backgroundAudit,
-              onReviewComplete: (result) => {
-                reviewCompleted = true;
-                reviewFixesApplied = result.fixesApplied;
-              },
-              onReviewQuit: () => {
-                reviewQuit = true;
-              },
             });
-
-            if (reviewQuit) {
-              return;
-            }
-
-            if (reviewCompleted) {
-              await updateSessionMetadata(cwd, plan.metadata.id, { status: "completed" });
-              allowFinalize = true;
-              allowReview = false;
-              if (tuiData) {
-                tuiData.reviewStatus = "complete";
-                tuiData.reviewError = undefined;
-                tuiData.completionSummary = { ...summaryData, reviewFixesApplied };
-                renderTui();
-              }
-            }
-            continue;
+            return;
           }
 
           if (completionAction === "finalize") {
