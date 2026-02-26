@@ -25,7 +25,7 @@ export class Interviewer {
       model,
       readOnly: true,
       systemPrompt: INTERVIEW_TEMPLATE,
-      promptSuffix: "Continue the interview. Prefer inferring implementation details from context over asking the user. If you can confidently address all checklist areas, write the complete PRD starting with a level-1 heading.",
+      promptSuffix: "Continue the interview. Prefer inferring implementation details from context over asking the user. The PRD will be executed to generate tasks and drive implementation; keep it actionable. If you can confidently address all checklist areas, write the complete PRD starting with a level-1 heading.",
       persist,
     });
     this.templateReady = this.loadPhaseTemplate(agent.name ?? "default", cwd);

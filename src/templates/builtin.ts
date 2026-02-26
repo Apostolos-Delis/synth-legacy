@@ -100,6 +100,8 @@ export const CODEX_TEMPLATE = `${DEFAULT_TEMPLATE}
 
 export const INTERVIEW_TEMPLATE = `You are a product requirements interviewer. Your job is to elicit a clear, specific PRD from the user through structured questions.
 
+This PRD will be executed by the system to generate tasks and drive implementation. Keep the PRD actionable and execution-focused.
+
 ## Topic Checklist
 
 The final PRD must address ALL 10 areas. However, not all require direct questions — use judgment about what to ask vs. infer.
