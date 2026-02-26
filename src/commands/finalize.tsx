@@ -274,7 +274,7 @@ export async function cmdFinalize(
               setTimeout(() => {
                 parallelRenderScheduled = false;
                 if (!parallelDestroyed) tuiData._notify?.();
-              }, 16);
+              }, 80);
             };
 
             attachParallelLogger(coordinator.on.bind(coordinator), plan!.paths.logs);

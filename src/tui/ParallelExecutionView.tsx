@@ -102,6 +102,10 @@ export function ParallelExecutionView({
     : isCompletedWithNoOutput
       ? "No output recorded"
       : storedOutput;
+  const outputCacheKey = selectedTask
+    ? `${selectedTask.id}:${isSelectedTaskActive ? "active" : "stored"}`
+    : "none";
+  const outputSignature = `${displayOutput.length}:${displayOutput.slice(-256)}`;
 
   const showThinking = isSelectedTaskActive && state.isThinking;
   const showPhase = isSelectedTaskActive ? state.currentPhase : null;
@@ -145,6 +149,8 @@ export function ParallelExecutionView({
           </box>
           <OutputPane
             output={displayOutput}
+            outputCacheKey={outputCacheKey}
+            outputSignature={outputSignature}
             width={outputWidth}
             height={topHeight}
             isThinking={showThinking}

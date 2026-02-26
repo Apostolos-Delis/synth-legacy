@@ -334,7 +334,7 @@ export async function cmdRun(
           setTimeout(() => {
             parallelRenderScheduled = false;
             if (!parallelDestroyed) parallelTuiData._notify?.();
-          }, 16);
+          }, 80);
         };
 
         attachParallelLogger(coordinator.on.bind(coordinator), plan.paths.logs);

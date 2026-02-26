@@ -1,4 +1,4 @@
-import { memo, useMemo, type ReactNode } from "react";
+import { memo, useMemo, useRef, type ReactNode } from "react";
 import type { Task } from "../../tasks/types.js";
 import { colors, markdownSyntaxStyle } from "../theme.js";
 import { wrapText } from "../utils.js";
@@ -165,6 +165,8 @@ function calcHeaderHeight(
 
 interface OutputPaneProps {
   output: string;
+  outputCacheKey?: string;
+  outputSignature?: string;
   width: number;
   height: number;
   isThinking?: boolean;
@@ -180,6 +182,8 @@ interface OutputPaneProps {
 
 export const OutputPane = memo(function OutputPane({
   output,
+  outputCacheKey,
+  outputSignature,
   width,
   height,
   isThinking = false,
@@ -194,6 +198,8 @@ export const OutputPane = memo(function OutputPane({
 }: OutputPaneProps): ReactNode {
   // Output is pre-stripped of ANSI codes in the event handler for minimal render-path latency.
 
+  const cacheRef = useRef(new Map<string, { signature: string; blocks: OutputBlock[] }>());
+
   const outputIsEmpty = output.trim().length === 0 || output === "No output recorded";
   const minOutputHeight = outputIsEmpty && !isThinking ? MIN_EMPTY_OUTPUT_HEIGHT : MIN_OUTPUT_HEIGHT;
   const outputInnerWidth = Math.max(1, width - 6);
@@ -204,7 +210,19 @@ export const OutputPane = memo(function OutputPane({
   const outputHeight = Math.max(1, height - headerHeight);
   const outputScrollHeight = Math.max(1, outputHeight - 2);
   const waiting = isThinking && !output;
-  const outputBlocks = useMemo(() => parseOutputBlocks(output), [output]);
+  const cacheKey = outputCacheKey ?? "default";
+  const signature = outputSignature ?? `${output.length}:${output.slice(-256)}`;
+  const outputBlocks = useMemo(() => {
+    const cached = cacheRef.current.get(cacheKey);
+    if (cached && cached.signature === signature) return cached.blocks;
+    const blocks = parseOutputBlocks(output);
+    cacheRef.current.set(cacheKey, { signature, blocks });
+    if (cacheRef.current.size > 20) {
+      const firstKey = cacheRef.current.keys().next().value;
+      if (firstKey) cacheRef.current.delete(firstKey);
+    }
+    return blocks;
+  }, [cacheKey, signature, output]);
 
   const renderLabeledLines = (
     label: "input" | "output",

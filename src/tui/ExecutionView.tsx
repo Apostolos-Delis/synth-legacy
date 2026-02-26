@@ -55,6 +55,10 @@ export function ExecutionView({ state, selectedTaskIndex, navMode, detailFocus, 
     : isCompletedWithNoOutput
       ? "No output recorded"
       : storedOutput;
+  const outputCacheKey = selectedTask
+    ? `${selectedTask.id}:${isSelectedTaskActive ? "active" : "stored"}`
+    : "none";
+  const outputSignature = `${displayOutput.length}:${displayOutput.slice(-256)}`;
 
   // Only show thinking indicator for the active task
   const showThinking = isSelectedTaskActive && state.isThinking;
@@ -89,6 +93,8 @@ export function ExecutionView({ state, selectedTaskIndex, navMode, detailFocus, 
         />
         <OutputPane
           output={displayOutput}
+          outputCacheKey={outputCacheKey}
+          outputSignature={outputSignature}
           width={contentWidth}
           height={bodyHeight}
           isThinking={showThinking}
