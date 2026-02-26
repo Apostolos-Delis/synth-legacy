@@ -423,9 +423,11 @@ export async function cmdStart(
 ): Promise<void> {
   const { cwd, tuiEnabled } = ctx;
   const config = await applyTheme(cwd);
+  const defaultAgentName = config.agent.name;
   const agentName = ctx.agentName ?? config.agent.name;
-  if (agentName !== config.agent.name) {
+  if (agentName !== defaultAgentName) {
     config.agent.name = agentName;
+    config.agent.model = undefined;
   }
   const showToolLogs = config.tui?.show_tool_logs !== false;
   const repoRoot = cwd;

@@ -126,6 +126,7 @@ export async function cmdRun(
 
   if (plan.metadata.agentName && plan.metadata.agentName !== config.agent.name) {
     config.agent.name = plan.metadata.agentName;
+    config.agent.model = undefined;
   }
 
   logger.info("run:start", "Run started", {

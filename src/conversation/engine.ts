@@ -157,13 +157,16 @@ export class ConversationEngine {
       throw new Error("Agent execution timed out");
     }
     if (result.exitCode !== 0) {
-      const stderr = result.stderr ? truncate(result.stderr, 2000) : "";
+      const errorOutput = result.stderr && result.stderr.trim().length > 0
+        ? result.stderr
+        : result.stdout;
+      const stderr = errorOutput ? truncate(errorOutput, 2000) : "";
       logger.error("agent:exit", "Agent exited non-zero", {
         agent: this.agent.name,
         exitCode: result.exitCode,
         stderr,
       });
-      throw new Error(`Agent exited with code ${result.exitCode}: ${result.stderr}`);
+      throw new Error(`Agent exited with code ${result.exitCode}: ${stderr}`);
     }
     if (!result.stdout.trim()) {
       if (this.agent.name === "claude") {

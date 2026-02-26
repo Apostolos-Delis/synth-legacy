@@ -104,6 +104,7 @@ async function resumeInterview(
   const config = await applyTheme(cwd);
   if (plan.metadata.agentName && plan.metadata.agentName !== config.agent.name) {
     config.agent.name = plan.metadata.agentName;
+    config.agent.model = undefined;
   }
   const showToolLogs = config.tui?.show_tool_logs !== false;
   const logger = getLogger();
@@ -582,6 +583,7 @@ export async function cmdResumeInternal(
       const config = await applyTheme(cwd);
       if (plan.metadata.agentName && plan.metadata.agentName !== config.agent.name) {
         config.agent.name = plan.metadata.agentName;
+        config.agent.model = undefined;
       }
       const [{ getAgent }, runMod] = await Promise.all([
         loadAgentRegistry(),
