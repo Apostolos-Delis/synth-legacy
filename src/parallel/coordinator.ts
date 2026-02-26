@@ -21,6 +21,7 @@ import {
   getCurrentBranch,
   checkoutBranch,
   createTag,
+  deleteBranch,
   deleteTag,
   mergeFF,
   gitLog,
@@ -367,14 +368,18 @@ export class ParallelCoordinator {
       // Merge session branch back to original branch
       let mergeError: string | undefined;
       if (this.originalBranch && this.sessionBranch) {
+        const sessionBranch = this.sessionBranch;
         await checkoutBranch(this.originalBranch, this.repoRoot);
         try {
-          await mergeFF(this.sessionBranch, this.repoRoot);
+          await mergeFF(sessionBranch, this.repoRoot);
+          const branchToDelete = sessionBranch;
+          this.sessionBranch = null;
+          await this.cleanupStaleArtifacts({ deleteSessionBranch: branchToDelete });
         } catch {
           // FF merge failed — session branch has diverged from original.
           // Leave the user on the session branch so their work is accessible.
-          await checkoutBranch(this.sessionBranch, this.repoRoot);
-          mergeError = `Fast-forward merge failed. Your work is on branch '${this.sessionBranch}'. Merge manually with: git merge ${this.sessionBranch}`;
+          await checkoutBranch(sessionBranch, this.repoRoot);
+          mergeError = `Fast-forward merge failed. Your work is on branch '${sessionBranch}'. Merge manually with: git merge ${sessionBranch}`;
           this.emit({
             type: "parallel:warning",
             timestamp: this.timestamp(),
@@ -790,6 +795,21 @@ export class ParallelCoordinator {
       await deleteParallelSession(this.sessionPaths);
     } catch {
       // Session file may not exist
+    }
+  }
+
+  private async cleanupStaleArtifacts(options?: { deleteSessionBranch?: string }): Promise<void> {
+    try {
+      await cleanupStaleParallelState(this.repoRoot, this.sessionPaths);
+    } catch {
+      // Best effort
+    }
+    if (options?.deleteSessionBranch) {
+      try {
+        await deleteBranch(options.deleteSessionBranch, this.repoRoot, true);
+      } catch {
+        // Best effort
+      }
     }
   }
 
