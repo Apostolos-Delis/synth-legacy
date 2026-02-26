@@ -1,9 +1,11 @@
 import { join } from "node:path";
+import { rm } from "node:fs/promises";
 import {
   readJson,
   writeJson,
   fileExists,
   removeFile,
+  dirExists,
 } from "../utils/fs.js";
 import {
   listWorktrees,
@@ -113,10 +115,31 @@ export async function cleanupOrphanedWorktrees(
   }
 }
 
+async function cleanupLegacyWorkerSessions(
+  repoRoot: string,
+): Promise<void> {
+  let worktrees: Awaited<ReturnType<typeof listWorktrees>>;
+  try {
+    worktrees = await listWorktrees(repoRoot);
+  } catch {
+    return;
+  }
+
+  for (const wt of worktrees) {
+    const legacyPath = join(wt.path, ".synth-session");
+    if (!(await dirExists(legacyPath))) continue;
+    try {
+      await rm(legacyPath, { recursive: true, force: true });
+    } catch {
+    }
+  }
+}
+
 export async function cleanupStaleParallelState(
   repoRoot: string,
   sessionPaths: SessionPaths,
 ): Promise<void> {
+  await cleanupLegacyWorkerSessions(repoRoot);
   // 1. Clean orphaned worktrees
   await cleanupOrphanedWorktrees(repoRoot);
 
