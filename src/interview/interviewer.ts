@@ -38,7 +38,15 @@ export class Interviewer {
 
   async respond(userMessage: string, onChunk?: (chunk: string) => void, onTool?: (event: AgentToolEvent) => void): Promise<string> {
     await this.templateReady;
-    return this.engine.send(userMessage, onChunk, onTool);
+    const response = await this.engine.send(userMessage, onChunk, onTool);
+    if (shouldRetryInterview(response)) {
+      return this.engine.retryLast(
+        "You already explored the codebase using tools. Summarize key findings and ask the next targeted questions or provide the full PRD now. Do not defer.",
+        onChunk,
+        onTool,
+      );
+    }
+    return response;
   }
 
   extractPrdMarkdown(response: string): string | null {
@@ -54,6 +62,25 @@ export class Interviewer {
   getHistory(): InterviewMessage[] {
     return this.engine.getHistory() as InterviewMessage[];
   }
+}
+
+function shouldRetryInterview(response: string): boolean {
+  const trimmed = response.trim().toLowerCase();
+  if (!trimmed) return false;
+  const deferrals = [
+    "let me explore",
+    "let me take a look",
+    "let me first",
+    "i'll explore",
+    "i will explore",
+    "i should explore",
+    "let me dig in",
+    "let me review the codebase",
+    "let me look at the codebase",
+  ];
+  if (deferrals.some((d) => trimmed.startsWith(d))) return true;
+  if (trimmed.includes("before asking targeted questions")) return true;
+  return false;
 }
 
 export function extractPrdTitle(markdown: string): string {

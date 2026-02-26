@@ -74,15 +74,28 @@ export class ConversationEngine {
     this.messages = [...messages];
   }
 
-  private buildPrompt(): string {
+  private buildPrompt(extraSuffix?: string): string {
     const turns = this.messages
       .map((m) => `${m.role === "user" ? "User" : "Assistant"}: ${m.content}`)
       .join("\n\n");
 
     const prefix = `${this.systemPrompt}\n\nConversation so far:\n\n`;
-    const suffix = this.promptSuffix ? `\n\n${this.promptSuffix}` : "";
+    const suffixParts = [this.promptSuffix, extraSuffix].filter((s) => s && s.trim().length > 0);
+    const suffix = suffixParts.length > 0 ? `\n\n${suffixParts.join("\n\n")}` : "";
 
     return `${prefix}${turns}${suffix}`;
+  }
+
+  async retryLast(extraSuffix: string, onChunk?: (chunk: string) => void, onTool?: (event: AgentToolEvent) => void): Promise<string> {
+    if (this.messages.length === 0) return "";
+    if (this.messages[this.messages.length - 1].role === "assistant") {
+      this.messages.pop();
+    }
+    const prompt = this.buildPrompt(extraSuffix);
+    const response = await this.sendToAgent(prompt, onChunk, onTool);
+    this.messages.push({ role: "assistant", content: response });
+    await this.persist?.(this.getHistory());
+    return response;
   }
 
   private async sendToAgent(prompt: string, onChunk?: (chunk: string) => void, onTool?: (event: AgentToolEvent) => void): Promise<string> {

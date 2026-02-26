@@ -96,6 +96,9 @@ class ClaudeStreamParser {
   private buffer = "";
   private text = "";
   private sawTextDelta = false;
+  private currentMessageId: string | null = null;
+  private currentMessageSynthetic = false;
+  private messageCounter = 0;
   private toolUsesByIndex = new Map<number, ToolUseState>();
   private toolUsesById = new Map<string, ToolUseState>();
   private toolResultsByIndex = new Map<number, ToolResultState>();
@@ -136,6 +139,16 @@ class ClaudeStreamParser {
     }
 
     const type = record.type;
+    if (type === "message_start") {
+      const message = record.message as Record<string, unknown> | undefined;
+      const messageId = typeof message?.id === "string" ? message.id : undefined;
+      this.startMessage(messageId);
+      return;
+    }
+
+    if (!this.currentMessageId && (type === "content_block_start" || type === "content_block_delta")) {
+      this.startMessage();
+    }
     if (type === "content_block_delta") {
       const delta = record.delta as Record<string, unknown> | undefined;
       const index = typeof record.index === "number" ? record.index : undefined;
@@ -208,6 +221,10 @@ class ClaudeStreamParser {
 
     if (type === "assistant") {
       const message = record.message as Record<string, unknown> | undefined;
+      const messageId = typeof message?.id === "string" ? message.id : undefined;
+      if (messageId || this.currentMessageSynthetic) {
+        this.startMessage(messageId);
+      }
       const content = message?.content;
       if (Array.isArray(content)) {
         for (const item of content) {
@@ -284,6 +301,29 @@ class ClaudeStreamParser {
       }
       return;
     }
+  }
+
+  private startMessage(messageId?: string): void {
+    if (messageId) {
+      if (this.currentMessageId === messageId) return;
+      if (this.currentMessageSynthetic && this.currentMessageId) {
+        this.currentMessageId = messageId;
+        this.currentMessageSynthetic = false;
+        return;
+      }
+    } else if (this.currentMessageId) {
+      return;
+    }
+
+    const resolvedId = messageId ?? `message-${this.messageCounter + 1}`;
+    if (resolvedId === this.currentMessageId) return;
+    this.emitPendingTools();
+    this.currentMessageId = resolvedId;
+    this.currentMessageSynthetic = !messageId;
+    if (!messageId) this.messageCounter += 1;
+    this.sawTextDelta = false;
+    this.toolUsesByIndex.clear();
+    this.toolResultsByIndex.clear();
   }
 
   private appendText(text: string): void {

@@ -51,7 +51,6 @@ export function InterviewApp({ sessionId, onSendMessage, onComplete, onQuit, ini
   const [isLoading, setIsLoading] = useState(false);
   const [loadingStartTime, setLoadingStartTime] = useState(0);
   const {
-    streamingText,
     toolEvents,
     hasStreaming,
     appendChunk,
@@ -340,7 +339,7 @@ export function InterviewApp({ sessionId, onSendMessage, onComplete, onQuit, ini
           <AgentStreamingBubble
             isLoading={isLoading}
             loadingStartTime={loadingStartTime}
-            streamingText={streamingText}
+            streamingText=""
             toolEvents={toolEvents}
             phaseLabel="Generating response..."
           />
