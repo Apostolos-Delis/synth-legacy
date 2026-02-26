@@ -666,6 +666,8 @@ export async function cmdStart(
     };
     process.on("SIGINT", sigintHandler);
 
+    await ensureSession();
+
     // Phase 1: Interview
     const interviewResult = await new Promise<boolean>((resolve) => {
       const renderInterview = () => {
@@ -673,9 +675,7 @@ export async function cmdStart(
           <tui.InterviewApp
             sessionId={session?.id}
             onSendMessage={async (msg, onChunk, onTool) => {
-              const hadSession = !!session;
               await ensureSession();
-              if (!hadSession) renderInterview();
               logger.info("interview:prompt", "User message", { sessionId: session!.id, length: msg.length });
               try {
                 const response = await interviewer!.respond(msg, onChunk, showToolLogs ? onTool : undefined);
