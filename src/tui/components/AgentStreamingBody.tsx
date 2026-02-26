@@ -36,7 +36,7 @@ export function AgentStreamingBody({
   return (
     <box style={{ paddingLeft, flexDirection: "column" }}>
       {streamingText && (
-        <text fg={colors.fg.muted}>{streamingText}</text>
+        <text fg={colors.fg.muted}>{streamingText.replace(/\s+$/, "")}</text>
       )}
       {visibleToolEvents.length > 0 && (
         <box style={{ flexDirection: "column", gap: 0 }}>
