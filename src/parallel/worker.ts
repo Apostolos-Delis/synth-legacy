@@ -249,7 +249,8 @@ export class Worker {
   }
 
   private createWorkerSessionPaths(): SessionPaths {
-    const root = join(this.config.worktreePath, ".synth-session");
+    const root = join(this.baseSessionPaths.root, "workers", this.id);
+    const logs = join(this.baseSessionPaths.logs, "workers", this.id);
     return {
       root,
       prd: join(root, "prd.md"),
@@ -257,7 +258,7 @@ export class Worker {
       progress: join(root, "progress.json"),
       run: join(root, "run.json"),
       lock: join(root, "lock"),
-      logs: join(root, "logs"),
+      logs,
       summary: join(root, "summary.md"),
       interview: join(root, "interview.json"),
       reviewRoot: join(root, "review"),
@@ -265,7 +266,7 @@ export class Worker {
       reviewTasks: join(root, "review", "tasks.json"),
       reviewProgress: join(root, "review", "progress.json"),
       reviewConversation: join(root, "review", "conversation.json"),
-      sessionLog: join(root, "session.log"),
+      sessionLog: join(logs, "session.log"),
     };
   }
 

@@ -116,7 +116,7 @@ const mockSessionPaths: SessionPaths = {
   sessionLog: "/sessions/repo/test-session/session.log",
 };
 
-const sessionFilePath = "/sessions/repo/test-session/.synth/parallel-session.json";
+const sessionFilePath = "/sessions/repo/test-session/parallel-session.json";
 
 function makeState(overrides?: Partial<ParallelSessionState>): ParallelSessionState {
   return {
@@ -152,7 +152,7 @@ beforeEach(() => {
 });
 
 describe("saveParallelSession", () => {
-  test("writes state to .synth/parallel-session.json", async () => {
+  test("writes state to parallel-session.json", async () => {
     const state = makeState();
     await saveParallelSession(mockSessionPaths, state);
 

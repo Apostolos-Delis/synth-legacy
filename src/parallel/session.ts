@@ -39,7 +39,7 @@ export interface ParallelSessionState {
 }
 
 function sessionFilePath(sessionPaths: SessionPaths): string {
-  return join(sessionPaths.root, ".synth", "parallel-session.json");
+  return join(sessionPaths.root, "parallel-session.json");
 }
 
 export async function saveParallelSession(

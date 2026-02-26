@@ -111,6 +111,7 @@ async function initRepo(): Promise<string> {
 
 function makeSessionPaths(repoRoot: string): SessionPaths {
   const root = join(repoRoot, ".synth-session");
+  const logs = join(root, "logs");
   return {
     root,
     prd: join(root, "prd.md"),
@@ -118,7 +119,7 @@ function makeSessionPaths(repoRoot: string): SessionPaths {
     progress: join(root, "progress.json"),
     run: join(root, "run.json"),
     lock: join(root, "lock"),
-    logs: join(root, "logs"),
+    logs,
     summary: join(root, "summary.md"),
     interview: join(root, "interview.json"),
     reviewRoot: join(root, "review"),
@@ -126,7 +127,7 @@ function makeSessionPaths(repoRoot: string): SessionPaths {
     reviewTasks: join(root, "review", "tasks.json"),
     reviewProgress: join(root, "review", "progress.json"),
     reviewConversation: join(root, "review", "conversation.json"),
-    sessionLog: join(root, "session.log"),
+    sessionLog: join(logs, "session.log"),
   };
 }
 
@@ -225,8 +226,7 @@ describe("parallel pipeline integration", () => {
 
   beforeEach(async () => {
     repoRoot = await initRepo();
-    // Create .synth dir for session state
-    await mkdir(join(repoRoot, ".synth-session", ".synth"), { recursive: true });
+    await mkdir(join(repoRoot, ".synth-session", "logs"), { recursive: true });
   });
 
   afterEach(async () => {
