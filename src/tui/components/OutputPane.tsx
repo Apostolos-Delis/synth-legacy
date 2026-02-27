@@ -277,6 +277,32 @@ export const OutputPane = memo(function OutputPane({
     return nodes;
   };
 
+  const renderedBlocks = useMemo(() =>
+    outputBlocks.map((block, idx) => {
+      if (block.type === "markdown") {
+        return (
+          <markdown key={`md-${idx}`} content={block.content} streaming syntaxStyle={markdownSyntaxStyle()} />
+        );
+      }
+      const labelColor = block.kind === "use" ? colors.status.info : colors.status.success;
+      const kindText = block.kind === "use" ? "tool use" : "tool result";
+      const inputColor = colors.fg.secondary;
+      const outputColor = colors.fg.primary;
+      return (
+        <box key={`tool-${idx}`} style={FLEX_COLUMN_STYLE}>
+          <text>
+            <span fg={labelColor}>{block.kind === "use" ? "\u2192" : "\u2190"}</span>
+            <span fg={colors.fg.primary}>{` ${kindText} `}</span>
+            <span fg={colors.accent.primary}>{block.name}</span>
+            {block.id && <span fg={colors.fg.muted}>{block.id}</span>}
+          </text>
+          {renderLabeledLines("input", block.input, `tool-in-${idx}`, inputColor)}
+          {renderLabeledLines("output", block.output, `tool-out-${idx}`, outputColor)}
+        </box>
+      );
+    }),
+  [outputBlocks, outputInnerWidth]);
+
   endSpan("OutputPane", renderSpan);
   return (
     <box width={width} height={height} flexDirection="column" overflow="hidden">
@@ -303,6 +329,7 @@ export const OutputPane = memo(function OutputPane({
           focused={outputScrollFocused}
           stickyScroll={!outputScrollFocused && autoScroll}
           stickyStart="bottom"
+          viewportCulling
           verticalScrollbarOptions={VERTICAL_SCROLLBAR_OPTIONS}
           style={FLEX_COLUMN_STYLE}
         >
@@ -315,29 +342,7 @@ export const OutputPane = memo(function OutputPane({
               </text>
             )
           ) : (
-            outputBlocks.map((block, idx) => {
-              if (block.type === "markdown") {
-                return (
-                  <markdown key={`md-${idx}`} content={block.content} syntaxStyle={markdownSyntaxStyle()} />
-                );
-              }
-              const labelColor = block.kind === "use" ? colors.status.info : colors.status.success;
-              const kindText = block.kind === "use" ? "tool use" : "tool result";
-              const inputColor = colors.fg.secondary;
-              const outputColor = colors.fg.primary;
-              return (
-                <box key={`tool-${idx}`} style={FLEX_COLUMN_STYLE}>
-                  <text>
-                    <span fg={labelColor}>{block.kind === "use" ? "\u2192" : "\u2190"}</span>
-                    <span fg={colors.fg.primary}>{` ${kindText} `}</span>
-                    <span fg={colors.accent.primary}>{block.name}</span>
-                    {block.id && <span fg={colors.fg.muted}>{block.id}</span>}
-                  </text>
-                  {renderLabeledLines("input", block.input, `tool-in-${idx}`, inputColor)}
-                  {renderLabeledLines("output", block.output, `tool-out-${idx}`, outputColor)}
-                </box>
-              );
-            })
+            renderedBlocks
           )}
         </scrollbox>
       </box>

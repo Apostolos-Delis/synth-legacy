@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, type ReactNode } from "react";
+import { useState, useEffect, useMemo, memo, type ReactNode } from "react";
 import { useTerminalDimensions } from "@opentui/react";
 import type { TuiState, NavMode } from "./types.js";
 import { layout } from "./theme.js";
@@ -21,7 +21,7 @@ interface ExecutionViewProps {
   exitArmed?: boolean;
 }
 
-export function ExecutionView({ state, selectedTaskIndex, navMode, detailFocus, parallel, parallelCompletion, parallelStatus, exitArmed }: ExecutionViewProps): ReactNode {
+export const ExecutionView = memo(function ExecutionView({ state, selectedTaskIndex, navMode, detailFocus, parallel, parallelCompletion, parallelStatus, exitArmed }: ExecutionViewProps): ReactNode {
   const [, tick] = useState(0);
   useEffect(() => {
     if (state.engineState !== "executing" && state.engineState !== "reviewing") return;
@@ -134,4 +134,4 @@ export function ExecutionView({ state, selectedTaskIndex, navMode, detailFocus, 
       />
     </box>
   );
-}
+});
