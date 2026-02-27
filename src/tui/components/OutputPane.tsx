@@ -279,8 +279,9 @@ export const OutputPane = memo(function OutputPane({
   };
 
   const renderedBlocks = useMemo(() => {
+    const renderBlocksStart = startSpan("OutputPane:renderBlocks");
     const cache = blockRenderCache.current;
-    return outputBlocks.map((block, idx) => {
+    const result = outputBlocks.map((block, idx) => {
       if (block.type === "markdown") {
         return (
           <markdown key={`md-${idx}`} content={block.content} streaming syntaxStyle={markdownSyntaxStyle()} />
@@ -318,6 +319,8 @@ export const OutputPane = memo(function OutputPane({
       }
       return rendered;
     });
+    endSpan("OutputPane:renderBlocks", renderBlocksStart);
+    return result;
   }, [outputBlocks, outputInnerWidth]);
 
   endSpan("OutputPane", renderSpan);

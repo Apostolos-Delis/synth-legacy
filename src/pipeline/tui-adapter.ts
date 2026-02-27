@@ -120,20 +120,31 @@ export class TuiAdapter {
       this.root = createRoot(this.renderer);
     }
 
+    // Debounce requestRender — the React reconciler calls it for every individual
+    // DOM mutation (text update, prop change, appendChild, etc.), producing 5000-30000
+    // calls/sec during streaming.  Coalesce into one actual render per microtask.
+    const rendererAny = this.renderer as { requestRender?: () => void };
+    const origRequestRender = rendererAny.requestRender?.bind(this.renderer);
+    if (origRequestRender) {
+      this.originalRequestRender = origRequestRender;
+      let renderQueued = false;
+      rendererAny.requestRender = () => {
+        if (process.env.SYNTH_TUI_PROFILE === "1") countEvent("renderer:requestRender");
+        if (renderQueued) return;
+        renderQueued = true;
+        queueMicrotask(() => {
+          renderQueued = false;
+          origRequestRender();
+        });
+      };
+    }
+
     if (this.renderer && process.env.SYNTH_TUI_PROFILE === "1") {
       this.frameCallback = async (deltaTime: number) => {
         recordSpan("renderer:frame", deltaTime);
         countEvent("renderer:frame");
       };
       this.renderer.setFrameCallback(this.frameCallback);
-      const requestRender = (this.renderer as { requestRender?: () => void }).requestRender;
-      if (requestRender) {
-        this.originalRequestRender = requestRender.bind(this.renderer);
-        (this.renderer as { requestRender: () => void }).requestRender = () => {
-          countEvent("renderer:requestRender");
-          this.originalRequestRender?.();
-        };
-      }
     }
 
     const initialTaskElapsedMs = Object.fromEntries(
@@ -618,9 +629,19 @@ export class TuiAdapter {
     }
 
     countEvent("tui:render:serial");
-    const renderStart = startSpan("tui:render:serial");
+    const renderStart = performance.now();
     this.tuiData._notify?.();
-    endSpan("tui:render:serial", renderStart);
+    const notifyMs = performance.now() - renderStart;
+    // Measure full frame: notify triggers setState → React reconciliation → @opentui render.
+    // Use setImmediate to measure after the synchronous portion completes.
+    setImmediate(() => {
+      const totalMs = performance.now() - renderStart;
+      recordSpan("tui:render:serial:total", totalMs);
+      if (totalMs > 50) {
+        countEvent("tui:render:slow-frame");
+      }
+    });
+    recordSpan("tui:render:serial:notify", notifyMs);
   }
 
   private renderSerialThrottled(): void {
