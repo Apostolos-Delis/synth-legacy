@@ -123,21 +123,20 @@ export class TuiAdapter {
       this.root = createRoot(this.renderer);
     }
 
-    // Coalesce requestRender: suppress duplicate calls within each frame period.
-    // The renderer targets 30fps (33ms frames). We allow ONE origRequestRender
-    // per 33ms. The renderer's internal loop handles the actual frame pacing.
+    // Instrument requestRender for profiling. Don't coalesce — the renderer's
+    // own 30fps loop handles frame pacing. Previous coalescing attempts (4ms
+    // dirty flag, 16ms window, 33ms gate) all interfered with the renderer's
+    // internal scheduling and REDUCED fps instead of helping.
     const rendererAny = this.renderer as Record<string, unknown>;
-    const origRequestRender = (rendererAny.requestRender as (() => void) | undefined)?.bind(this.renderer);
-    if (origRequestRender) {
-      this.originalRequestRender = origRequestRender;
-      let lastPassTime = 0;
-      (rendererAny as { requestRender: () => void }).requestRender = () => {
-        countEvent("renderer:requestRender");
-        const now = performance.now();
-        if (now - lastPassTime < 33) return;
-        lastPassTime = now;
-        origRequestRender();
-      };
+    if (process.env.SYNTH_TUI_PROFILE === "1") {
+      const origRR = (rendererAny.requestRender as (() => void) | undefined)?.bind(this.renderer);
+      if (origRR) {
+        this.originalRequestRender = origRR;
+        (rendererAny as { requestRender: () => void }).requestRender = () => {
+          countEvent("renderer:requestRender");
+          origRR();
+        };
+      }
     }
 
     // Instrument the renderer's actual loop() to measure real frame cost
