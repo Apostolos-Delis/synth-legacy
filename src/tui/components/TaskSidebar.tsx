@@ -4,6 +4,8 @@ import type { Task } from "../../tasks/types.js";
 import { boldAttr, statusIndicators, colors, STATUS_COLORS_HEX, PRIORITY_COLORS_HEX } from "../theme.js";
 import { startSpan, endSpan } from "../profiler.js";
 
+const FLEX_COL_STYLE = { flexDirection: "column" } as const;
+
 interface TaskSidebarProps {
   tasks: Task[];
   currentTaskId: string | null;
@@ -105,7 +107,7 @@ export const TaskSidebar = memo(function TaskSidebar({
           ref={scrollRef}
           height={contentHeight}
           stickyScroll={false}
-          style={{ flexDirection: "column" }}
+          style={FLEX_COL_STYLE}
         >
           {taskRows}
         </scrollbox>

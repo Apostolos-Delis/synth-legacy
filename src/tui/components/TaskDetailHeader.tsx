@@ -10,6 +10,8 @@ function truncateText(text: string, maxWidth: number): string {
   return text.slice(0, maxWidth - 1) + "\u2026";
 }
 
+const FLEX_COL = { flexDirection: "column" } as const;
+
 function padLine(text: string, width: number): string {
   if (width <= 0) return "";
   if (text.length >= width) return text.slice(0, width);
@@ -155,7 +157,7 @@ export const TaskDetailHeader = memo(function TaskDetailHeader({
         height={scrollHeight}
         focused={scrollFocused}
         stickyScroll={false}
-        style={{ flexDirection: "column" }}
+        style={FLEX_COL}
       >
         {contentRows}
       </scrollbox>
