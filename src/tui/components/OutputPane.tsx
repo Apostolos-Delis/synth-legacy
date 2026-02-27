@@ -347,7 +347,8 @@ export const OutputPane = memo(function OutputPane({
         <scrollbox
           height={outputScrollHeight}
           focused={outputScrollFocused}
-          stickyStart={autoScroll && !outputScrollFocused ? "bottom" : undefined}
+          stickyScroll={!outputScrollFocused && autoScroll}
+          stickyStart="bottom"
           viewportCulling
           verticalScrollbarOptions={VERTICAL_SCROLLBAR_OPTIONS}
           style={FLEX_COLUMN_STYLE}

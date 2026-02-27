@@ -120,22 +120,38 @@ export class TuiAdapter {
       this.root = createRoot(this.renderer);
     }
 
-    // Debounce requestRender — the React reconciler calls it for every individual
-    // DOM mutation (text update, prop change, appendChild, etc.), producing 5000-30000
-    // calls/sec during streaming.  Coalesce into one actual render per microtask.
+    // Rate-limit requestRender — @opentui's scrollbox calls
+    // process.nextTick(() => requestRender()) from recalculateBarProps() on every
+    // content change, creating an infinite render loop. The React reconciler also
+    // calls requestRender for every DOM mutation. Together these produce 30,000+
+    // requestRender calls/sec and 300-900ms frame times.
+    //
+    // Fix: time-based rate limiter. Allow at most one actual render per 80ms
+    // (matching the TUI throttle). This breaks the nextTick render loop.
     const rendererAny = this.renderer as { requestRender?: () => void };
     const origRequestRender = rendererAny.requestRender?.bind(this.renderer);
     if (origRequestRender) {
       this.originalRequestRender = origRequestRender;
-      let renderQueued = false;
+      let lastRenderTime = 0;
+      let pendingTimer: ReturnType<typeof setTimeout> | null = null;
       rendererAny.requestRender = () => {
         if (process.env.SYNTH_TUI_PROFILE === "1") countEvent("renderer:requestRender");
-        if (renderQueued) return;
-        renderQueued = true;
-        queueMicrotask(() => {
-          renderQueued = false;
+        const now = performance.now();
+        const elapsed = now - lastRenderTime;
+        if (elapsed >= 80) {
+          // Enough time has passed — render immediately
+          lastRenderTime = now;
+          if (pendingTimer) { clearTimeout(pendingTimer); pendingTimer = null; }
           origRequestRender();
-        });
+        } else if (!pendingTimer) {
+          // Schedule a render for when the budget allows
+          pendingTimer = setTimeout(() => {
+            pendingTimer = null;
+            lastRenderTime = performance.now();
+            origRequestRender();
+          }, 80 - elapsed);
+        }
+        // Otherwise: a render is already pending, skip
       };
     }
 
