@@ -153,6 +153,39 @@ describe("TokenAccumulator", () => {
   });
 });
 
+describe("parseTokenUsageFromOutput backwards scan edge cases", () => {
+  const usageLine = JSON.stringify({ usage: { input_tokens: 100, output_tokens: 50 } });
+
+  test("output with exactly 50 lines scans all of them", () => {
+    const filler = Array.from({ length: 49 }, (_, i) => `line ${i + 1}`);
+    const output = [...filler, usageLine].join("\n");
+    const result = parseTokenUsageFromOutput(output);
+    expect(result).toEqual({ inputTokens: 100, outputTokens: 50, totalTokens: 150 });
+  });
+
+  test("output with fewer than 50 lines scans all", () => {
+    const output = ["first line", "second line", usageLine].join("\n");
+    const result = parseTokenUsageFromOutput(output);
+    expect(result).toEqual({ inputTokens: 100, outputTokens: 50, totalTokens: 150 });
+  });
+
+  test("output with no newlines (single long line)", () => {
+    const result = parseTokenUsageFromOutput(usageLine);
+    expect(result).toEqual({ inputTokens: 100, outputTokens: 50, totalTokens: 150 });
+  });
+
+  test("empty output returns null", () => {
+    expect(parseTokenUsageFromOutput("")).toBeNull();
+  });
+
+  test("usage line buried beyond 50-line window is not found", () => {
+    const lines = [usageLine, ...Array.from({ length: 55 }, (_, i) => `filler ${i}`)];
+    const output = lines.join("\n");
+    const result = parseTokenUsageFromOutput(output);
+    expect(result).toBeNull();
+  });
+});
+
 describe("formatTokenCount", () => {
   test("formats small numbers as-is", () => {
     expect(formatTokenCount(0)).toBe("0");

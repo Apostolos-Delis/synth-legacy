@@ -1,9 +1,11 @@
 import { describe, test, expect } from "bun:test";
-import { loadConfig } from "../config/loader.js";
+import { loadConfig, clearConfigCache } from "../config/loader.js";
+import { setConfigValue } from "../config/writer.js";
 import { writeText } from "../utils/fs.js";
 import { join } from "node:path";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
+import { withTmpDir } from "./helpers.js";
 
 describe("loadConfig", () => {
   test("returns defaults when no synth.toml exists", async () => {
@@ -187,5 +189,53 @@ describe("loadConfig", () => {
     } finally {
       await rm(dir, { recursive: true });
     }
+  });
+});
+
+describe("config cache invalidation", () => {
+  test("loadConfig returns updated value after setConfigValue", async () => {
+    await withTmpDir(async (dir) => {
+      const globalFile = join(dir, "no-global.toml");
+      await writeText(join(dir, "synth.toml"), `[execution]\nmax_iterations = 10\n`);
+
+      const before = await loadConfig(dir, undefined, globalFile);
+      expect(before.execution.max_iterations).toBe(10);
+
+      await setConfigValue(join(dir, "synth.toml"), "execution.max_iterations", 42);
+
+      const after = await loadConfig(dir, undefined, globalFile);
+      expect(after.execution.max_iterations).toBe(42);
+    });
+  });
+
+  test("clearConfigCache forces a fresh read on next loadConfig", async () => {
+    await withTmpDir(async (dir) => {
+      const globalFile = join(dir, "no-global.toml");
+      await writeText(join(dir, "synth.toml"), `[project]\nname = "original"\n`);
+
+      const first = await loadConfig(dir, undefined, globalFile);
+      expect(first.project.name).toBe("original");
+
+      await writeText(join(dir, "synth.toml"), `[project]\nname = "changed"\n`);
+      clearConfigCache();
+
+      const second = await loadConfig(dir, undefined, globalFile);
+      expect(second.project.name).toBe("changed");
+    });
+  });
+
+  test("cached value is returned when cache is not cleared", async () => {
+    await withTmpDir(async (dir) => {
+      const globalFile = join(dir, "no-global.toml");
+      await writeText(join(dir, "synth.toml"), `[execution]\nmax_iterations = 7\n`);
+
+      const first = await loadConfig(dir, undefined, globalFile);
+      expect(first.execution.max_iterations).toBe(7);
+
+      await writeText(join(dir, "synth.toml"), `[execution]\nmax_iterations = 99\n`);
+
+      const second = await loadConfig(dir, undefined, globalFile);
+      expect(second.execution.max_iterations).toBe(7);
+    });
   });
 });
