@@ -1,6 +1,7 @@
 import type { EngineEvent } from "../engine/types.js";
 import type { ParallelEvent } from "../parallel/events.js";
 import type { CompletionSummary } from "../tui/types.js";
+export type { CompletionSummary } from "../tui/types.js";
 import type { Task } from "../tasks/types.js";
 import type { SynthConfig } from "../config/types.js";
 import type { SessionPaths } from "../sessions/types.js";
