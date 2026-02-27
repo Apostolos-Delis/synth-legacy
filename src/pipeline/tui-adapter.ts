@@ -122,21 +122,32 @@ export class TuiAdapter {
       this.root = createRoot(this.renderer);
     }
 
-    // Batch requestRender calls via queueMicrotask to prevent tree-walk spam.
-    // Also instrument the renderer's loop() to measure actual frame render cost.
+    // Batch requestRender: coalesce all calls within a 16ms window into one.
+    // queueMicrotask alone doesn't work because @opentui's scrollbox fires
+    // process.nextTick(() => requestRender()) which runs AFTER microtasks.
     const rendererAny = this.renderer as Record<string, unknown>;
     const origRequestRender = (rendererAny.requestRender as (() => void) | undefined)?.bind(this.renderer);
     if (origRequestRender) {
       this.originalRequestRender = origRequestRender;
-      let batchQueued = false;
+      let lastCallTime = 0;
+      let pending: ReturnType<typeof setTimeout> | null = null;
       (rendererAny as { requestRender: () => void }).requestRender = () => {
         countEvent("renderer:requestRender");
-        if (batchQueued) return;
-        batchQueued = true;
-        queueMicrotask(() => {
-          batchQueued = false;
-          origRequestRender();
-        });
+        const now = performance.now();
+        if (now - lastCallTime < 16) {
+          // Within the same frame window — skip, a render is already scheduled
+          if (!pending) {
+            pending = setTimeout(() => {
+              pending = null;
+              lastCallTime = performance.now();
+              origRequestRender();
+            }, 16);
+          }
+          return;
+        }
+        lastCallTime = now;
+        if (pending) { clearTimeout(pending); pending = null; }
+        origRequestRender();
       };
     }
 
