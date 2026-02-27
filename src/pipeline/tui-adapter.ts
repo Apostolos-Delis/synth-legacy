@@ -67,6 +67,7 @@ export class TuiAdapter {
 
   // Serial rendering state
   private renderScheduled = false;
+  private renderTimer: ReturnType<typeof setTimeout> | null = null;
   private firstTokenRendered = false;
   private serialBridgeRendered = false;
   private taskStartTimes = new Map<string, number>();
@@ -658,6 +659,13 @@ export class TuiAdapter {
       );
     }
 
+    // Cancel any pending throttled render — this immediate render supersedes it
+    if (this.renderTimer) {
+      clearTimeout(this.renderTimer);
+      this.renderTimer = null;
+      this.renderScheduled = false;
+    }
+
     countEvent("tui:render:serial");
     const renderStart = performance.now();
     this.tuiData._notify?.();
@@ -668,7 +676,8 @@ export class TuiAdapter {
   private renderSerialThrottled(): void {
     if (this.renderScheduled) return;
     this.renderScheduled = true;
-    setTimeout(() => {
+    this.renderTimer = setTimeout(() => {
+      this.renderTimer = null;
       this.renderScheduled = false;
       this.renderSerial();
     }, 16);

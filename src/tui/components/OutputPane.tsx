@@ -223,7 +223,7 @@ export const OutputPane = memo(function OutputPane({
 
   // Truncate output to visible portion before parsing — the scrollbox only
   // shows outputScrollHeight lines, so parsing the full string is wasteful.
-  const maxVisibleChars = Math.max(2000, outputScrollHeight * 200);
+  const maxVisibleChars = Math.max(1500, outputScrollHeight * 120);
   let truncatedOutput = output;
   if (output.length > maxVisibleChars) {
     const cutPoint = output.indexOf("\n", output.length - maxVisibleChars);
