@@ -209,6 +209,7 @@ export const OutputPane = memo(function OutputPane({
   // Output is pre-stripped of ANSI codes in the event handler for minimal render-path latency.
 
   const cacheRef = useRef(new Map<string, { signature: string; blocks: OutputBlock[] }>());
+  const blockRenderCache = useRef(new Map<string, ReactNode>());
   const renderSpan = startSpan("OutputPane");
 
   const outputIsEmpty = output.trim().length === 0 || output === "No output recorded";
@@ -277,18 +278,27 @@ export const OutputPane = memo(function OutputPane({
     return nodes;
   };
 
-  const renderedBlocks = useMemo(() =>
-    outputBlocks.map((block, idx) => {
+  const renderedBlocks = useMemo(() => {
+    const cache = blockRenderCache.current;
+    return outputBlocks.map((block, idx) => {
       if (block.type === "markdown") {
         return (
           <markdown key={`md-${idx}`} content={block.content} streaming syntaxStyle={markdownSyntaxStyle()} />
         );
       }
+      // Cache rendered tool blocks by content fingerprint — only the last
+      // (growing) block changes during streaming, so previous blocks hit cache.
+      const inputSig = block.input.join("\0");
+      const outputSig = block.output.join("\0");
+      const fingerprint = `${block.kind}:${block.name}:${inputSig.length}:${inputSig.slice(-64)}:${outputSig.length}:${outputSig.slice(-64)}:${outputInnerWidth}`;
+      const cached = cache.get(fingerprint);
+      if (cached) return cached;
+
       const labelColor = block.kind === "use" ? colors.status.info : colors.status.success;
       const kindText = block.kind === "use" ? "tool use" : "tool result";
       const inputColor = colors.fg.secondary;
       const outputColor = colors.fg.primary;
-      return (
+      const rendered = (
         <box key={`tool-${idx}`} style={FLEX_COLUMN_STYLE}>
           <text>
             <span fg={labelColor}>{block.kind === "use" ? "\u2192" : "\u2190"}</span>
@@ -300,8 +310,15 @@ export const OutputPane = memo(function OutputPane({
           {renderLabeledLines("output", block.output, `tool-out-${idx}`, outputColor)}
         </box>
       );
-    }),
-  [outputBlocks, outputInnerWidth]);
+      cache.set(fingerprint, rendered);
+      // Evict old entries
+      if (cache.size > 100) {
+        const firstKey = cache.keys().next().value;
+        if (firstKey) cache.delete(firstKey);
+      }
+      return rendered;
+    });
+  }, [outputBlocks, outputInnerWidth]);
 
   endSpan("OutputPane", renderSpan);
   return (
