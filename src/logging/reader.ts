@@ -65,11 +65,10 @@ export async function tailLogFile(
 
   let offset = 0;
   let remainder = "";
+  const bufSize = 8192;
+  const buf = Buffer.alloc(bufSize);
 
   const processChunk = async () => {
-    const bufSize = 8192;
-    const buf = Buffer.alloc(bufSize);
-
     while (true) {
       const { bytesRead } = await handle.read(buf, 0, bufSize, offset);
       if (bytesRead === 0) break;
@@ -109,17 +108,23 @@ export async function tailLogFile(
     return;
   }
 
-  // Watch for new appends
+  // Watch for new appends with debouncing
   return new Promise<void>((resolve) => {
-    const watcher = watch(path, async () => {
-      try {
-        await processChunk();
-      } catch {
-        // File may have been removed or truncated — ignore
-      }
+    let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const watcher = watch(path, () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(async () => {
+        try {
+          await processChunk();
+        } catch {
+          // File may have been removed or truncated — ignore
+        }
+      }, 50);
     });
 
     const cleanup = async () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
       watcher.close();
       await handle.close();
       resolve();

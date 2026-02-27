@@ -21,10 +21,15 @@ export function logSuccess(msg: string): void {
   console.log(fmt.success(msg));
 }
 
+const themeCache = new Map<string, SynthConfig>();
+
 export async function applyTheme(cwd: string): Promise<SynthConfig> {
+  const cached = themeCache.get(cwd);
+  if (cached) return cached;
   const config = await loadConfig(cwd);
   const { theme, spinnerFrames } = await resolveTheme(config);
   initTheme(theme, spinnerFrames);
+  themeCache.set(cwd, config);
   return config;
 }
 

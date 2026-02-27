@@ -48,7 +48,7 @@ describe("createInitialTuiState", () => {
 describe("buildWorkerInfos", () => {
   test("maps WorkerDisplayState to WorkerInfo", () => {
     const states = [makeWorkerState()];
-    const infos = buildWorkerInfos(states);
+    const { infos, runningCount } = buildWorkerInfos(states);
 
     expect(infos).toHaveLength(1);
     expect(infos[0].id).toBe("w1");
@@ -59,16 +59,18 @@ describe("buildWorkerInfos", () => {
     expect(infos[0].status).toBe("running");
     expect(infos[0].lastOutput).toBe("some output");
     expect(infos[0].branchName).toBe("fix/FIX-001");
+    expect(runningCount).toBe(1);
   });
 
   test("maps completed status", () => {
-    const infos = buildWorkerInfos([makeWorkerState({ status: "completed" })]);
+    const { infos, runningCount } = buildWorkerInfos([makeWorkerState({ status: "completed" })]);
     expect(infos[0].status).toBe("completed");
+    expect(runningCount).toBe(0);
   });
 
   test("maps failed/cancelled to failed", () => {
-    expect(buildWorkerInfos([makeWorkerState({ status: "failed" })])[0].status).toBe("failed");
-    expect(buildWorkerInfos([makeWorkerState({ status: "cancelled" })])[0].status).toBe("failed");
+    expect(buildWorkerInfos([makeWorkerState({ status: "failed" })]).infos[0].status).toBe("failed");
+    expect(buildWorkerInfos([makeWorkerState({ status: "cancelled" })]).infos[0].status).toBe("failed");
   });
 });
 

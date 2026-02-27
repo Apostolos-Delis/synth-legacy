@@ -56,8 +56,7 @@ export abstract class BaseAgentAdapter implements AgentAdapter {
         env.TMPDIR = tmpDir;
         env.TMP = tmpDir;
         env.TEMP = tmpDir;
-      } catch {
-      }
+      } catch {}
     }
 
     trace.startPhase("agent:spawn");

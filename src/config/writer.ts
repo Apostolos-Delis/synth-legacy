@@ -1,14 +1,20 @@
 import { parse, stringify } from "smol-toml";
-import { fileExists, readText, writeText } from "../utils/fs.js";
+import { readText, writeText } from "../utils/fs.js";
 import { DEFAULT_CONFIG } from "./defaults.js";
+import { clearConfigCache } from "./loader.js";
 
 export async function readTomlFile(
   path: string,
 ): Promise<Record<string, unknown>> {
-  if (!(await fileExists(path))) {
-    return {};
+  let raw: string;
+  try {
+    raw = await readText(path);
+  } catch (err: unknown) {
+    if (err && typeof err === "object" && "code" in err && (err as { code: string }).code === "ENOENT") {
+      return {};
+    }
+    throw err;
   }
-  const raw = await readText(path);
   return parse(raw) as Record<string, unknown>;
 }
 
@@ -82,4 +88,5 @@ export async function setConfigValue(
   const data = await readTomlFile(filePath);
   setNestedKey(data, dottedKey.split("."), value);
   await writeTomlFile(filePath, data);
+  clearConfigCache();
 }

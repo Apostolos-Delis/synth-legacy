@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { writeFileSync, unlinkSync } from "node:fs";
+import { writeFile, unlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawn } from "../utils/process.js";
@@ -66,7 +66,7 @@ async function getConflictInfo(
 async function stageResolvedFile(file: string, content: string, cwd: string): Promise<void> {
   // Write content to a temp file, then hash it into git's object store
   const tmpPath = join(tmpdir(), `synth-resolve-${Date.now()}-${randomBytes(4).toString('hex')}`);
-  writeFileSync(tmpPath, content);
+  await writeFile(tmpPath, content);
 
   let hashResult;
   try {
@@ -76,7 +76,7 @@ async function stageResolvedFile(file: string, content: string, cwd: string): Pr
     });
     hashResult = await hashHandle.promise;
   } finally {
-    unlinkSync(tmpPath);
+    await unlink(tmpPath);
   }
 
   if (hashResult.exitCode !== 0) {
@@ -105,7 +105,7 @@ async function stageResolvedFile(file: string, content: string, cwd: string): Pr
   }
 
   // Write the resolved content to the working tree
-  writeFileSync(join(cwd, file), content);
+  await writeFile(join(cwd, file), content);
 }
 
 export async function resolveConflicts(

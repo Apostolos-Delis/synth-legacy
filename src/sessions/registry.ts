@@ -10,7 +10,12 @@ import { getLogger, initLogger } from "../logging/logger.js";
 const SYNTH_HOME = join(homedir(), ".synth");
 const SESSIONS_DIR = join(SYNTH_HOME, "sessions");
 
+const repoKeyCache = new Map<string, string>();
+
 async function getRepoKey(cwd: string): Promise<string> {
+  const cached = repoKeyCache.get(cwd);
+  if (cached) return cached;
+
   // Try git remote origin
   const result = spawn({
     cmd: ["git", "remote", "get-url", "origin"],
@@ -18,9 +23,10 @@ async function getRepoKey(cwd: string): Promise<string> {
   });
   const { stdout, exitCode } = await result.promise;
 
+  let key: string;
   if (exitCode === 0 && stdout.trim()) {
     // Normalize: strip .git, protocol, lowercase
-    return stdout
+    key = stdout
       .trim()
       .replace(/\.git$/, "")
       .replace(/^(https?:\/\/|git@|ssh:\/\/)/, "")
@@ -29,10 +35,13 @@ async function getRepoKey(cwd: string): Promise<string> {
       .split("/")
       .slice(-2)
       .join("/");
+  } else {
+    // Fallback: directory name
+    key = basename(cwd) || "unknown";
   }
 
-  // Fallback: directory name
-  return basename(cwd) || "unknown";
+  repoKeyCache.set(cwd, key);
+  return key;
 }
 
 function sessionPaths(repoKey: string, sessionId: string): SessionPaths {

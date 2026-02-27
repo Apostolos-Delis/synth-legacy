@@ -84,9 +84,10 @@ export function analyzeTaskGraph(tasks: Task[]): TaskGraphAnalysis {
   }
 
   // Any task not in sorted is part of a cycle
+  const sortedSet = new Set(sorted);
   const cyclicTaskIds = actionable
     .map((t) => t.id)
-    .filter((id) => !sorted.includes(id));
+    .filter((id) => !sortedSet.has(id));
 
   // Build groups from depth map (only non-cyclic tasks)
   const groupMap = new Map<number, string[]>();

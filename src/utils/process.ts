@@ -38,7 +38,7 @@ export function spawn(options: SpawnOptions): SpawnHandle {
   const spawnStart = performance.now();
   const proc = Bun.spawn(cmd, {
     cwd,
-    env: { ...process.env, ...env },
+    env: env && Object.keys(env).length > 0 ? { ...process.env, ...env } : process.env,
     stdin: stdin !== undefined ? "pipe" : "inherit",
     stdout: "pipe",
     stderr: "pipe",

@@ -88,11 +88,17 @@ export function getProgress(taskFile: TaskFile): {
   inProgress: number;
 } {
   const tasks = taskFile.tasks;
-  return {
-    total: tasks.length,
-    done: tasks.filter((t) => t.status === "done").length,
-    failed: tasks.filter((t) => t.status === "failed").length,
-    open: tasks.filter((t) => t.status === "open").length,
-    inProgress: tasks.filter((t) => t.status === "in_progress").length,
-  };
+  let done = 0;
+  let failed = 0;
+  let open = 0;
+  let inProgress = 0;
+  for (const t of tasks) {
+    switch (t.status) {
+      case "done": done++; break;
+      case "failed": failed++; break;
+      case "open": open++; break;
+      case "in_progress": inProgress++; break;
+    }
+  }
+  return { total: tasks.length, done, failed, open, inProgress };
 }

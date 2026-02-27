@@ -81,13 +81,14 @@ export class ReviewOrchestrator {
       },
     );
 
-    const prdContent = (await fileExists(this.sessionPaths.prd))
-      ? await readText(this.sessionPaths.prd)
-      : "";
-
-    const progressContent = (await fileExists(this.sessionPaths.progress))
-      ? await readText(this.sessionPaths.progress)
-      : "";
+    const [prdContent, progressContent] = await Promise.all([
+      fileExists(this.sessionPaths.prd).then((exists) =>
+        exists ? readText(this.sessionPaths.prd) : "",
+      ),
+      fileExists(this.sessionPaths.progress).then((exists) =>
+        exists ? readText(this.sessionPaths.progress) : "",
+      ),
+    ]);
 
     const sessionSlug = await getSessionSlug(this.sessionPaths);
 

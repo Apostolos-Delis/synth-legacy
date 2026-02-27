@@ -9,12 +9,15 @@ import { cmdStart } from "./commands/start.js";
 // ── Profile report ──
 
 let profileJson = false;
+let profilePrinted = false;
 
 function printProfileReport(): void {
+  if (profilePrinted) return;
   const trace = globalTrace();
   if (!trace.enabled) return;
+  trace.finalizeOpenPhases();
   const report = trace.report();
-  if (report.phases.length === 0) return;
+  profilePrinted = true;
 
   if (profileJson) {
     process.stderr.write(formatProfileReportJson(report) + "\n");
@@ -192,4 +195,18 @@ if (rawArgs.includes("--help") || rawArgs.includes("-h")) {
 // Profile report fires after yargs completes
 process.on("exit", () => {
   printProfileReport();
+});
+
+process.on("SIGINT", () => {
+  printProfileReport();
+  if (process.listenerCount("SIGINT") <= 1) {
+    process.exit(130);
+  }
+});
+
+process.on("SIGTERM", () => {
+  printProfileReport();
+  if (process.listenerCount("SIGTERM") <= 1) {
+    process.exit(143);
+  }
 });

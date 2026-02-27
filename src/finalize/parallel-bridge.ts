@@ -26,20 +26,26 @@ const WORKER_STATUS_MAP: Record<WorkerDisplayState["status"], WorkerStatus> = {
   cancelled: "failed",
 };
 
-export function buildWorkerInfos(displayStates: WorkerDisplayState[]): WorkerInfo[] {
-  return displayStates.map((ws) => ({
-    id: ws.id,
-    taskId: ws.task.id,
-    taskTitle: ws.task.title,
-    iteration: ws.currentIteration,
-    maxIterations: ws.maxIterations,
-    startTime: Date.now() - ws.elapsedMs,
-    elapsedMs: ws.elapsedMs,
-    status: WORKER_STATUS_MAP[ws.status] ?? "running",
-    lastOutput: ws.lastOutput,
-    branchName: ws.branchName,
-    lastCommitSha: "",
-  }));
+export function buildWorkerInfos(displayStates: WorkerDisplayState[]): { infos: WorkerInfo[]; runningCount: number } {
+  let runningCount = 0;
+  const infos = displayStates.map((ws) => {
+    const status = WORKER_STATUS_MAP[ws.status] ?? "running";
+    if (status === "running") runningCount++;
+    return {
+      id: ws.id,
+      taskId: ws.task.id,
+      taskTitle: ws.task.title,
+      iteration: ws.currentIteration,
+      maxIterations: ws.maxIterations,
+      startTime: Date.now() - ws.elapsedMs,
+      elapsedMs: ws.elapsedMs,
+      status,
+      lastOutput: ws.lastOutput,
+      branchName: ws.branchName,
+      lastCommitSha: "",
+    };
+  });
+  return { infos, runningCount };
 }
 
 export function createInitialTuiState(
@@ -80,31 +86,28 @@ export function applyParallelEvent(
     case "worker:created":
     case "worker:started":
       if (getWorkerDisplayStates) {
-        state.workers = buildWorkerInfos(getWorkerDisplayStates());
+        const result = buildWorkerInfos(getWorkerDisplayStates());
+        state.workers = result.infos;
+        state.header.activeWorkers = result.runningCount;
       }
-      state.header.activeWorkers = state.workers.filter(
-        (w) => w.status === "running",
-      ).length;
       return true;
 
     case "worker:progress":
     case "worker:output":
       if (getWorkerDisplayStates) {
-        state.workers = buildWorkerInfos(getWorkerDisplayStates());
+        const result = buildWorkerInfos(getWorkerDisplayStates());
+        state.workers = result.infos;
+        state.header.activeWorkers = result.runningCount;
       }
-      state.header.activeWorkers = state.workers.filter(
-        (w) => w.status === "running",
-      ).length;
       return true;
 
     case "worker:completed":
     case "worker:failed":
       if (getWorkerDisplayStates) {
-        state.workers = buildWorkerInfos(getWorkerDisplayStates());
+        const result = buildWorkerInfos(getWorkerDisplayStates());
+        state.workers = result.infos;
+        state.header.activeWorkers = result.runningCount;
       }
-      state.header.activeWorkers = state.workers.filter(
-        (w) => w.status === "running",
-      ).length;
       return true;
 
     case "merge:queued":

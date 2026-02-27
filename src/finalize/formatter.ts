@@ -39,15 +39,20 @@ const FORMATTERS: Formatter[] = [
 export async function detectFormatters(
   cwd: string,
 ): Promise<Formatter[]> {
-  const found: Formatter[] = [];
-  for (const fmt of FORMATTERS) {
-    if (await fileExists(join(cwd, fmt.detectFile))) {
-      found.push(fmt);
-    }
-  }
-  // Also check package.json for format script
   const pkgPath = join(cwd, "package.json");
-  if (await fileExists(pkgPath)) {
+  const [formatterResults, pkgExists] = await Promise.all([
+    Promise.all(FORMATTERS.map(async (fmt) => ({
+      fmt,
+      exists: await fileExists(join(cwd, fmt.detectFile)),
+    }))),
+    fileExists(pkgPath),
+  ]);
+
+  const found: Formatter[] = formatterResults
+    .filter((r) => r.exists)
+    .map((r) => r.fmt);
+
+  if (pkgExists) {
     const pkg = await Bun.file(pkgPath).json();
     if (pkg.scripts?.format) {
       found.push({

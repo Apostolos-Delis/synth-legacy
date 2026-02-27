@@ -60,9 +60,8 @@ export async function finalize(
   // 2. PRD audit
   let audit: AuditResult | null = null;
   const prdExists = await fileExists(sessionPaths.prd);
-  if (prdExists) {
-    const prdContent = await readText(sessionPaths.prd);
-
+  const prdContent = prdExists ? await readText(sessionPaths.prd) : null;
+  if (prdContent) {
     if (sessionDiff.trim()) {
       audit = await prdAudit(agent, prdContent, sessionDiff, cwd, config.agent.model);
 
@@ -125,7 +124,6 @@ export async function finalize(
     if (branch === config.project.base_branch) {
       console.log(`Skipping PR creation: already on base branch '${branch}'`);
     } else {
-      const prdContent = prdExists ? await readText(sessionPaths.prd) : null;
       const diffStats = await getDiffStats(cwd, config.project.base_branch);
       const body = generatePrBody(
         taskFile,

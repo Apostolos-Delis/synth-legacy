@@ -13,6 +13,7 @@ import { writeText, readText, fileExists, writeJson } from "../utils/fs.js";
 import { spawn } from "../utils/process.js";
 import { checkoutBranch, getCurrentBranch } from "../utils/git.js";
 import { formatToolEvent } from "../utils/tool-format.js";
+import { createThrottledRender } from "../utils/throttle.js";
 import { ansi, fmt, PRIORITY_COLORS } from "../tui/theme.js";
 import { createSpinner } from "../tui/spinner.js";
 import { getLogger } from "../logging/logger.js";
@@ -212,7 +213,7 @@ export async function resumeInterview(
       logger.warn("prd:missing", "No PRD extracted from interview", { sessionId: id });
       let regenOutput = "";
       const regenStartTime = Date.now();
-      const renderRegen = () => {
+      const renderRegen = createThrottledRender(() => {
         planRoot.render(
           <tui.GeneratingView
             output={regenOutput}
@@ -221,8 +222,15 @@ export async function resumeInterview(
             label="Agent is generating PRD"
           />,
         );
-      };
-      renderRegen();
+      });
+      planRoot.render(
+        <tui.GeneratingView
+          output={regenOutput}
+          phase="Generating PRD..."
+          phaseStartTime={regenStartTime}
+          label="Agent is generating PRD"
+        />,
+      );
       logger.info("prd:regenerate-start", "Attempting PRD regeneration", { sessionId: id });
       try {
         const response = await interviewer.respond(
@@ -300,7 +308,11 @@ export async function resumeInterview(
     // Pipeline: generate tasks only after PRD is finalized and persisted
     let streamOutput = "";
     let taskCount = 0;
+    const foundTaskIds = new Set<string>();
     let phaseStartTime = Date.now();
+    const throttledTaskGenRender = createThrottledRender(() => {
+      planRoot.render(<tui.GeneratingView output={streamOutput} taskCount={taskCount} phaseStartTime={phaseStartTime} />);
+    });
     planRoot.render(<tui.GeneratingView output={streamOutput} phaseStartTime={phaseStartTime} />);
 
     let taskFile;
@@ -312,14 +324,15 @@ export async function resumeInterview(
           taskPrefix,
           onProgress: (chunk) => {
             streamOutput += chunk;
-            const ids = streamOutput.match(/\b[A-Z]{2,5}-\d{3}\b/g);
-            taskCount = ids ? new Set(ids).size : 0;
-            planRoot.render(<tui.GeneratingView output={streamOutput} taskCount={taskCount} phaseStartTime={phaseStartTime} />);
+            const ids = chunk.match(/\b[A-Z]{2,5}-\d{3}\b/g);
+            if (ids) for (const id of ids) foundTaskIds.add(id);
+            taskCount = foundTaskIds.size;
+            throttledTaskGenRender();
           },
           onTool: showToolLogs
             ? (event) => {
               streamOutput += `\n${formatToolEvent(event)}\n`;
-              planRoot.render(<tui.GeneratingView output={streamOutput} taskCount={taskCount} phaseStartTime={phaseStartTime} />);
+              throttledTaskGenRender();
             }
             : undefined,
         },
@@ -554,8 +567,12 @@ export async function cmdStart(
 
       let streamOutput = "";
       let taskCount = 0;
+      const foundPrdTaskIds = new Set<string>();
       let phase = "Analyzing PRD";
       let phaseStartTime = Date.now();
+      const throttledPrdRender = createThrottledRender(() => {
+        prdRoot!.render(<tui.GeneratingView output={streamOutput} taskCount={taskCount} phase={phase} phaseStartTime={phaseStartTime} />);
+      });
       prdRoot.render(<tui.GeneratingView output={streamOutput} phase={phase} phaseStartTime={phaseStartTime} />);
 
       try {
@@ -566,9 +583,10 @@ export async function cmdStart(
             taskPrefix,
             onProgress: (chunk) => {
               streamOutput += chunk;
-              const ids = streamOutput.match(/\b[A-Z]{2,5}-\d{3}\b/g);
+              const ids = chunk.match(/\b[A-Z]{2,5}-\d{3}\b/g);
               if (ids) {
-                taskCount = new Set(ids).size;
+                for (const id of ids) foundPrdTaskIds.add(id);
+                taskCount = foundPrdTaskIds.size;
                 if (phase !== "Validating dependencies" && phase !== "Generating tasks") {
                   phase = "Generating tasks";
                   phaseStartTime = Date.now();
@@ -580,12 +598,12 @@ export async function cmdStart(
                   phaseStartTime = Date.now();
                 }
               }
-              prdRoot!.render(<tui.GeneratingView output={streamOutput} taskCount={taskCount} phase={phase} phaseStartTime={phaseStartTime} />);
+              throttledPrdRender();
             },
             onTool: showToolLogs
               ? (event) => {
                 streamOutput += `\n${formatToolEvent(event)}\n`;
-                prdRoot!.render(<tui.GeneratingView output={streamOutput} taskCount={taskCount} phase={phase} phaseStartTime={phaseStartTime} />);
+                throttledPrdRender();
               }
               : undefined,
           },
@@ -598,20 +616,19 @@ export async function cmdStart(
       }
     } else {
       log("Generating tasks from PRD...");
-      let streamOutput = "";
+      const foundNonTuiTaskIds = new Set<string>();
       let lastLogTime = 0;
       taskFile = await generateTasks(agent, paths.prd, config.project.name, config.project.branch, sessionCwd, {
         model: config.agent.model,
         taskPrefix,
         onProgress: (chunk) => {
-          streamOutput += chunk;
-          const ids = streamOutput.match(/\b[A-Z]{2,5}-\d{3}\b/g);
+          const ids = chunk.match(/\b[A-Z]{2,5}-\d{3}\b/g);
           if (ids) {
-            const count = new Set(ids).size;
+            for (const id of ids) foundNonTuiTaskIds.add(id);
             const now = Date.now();
             if (now - lastLogTime >= 3000) {
               lastLogTime = now;
-              log(fmt.info(`Found ${count} task(s) so far...`));
+              log(fmt.info(`Found ${foundNonTuiTaskIds.size} task(s) so far...`));
             }
           }
         },
@@ -791,7 +808,7 @@ export async function cmdStart(
       logger.warn("prd:missing", "No PRD extracted from interview", { sessionId });
       let regenOutput = "";
       const regenStartTime = Date.now();
-      const renderRegen = () => {
+      const throttledRegenRender = createThrottledRender(() => {
         planRoot.render(
           <tui.GeneratingView
             output={regenOutput}
@@ -800,20 +817,27 @@ export async function cmdStart(
             label="Agent is generating PRD"
           />,
         );
-      };
-      renderRegen();
+      });
+      planRoot.render(
+        <tui.GeneratingView
+          output={regenOutput}
+          phase="Generating PRD..."
+          phaseStartTime={regenStartTime}
+          label="Agent is generating PRD"
+        />,
+      );
       logger.info("prd:regenerate-start", "Attempting PRD regeneration", { sessionId });
       try {
         const response = await interviewer!.respond(
           PRD_REGEN_PROMPT,
           (chunk) => {
             regenOutput += chunk;
-            renderRegen();
+            throttledRegenRender();
           },
           showToolLogs
             ? (event) => {
               regenOutput += `\n${formatToolEvent(event)}\n`;
-              renderRegen();
+              throttledRegenRender();
             }
             : undefined,
         );
@@ -890,7 +914,11 @@ export async function cmdStart(
     // Pipeline: generate tasks only after PRD is finalized and persisted
     let streamOutput = "";
     let taskCount = 0;
+    const foundMainTaskIds = new Set<string>();
     let phaseStartTime = Date.now();
+    const throttledMainTaskRender = createThrottledRender(() => {
+      planRoot.render(<tui.GeneratingView output={streamOutput} taskCount={taskCount} phaseStartTime={phaseStartTime} />);
+    });
     planRoot.render(<tui.GeneratingView output={streamOutput} phaseStartTime={phaseStartTime} />);
 
     let taskFile;
@@ -903,14 +931,15 @@ export async function cmdStart(
           taskPrefix,
           onProgress: (chunk) => {
             streamOutput += chunk;
-            const ids = streamOutput.match(/\b[A-Z]{2,5}-\d{3}\b/g);
-            taskCount = ids ? new Set(ids).size : 0;
-            planRoot.render(<tui.GeneratingView output={streamOutput} taskCount={taskCount} phaseStartTime={phaseStartTime} />);
+            const ids = chunk.match(/\b[A-Z]{2,5}-\d{3}\b/g);
+            if (ids) for (const id of ids) foundMainTaskIds.add(id);
+            taskCount = foundMainTaskIds.size;
+            throttledMainTaskRender();
           },
           onTool: showToolLogs
             ? (event) => {
               streamOutput += `\n${formatToolEvent(event)}\n`;
-              planRoot.render(<tui.GeneratingView output={streamOutput} taskCount={taskCount} phaseStartTime={phaseStartTime} />);
+              throttledMainTaskRender();
             }
             : undefined,
         },

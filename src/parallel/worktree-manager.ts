@@ -144,9 +144,12 @@ export class WorktreeManager {
         workerId: info.workerId,
         branch: info.branch,
       });
-      await this.removeWorktree(info.path, info.branch);
+      await this.removeWorktree(info.path, info.branch, true);
     }
     this.active.clear();
+
+    // Single prune after all removals instead of per-removal
+    await spawn({ cmd: ["git", "worktree", "prune"], cwd: this.repoRoot }).promise;
 
     // Clean up branches from worktrees released via releaseDirectory()
     for (const branch of this.releasedBranches) {
@@ -222,10 +225,12 @@ export class WorktreeManager {
     }
   }
 
-  private async removeWorktree(wtPath: string, branch: string): Promise<void> {
+  private async removeWorktree(wtPath: string, branch: string, skipPrune = false): Promise<void> {
     await this.removeWorktreeDir(wtPath);
 
-    await spawn({ cmd: ["git", "worktree", "prune"], cwd: this.repoRoot }).promise;
+    if (!skipPrune) {
+      await spawn({ cmd: ["git", "worktree", "prune"], cwd: this.repoRoot }).promise;
+    }
     await spawn({ cmd: ["git", "branch", "-D", branch], cwd: this.repoRoot }).promise;
   }
 }

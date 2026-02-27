@@ -21,6 +21,8 @@ const DEFAULT_THRESHOLDS: ResourceThresholds = {
   highMemPct: 15,
 };
 
+let cachedCpuCount: number | undefined;
+
 export class ResourceMonitor {
   private readonly thresholds: ResourceThresholds;
 
@@ -29,7 +31,7 @@ export class ResourceMonitor {
   }
 
   snapshot(): ResourceSnapshot {
-    const cpuCount = cpus().length;
+    const cpuCount = (cachedCpuCount ??= cpus().length);
     const total = totalmem();
     const free = freemem();
     const freeMemPct = (free / total) * 100;

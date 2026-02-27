@@ -5,6 +5,8 @@ import { globalConfigPath } from "./paths.js";
 import { readTomlFile } from "./writer.js";
 import { getLogger } from "../logging/logger.js";
 
+const configCache = new Map<string, SynthConfig>();
+
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -32,9 +34,18 @@ export async function loadConfig(
   globalPath?: string,
 ): Promise<SynthConfig> {
   const resolvedGlobalPath = globalPath ?? globalConfigPath();
+  const cacheKey = `${cwd}\0${resolvedGlobalPath}`;
+
+  if (!overrides) {
+    const cached = configCache.get(cacheKey);
+    if (cached) return cached;
+  }
+
   const projectPath = join(cwd, "synth.toml");
-  const globalConfig = await readTomlFile(resolvedGlobalPath);
-  const fileConfig = await readTomlFile(projectPath);
+  const [globalConfig, fileConfig] = await Promise.all([
+    readTomlFile(resolvedGlobalPath),
+    readTomlFile(projectPath),
+  ]);
 
   let config: SynthConfig = deepMerge(DEFAULT_CONFIG, globalConfig);
   config = deepMerge(config, fileConfig);
@@ -71,5 +82,13 @@ export async function loadConfig(
     });
   }
 
+  if (!overrides) {
+    configCache.set(cacheKey, config);
+  }
+
   return config;
+}
+
+export function clearConfigCache(): void {
+  configCache.clear();
 }

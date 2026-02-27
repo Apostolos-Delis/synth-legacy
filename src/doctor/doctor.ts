@@ -147,19 +147,32 @@ async function checkBackpressure(config?: SynthConfig): Promise<DoctorCheckResul
 }
 
 export async function runDoctorChecks(cwd: string, config?: SynthConfig): Promise<DoctorCheckResult[]> {
+  const [
+    bunResult,
+    gitResults,
+    agentResults,
+    ghResult,
+    configResult,
+    globalConfigResult,
+    backpressureResults,
+  ] = await Promise.all([
+    checkBun(),
+    checkGit(cwd),
+    checkAgentClis(),
+    checkGh(config),
+    checkConfigFile(cwd),
+    checkGlobalConfigFile(),
+    checkBackpressure(config),
+  ]);
+
   const results: DoctorCheckResult[] = [];
-
-  results.push(await checkBun());
-  results.push(...await checkGit(cwd));
-  const agentResults = await checkAgentClis();
+  results.push(bunResult);
+  results.push(...gitResults);
   results.push(...agentResults.results);
-
-  const ghResult = await checkGh(config);
   if (ghResult) results.push(ghResult);
-
-  results.push(await checkConfigFile(cwd));
-  results.push(await checkGlobalConfigFile());
-  results.push(...await checkBackpressure(config));
+  results.push(configResult);
+  results.push(globalConfigResult);
+  results.push(...backpressureResults);
 
   return results;
 }

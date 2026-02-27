@@ -174,13 +174,10 @@ function normalizeObject(value: Record<string, unknown>, maxChars: number): Reco
   if (!json) return {};
   if (json.length <= maxChars) {
     try {
-      const parsed = JSON.parse(json);
-      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-        return parsed as Record<string, unknown>;
-      }
-      return { value: parsed };
+      return structuredClone(value);
     } catch {
-      return { value: json.slice(0, maxChars) };
+      // Fallback for non-cloneable values (functions, symbols, etc.)
+      try { return JSON.parse(json) as Record<string, unknown>; } catch { return {}; }
     }
   }
   return { truncated: true, size: json.length, preview: json.slice(0, maxChars) };

@@ -5,8 +5,7 @@ const NO_OP_INHIBITOR: SleepInhibitor = { release() {} };
 
 function commandExists(cmd: string): boolean {
   try {
-    spawnSync("which", [cmd], { stdio: "ignore" });
-    return spawnSync("which", [cmd], { encoding: "utf-8" }).status === 0;
+    return spawnSync("which", [cmd], { stdio: "ignore" }).status === 0;
   } catch {
     return false;
   }

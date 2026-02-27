@@ -70,8 +70,7 @@ function formatTaskSummary(taskFile: TaskFile | null): string {
   return lines.join("\n");
 }
 
-export function buildAuditSystemPrompt(): string {
-  return `You are an expert code reviewer conducting an interactive audit of code changes. You review code in a conversational setting — the developer can ask follow-up questions, request clarification, or discuss your findings.
+const AUDIT_SYSTEM_PROMPT = `You are an expert code reviewer conducting an interactive audit of code changes. You review code in a conversational setting — the developer can ask follow-up questions, request clarification, or discuss your findings.
 
 Your review style:
 - Be direct and specific. Reference exact file names and line numbers (e.g., \`src/utils/auth.ts:42\`) for every finding.
@@ -168,6 +167,9 @@ When you have no more concerns or questions, end your message with:
 [REVIEW_COMPLETE]
 
 This signals the review discussion is finished and triggers the next phase.`;
+
+export function buildAuditSystemPrompt(): string {
+  return AUDIT_SYSTEM_PROMPT;
 }
 
 export function buildInitialAuditPrompt(context: AuditContext): string {

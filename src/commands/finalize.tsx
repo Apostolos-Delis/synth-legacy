@@ -13,6 +13,7 @@ import {
 } from "../sessions/registry.js";
 import { ansi, fmt, initTheme } from "../tui/theme.js";
 import { fileExists, readJson } from "../utils/fs.js";
+import { createThrottledRender } from "../utils/throttle.js";
 
 export interface FinalizeRunContext {
   config: SynthConfig;
@@ -267,15 +268,9 @@ export async function cmdFinalize(
               />,
             );
 
-            let parallelRenderScheduled = false;
-            const notifyParallelTuiThrottled = () => {
-              if (parallelDestroyed || parallelRenderScheduled) return;
-              parallelRenderScheduled = true;
-              setTimeout(() => {
-                parallelRenderScheduled = false;
-                if (!parallelDestroyed) tuiData._notify?.();
-              }, 80);
-            };
+            const throttledParallelNotify = createThrottledRender(() => {
+              if (!parallelDestroyed) tuiData._notify?.();
+            });
 
             attachParallelLogger(coordinator.on.bind(coordinator), plan!.paths.logs);
 
@@ -287,7 +282,7 @@ export async function cmdFinalize(
                 const taskId = event.taskId;
                 tuiData.taskOutputMap[taskId] = (tuiData.taskOutputMap[taskId] ?? "") + event.message;
               }
-              notifyParallelTuiThrottled();
+              throttledParallelNotify();
             });
 
             process.off("SIGINT", sigintHandler);
@@ -328,15 +323,9 @@ export async function cmdFinalize(
               />,
             );
 
-            let serialRenderScheduled = false;
-            const notifySerialTuiThrottled = () => {
-              if (serialDestroyed || serialRenderScheduled) return;
-              serialRenderScheduled = true;
-              setTimeout(() => {
-                serialRenderScheduled = false;
-                if (!serialDestroyed) tuiData._notify?.();
-              }, 16);
-            };
+            const throttledSerialNotify = createThrottledRender(() => {
+              if (!serialDestroyed) tuiData._notify?.();
+            });
 
             // Run fixes serially, updating TUI state as each fix progresses
             await orchestrator.executeFixes(agent, config, plan!.paths, (msg) => {
@@ -377,7 +366,7 @@ export async function cmdFinalize(
                 }
               }
 
-              notifySerialTuiThrottled();
+              throttledSerialNotify();
             });
 
             serialDestroyed = true;
