@@ -2,6 +2,7 @@ import { memo, type ReactNode } from "react";
 import type { Task } from "../../tasks/types.js";
 import { boldAttr, statusIndicators, colors, STATUS_COLORS_HEX, PRIORITY_COLORS_HEX } from "../theme.js";
 import { wrapText } from "../utils.js";
+import { startSpan, endSpan } from "../profiler.js";
 
 function truncateText(text: string, maxWidth: number): string {
   if (text.length <= maxWidth) return text;
@@ -38,6 +39,7 @@ export const TaskDetailHeader = memo(function TaskDetailHeader({
   focused = true,
   scrollFocused = false,
 }: TaskDetailHeaderProps): ReactNode {
+  const renderSpan = startSpan("TaskDetailHeader");
   const statusIcon = statusIndicators[task.status] ?? "?";
   const statusColor = STATUS_COLORS_HEX[task.status] ?? colors.fg.muted;
   const priorityColor = PRIORITY_COLORS_HEX[task.priority] ?? colors.fg.muted;
@@ -129,6 +131,7 @@ export const TaskDetailHeader = memo(function TaskDetailHeader({
     contentRows.push(...criteriaRows);
   }
 
+  endSpan("TaskDetailHeader", renderSpan);
   return (
     <box
       width={width}

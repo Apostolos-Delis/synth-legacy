@@ -4,6 +4,7 @@ import type { TuiState } from "./types.js";
 import { boldAttr, colors, statusIndicators, STATUS_COLORS_HEX, PRIORITY_COLORS_HEX } from "./theme.js";
 import { Footer } from "./components/Footer.js";
 import { formatTokenCount } from "../engine/tokens.js";
+import { startSpan, endSpan } from "./profiler.js";
 
 interface DashboardViewProps {
   state: TuiState;
@@ -31,6 +32,7 @@ const RESULT_ICONS: Record<string, string> = {
 };
 
 export function DashboardView({ state }: DashboardViewProps): ReactNode {
+  const renderSpan = startSpan("DashboardView");
   const { width, height } = useTerminalDimensions();
   const tasks = state.tasks;
   const done = tasks.filter((t) => t.status === "done").length;
@@ -50,6 +52,7 @@ export function DashboardView({ state }: DashboardViewProps): ReactNode {
     : "N/A";
   const bodyHeight = Math.max(1, height - 7);
 
+  endSpan("DashboardView", renderSpan);
   return (
     <box width={width} height={height} flexDirection="column">
       <box height={1} style={{ backgroundColor: colors.bg.secondary, paddingLeft: 1 }}>

@@ -18,6 +18,7 @@ import { useExitConfirm } from "./hooks/useExitConfirm.js";
 import { useDestroyedRef } from "./hooks/useDestroyedRef.js";
 import { useSyncLineCount } from "./hooks/useSyncLineCount.js";
 import { calcInputSizing } from "./hooks/useInputSizing.js";
+import { startSpan, endSpan } from "./profiler.js";
 
 interface FinalizeAppProps {
   orchestrator: FinalizeOrchestrator;
@@ -90,6 +91,7 @@ export function FinalizeApp({
   onExecute,
   onReviewComplete,
 }: FinalizeAppProps): ReactNode {
+  const renderSpan = startSpan("FinalizeApp");
   const [messages, setMessages] = useState<FinalizeMessage[]>(() => orchestrator.getMessages());
   const [currentPhase, setCurrentPhase] = useState<FinalizePhase>(() => orchestrator.getCurrentPhase());
   const [isLoading, setIsLoading] = useState(true);
@@ -586,6 +588,7 @@ export function FinalizeApp({
   const messageAreaHeight = Math.max(1, termHeight - headerHeight - hintHeight - inputAreaHeight);
   const messageScrollHeight = Math.max(1, messageAreaHeight - 1);
 
+  endSpan("FinalizeApp", renderSpan);
   return (
     <box style={{ width: "100%", height: "100%", flexDirection: "column" }}>
       {/* Header */}

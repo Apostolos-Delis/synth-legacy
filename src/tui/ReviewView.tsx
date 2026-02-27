@@ -3,6 +3,7 @@ import { useTerminalDimensions, useKeyboard } from "@opentui/react";
 import type { Task } from "../tasks/types.js";
 import { boldAttr, colors, statusIndicators, STATUS_COLORS_HEX, PRIORITY_COLORS_HEX, layout, markdownSyntaxStyle } from "./theme.js";
 import { Footer } from "./components/Footer.js";
+import { startSpan, endSpan } from "./profiler.js";
 
 interface ReviewViewProps {
   tasks: Task[];
@@ -26,6 +27,7 @@ function buildTaskIdMap(tasks: Task[]): Map<string, string> {
 }
 
 export function ReviewView({ tasks, sessionId, onConfirm, onDecline }: ReviewViewProps): ReactNode {
+  const renderSpan = startSpan("ReviewView");
   const { width, height } = useTerminalDimensions();
   const [selectedIndex, setSelectedIndex] = useState(0);
 
@@ -54,6 +56,7 @@ export function ReviewView({ tasks, sessionId, onConfirm, onDecline }: ReviewVie
   // Summary stats
   const depCount = tasks.reduce((acc, t) => acc + (t.dependsOn?.length ?? 0), 0);
 
+  endSpan("ReviewView", renderSpan);
   return (
     <box width={width} height={height} flexDirection="column">
       {/* Header */}

@@ -65,6 +65,7 @@ const cli = yargs(process.argv.slice(2))
     if (argv.profile || argv.profileJson) {
       globalTrace().enabled = true;
       profileJson = !!argv.profileJson;
+      process.env.SYNTH_TUI_PROFILE = "1";
     }
   });
 

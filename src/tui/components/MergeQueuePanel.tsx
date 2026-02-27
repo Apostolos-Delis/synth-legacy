@@ -1,5 +1,6 @@
 import { memo, useState, useEffect, type ReactNode } from "react";
 import { SPINNER_FRAMES, boldAttr, colors } from "../theme.js";
+import { startSpan, endSpan } from "../profiler.js";
 
 export type MergeStatus =
   | "queued"
@@ -119,6 +120,7 @@ export const MergeQueuePanel = memo(function MergeQueuePanel({
   width,
   height,
 }: MergeQueuePanelProps): ReactNode {
+  const renderSpan = startSpan("MergeQueuePanel");
   const [now, setNow] = useState(Date.now());
   const [spinnerFrame, setSpinnerFrame] = useState(0);
 
@@ -158,6 +160,7 @@ export const MergeQueuePanel = memo(function MergeQueuePanel({
     />
   ));
 
+  endSpan("MergeQueuePanel", renderSpan);
   return (
     <box
       width={width}

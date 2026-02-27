@@ -3,6 +3,7 @@ import { useTerminalDimensions, useKeyboard } from "@opentui/react";
 import type { TuiState } from "./types.js";
 import { boldAttr, colors, statusIndicators, STATUS_COLORS_HEX } from "./theme.js";
 import { Footer } from "./components/Footer.js";
+import { startSpan, endSpan } from "./profiler.js";
 
 interface HistoryEntry {
   iteration: number;
@@ -37,6 +38,7 @@ function buildHistoryEntries(state: TuiState): HistoryEntry[] {
 }
 
 export function HistoryView({ state, onBack }: HistoryViewProps): ReactNode {
+  const renderSpan = startSpan("HistoryView");
   const { width, height } = useTerminalDimensions();
   const listBodyHeight = Math.max(1, height - 5);
   const detailBodyHeight = Math.max(1, height - 2);
@@ -117,6 +119,7 @@ export function HistoryView({ state, onBack }: HistoryViewProps): ReactNode {
     );
   }
 
+  endSpan("HistoryView", renderSpan);
   return (
     <box width={width} height={height} flexDirection="column">
       <box height={1} style={{ backgroundColor: colors.bg.secondary, paddingLeft: 1 }}>

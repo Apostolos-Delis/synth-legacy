@@ -22,6 +22,7 @@ import { formatToolEvent } from "../utils/tool-format.js";
 import { TokenAccumulator } from "../engine/tokens.js";
 import { globalTrace } from "../utils/perf.js";
 import { loadTaskOutput, buildIterationMap } from "../engine/output-index.js";
+import { startTuiProfiler, stopTuiProfiler, countEvent, startSpan, endSpan, recordSpan } from "../tui/profiler.js";
 
 const MAX_OUTPUT_LENGTH = 100_000;
 
@@ -55,9 +56,11 @@ export class TuiAdapter {
   private tuiData: TuiEngineData | null = null;
   private parallelState: ParallelTuiState | null = null;
 
-  private AppComponent: typeof import("../tui/App.js")["App"] | null = null;
   private ParallelBridgeComponent: typeof import("../tui/ParallelBridge.js")["ParallelBridge"] | null = null;
+  private SerialBridgeComponent: typeof import("../tui/ParallelBridge.js")["SerialBridge"] | null = null;
   private applyParallelEventFn: typeof import("../finalize/parallel-bridge.js")["applyParallelEvent"] | null = null;
+  private frameCallback: ((deltaTime: number) => Promise<void>) | null = null;
+  private originalRequestRender: (() => void) | null = null;
 
   private unsubscribe: (() => void) | null = null;
   private destroyed = false;
@@ -65,6 +68,7 @@ export class TuiAdapter {
   // Serial rendering state
   private renderScheduled = false;
   private firstTokenRendered = false;
+  private serialBridgeRendered = false;
   private taskStartTimes = new Map<string, number>();
   private tokenAccumulator = new TokenAccumulator();
 
@@ -95,16 +99,16 @@ export class TuiAdapter {
 
   async start(): Promise<void> {
     const { config, tasks, sessionId, startIteration, parallelMode } = this.options;
+    startTuiProfiler(this.options.sessionPaths);
 
-    const [{ createCliRenderer }, { createRoot }, { App }, { ParallelBridge }] = await Promise.all([
+    const [{ createCliRenderer }, { createRoot }, { ParallelBridge, SerialBridge }] = await Promise.all([
       import("@opentui/core"),
       import("@opentui/react"),
-      import("../tui/App.js"),
       import("../tui/ParallelBridge.js"),
     ]);
 
-    this.AppComponent = App;
     this.ParallelBridgeComponent = ParallelBridge;
+    this.SerialBridgeComponent = SerialBridge;
 
     if (this.tuiContext) {
       this.renderer = this.tuiContext.renderer;
@@ -114,6 +118,22 @@ export class TuiAdapter {
         useKittyKeyboard: { disambiguate: true, alternateKeys: true },
       });
       this.root = createRoot(this.renderer);
+    }
+
+    if (this.renderer && process.env.SYNTH_TUI_PROFILE === "1") {
+      this.frameCallback = async (deltaTime: number) => {
+        recordSpan("renderer:frame", deltaTime);
+        countEvent("renderer:frame");
+      };
+      this.renderer.setFrameCallback(this.frameCallback);
+      const requestRender = (this.renderer as { requestRender?: () => void }).requestRender;
+      if (requestRender) {
+        this.originalRequestRender = requestRender.bind(this.renderer);
+        (this.renderer as { requestRender: () => void }).requestRender = () => {
+          countEvent("renderer:requestRender");
+          this.originalRequestRender?.();
+        };
+      }
     }
 
     const initialTaskElapsedMs = Object.fromEntries(
@@ -191,6 +211,13 @@ export class TuiAdapter {
         tokenUsage: { sessionTotal: { inputTokens: 0, outputTokens: 0, totalTokens: 0 }, taskTotals: {}, hasData: false },
       };
 
+      this.tuiData._onQuit = () => {
+        this.cleanup();
+        process.exit(0);
+      };
+      this.tuiData._onFinalize = undefined;
+      this.tuiData._onReviewStart = undefined;
+
       this.loadHistoricalIterationData();
     }
 
@@ -217,6 +244,15 @@ export class TuiAdapter {
     this.destroyed = true;
     this.parallelDestroyed = true;
     this.unsubscribe?.();
+    if (this.renderer && this.frameCallback) {
+      this.renderer.removeFrameCallback(this.frameCallback);
+      this.frameCallback = null;
+    }
+    if (this.renderer && this.originalRequestRender) {
+      (this.renderer as { requestRender: () => void }).requestRender = this.originalRequestRender;
+      this.originalRequestRender = null;
+    }
+    stopTuiProfiler();
     if (this.ownsRenderer) {
       if (this.root) this.root.unmount();
       if (this.renderer) this.renderer.destroy();
@@ -264,6 +300,7 @@ export class TuiAdapter {
 
     switch (event.type) {
       case "iteration:start":
+        countEvent("engine:iteration:start");
         this.tuiData.iteration = event.iteration ?? this.tuiData.iteration;
         this.tuiData.currentTaskId = event.taskId ?? null;
         this.tuiData.output = "";
@@ -335,6 +372,7 @@ export class TuiAdapter {
         break;
 
       case "agent:stdout": {
+        countEvent("engine:agent:stdout");
         const renderStart = event.isFirstChunk ? performance.now() : 0;
         if (event.isFirstChunk) {
           this.tuiData.currentPhase = "Streaming response...";
@@ -360,6 +398,7 @@ export class TuiAdapter {
       }
 
       case "agent:stderr":
+        countEvent("engine:agent:stderr");
         if (event.message) {
           this.tuiData.output += stripAnsi(event.message);
           if (this.tuiData.output.length > MAX_OUTPUT_LENGTH) {
@@ -369,6 +408,7 @@ export class TuiAdapter {
         break;
 
       case "agent:tool": {
+        countEvent("engine:agent:tool");
         if (!showToolLogs) break;
         if (!event.tool) break;
         const formatted = formatToolEvent(event.tool);
@@ -454,6 +494,7 @@ export class TuiAdapter {
     }
 
     if (event.type === "worker:output" && "taskId" in event) {
+      countEvent("parallel:worker:output");
       const taskId = (event as { taskId: string }).taskId;
       appendTaskOutput(this.tuiData, taskId, (event as { message: string }).message, MAX_OUTPUT_LENGTH);
     }
@@ -493,6 +534,12 @@ export class TuiAdapter {
     this.tuiData.reviewStatus = "running";
     this.allowReview = true;
     this.allowFinalize = false;
+    this.tuiData._onFinalize = this.allowFinalize ? () => {
+      this.pipeline.submitAction({ requestId: "completion", key: "finalize" });
+    } : undefined;
+    this.tuiData._onReviewStart = this.allowReview ? () => {
+      this.pipeline.submitAction({ requestId: "completion", key: "review" });
+    } : undefined;
     this.renderSerial();
   }
 
@@ -503,6 +550,9 @@ export class TuiAdapter {
     if (status === "ready") {
       this.allowFinalize = true;
     }
+    this.tuiData._onFinalize = this.allowFinalize ? () => {
+      this.pipeline.submitAction({ requestId: "completion", key: "finalize" });
+    } : undefined;
     this.renderSerial();
   }
 
@@ -540,11 +590,10 @@ export class TuiAdapter {
       this.pipeline.submitAction(userAction);
     };
 
-    this.renderWithCompletionCallbacks(
-      () => submitAction("quit"),
-      this.allowFinalize ? () => submitAction("finalize") : undefined,
-      this.allowReview ? () => submitAction("review") : undefined,
-    );
+    this.tuiData._onQuit = () => submitAction("quit");
+    this.tuiData._onFinalize = this.allowFinalize ? () => submitAction("finalize") : undefined;
+    this.tuiData._onReviewStart = this.allowReview ? () => submitAction("review") : undefined;
+    this.renderSerial();
   }
 
   // ---------------------------------------------------------------------------
@@ -552,40 +601,25 @@ export class TuiAdapter {
   // ---------------------------------------------------------------------------
 
   private renderSerial(): void {
-    if (!this.root || !this.tuiData || !this.AppComponent) return;
+    if (!this.root || !this.tuiData || !this.SerialBridgeComponent) return;
 
-    this.root.render(
-      createElement(this.AppComponent, {
-        ...this.tuiData,
-        onQuit: () => {
-          this.cleanup();
-          process.exit(0);
-        },
-        onFinalize: this.allowFinalize ? () => {
-          this.pipeline.submitAction({ requestId: "completion", key: "finalize" });
-        } : undefined,
-        onReviewStart: this.allowReview ? () => {
-          this.pipeline.submitAction({ requestId: "completion", key: "review" });
-        } : undefined,
-      }),
-    );
-  }
+    if (!this.serialBridgeRendered) {
+      this.serialBridgeRendered = true;
+      this.root.render(
+        createElement(this.SerialBridgeComponent, {
+          tuiData: this.tuiData,
+          onQuit: () => {
+            this.cleanup();
+            process.exit(0);
+          },
+        }),
+      );
+    }
 
-  private renderWithCompletionCallbacks(
-    onQuit: () => void,
-    onFinalize?: () => void,
-    onReviewStart?: () => void,
-  ): void {
-    if (!this.root || !this.tuiData || !this.AppComponent) return;
-
-    this.root.render(
-      createElement(this.AppComponent, {
-        ...this.tuiData,
-        onQuit,
-        onFinalize,
-        onReviewStart,
-      }),
-    );
+    countEvent("tui:render:serial");
+    const renderStart = startSpan("tui:render:serial");
+    this.tuiData._notify?.();
+    endSpan("tui:render:serial", renderStart);
   }
 
   private renderSerialThrottled(): void {
@@ -600,6 +634,8 @@ export class TuiAdapter {
   private renderParallel(): void {
     if (!this.root || !this.tuiData || !this.parallelState || !this.ParallelBridgeComponent) return;
 
+    countEvent("tui:render:parallel");
+    const renderStart = startSpan("tui:render:parallel");
     this.root.render(
       createElement(this.ParallelBridgeComponent, {
         tuiData: this.tuiData,
@@ -608,6 +644,7 @@ export class TuiAdapter {
         onQuit: () => this.pipeline.stop(),
       }),
     );
+    endSpan("tui:render:parallel", renderStart);
   }
 
   private renderParallelThrottled(): void {
@@ -615,7 +652,12 @@ export class TuiAdapter {
     this.parallelRenderScheduled = true;
     setTimeout(() => {
       this.parallelRenderScheduled = false;
-      if (!this.parallelDestroyed) this.tuiData?._notify?.();
+      if (!this.parallelDestroyed) {
+        countEvent("tui:render:parallel");
+        const renderStart = startSpan("tui:render:parallel");
+        this.tuiData?._notify?.();
+        endSpan("tui:render:parallel", renderStart);
+      }
     }, 80);
   }
 

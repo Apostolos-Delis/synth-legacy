@@ -1,5 +1,6 @@
 import { memo, useState, useEffect, type ReactNode } from "react";
 import { SPINNER_FRAMES, boldAttr, colors } from "../theme.js";
+import { startSpan, endSpan } from "../profiler.js";
 
 export type ConflictFileStatus = "pending" | "ai-resolving" | "resolved" | "failed";
 
@@ -79,6 +80,7 @@ export const ConflictResolutionPanel = memo(function ConflictResolutionPanel({
   width,
   height,
 }: ConflictResolutionPanelProps): ReactNode {
+  const renderSpan = startSpan("ConflictResolutionPanel");
   const [spinnerFrame, setSpinnerFrame] = useState(0);
 
   const hasResolving = conflict?.files.some((f) => f.status === "ai-resolving") ?? false;
@@ -92,7 +94,10 @@ export const ConflictResolutionPanel = memo(function ConflictResolutionPanel({
   }, [hasResolving]);
 
   // AC #5: Panel disappears when conflict resolved/aborted (null = no conflict)
-  if (!conflict) return null;
+  if (!conflict) {
+    endSpan("ConflictResolutionPanel", renderSpan);
+    return null;
+  }
 
   const { taskId, taskTitle, files, summary } = conflict;
 
@@ -169,6 +174,7 @@ export const ConflictResolutionPanel = memo(function ConflictResolutionPanel({
     </box>
   );
 
+  endSpan("ConflictResolutionPanel", renderSpan);
   return (
     <box
       width={width}

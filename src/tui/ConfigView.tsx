@@ -3,6 +3,7 @@ import { useTerminalDimensions, useKeyboard } from "@opentui/react";
 import type { TuiState } from "./types.js";
 import { boldAttr, colors } from "./theme.js";
 import { Footer } from "./components/Footer.js";
+import { startSpan, endSpan } from "./profiler.js";
 
 interface ConfigViewProps {
   state: TuiState;
@@ -10,6 +11,7 @@ interface ConfigViewProps {
 }
 
 export function ConfigView({ state, onBack }: ConfigViewProps): ReactNode {
+  const renderSpan = startSpan("ConfigView");
   const { width, height } = useTerminalDimensions();
   const lines = state.configDisplay.split("\n");
   const bodyHeight = Math.max(1, height - 2);
@@ -26,6 +28,7 @@ export function ConfigView({ state, onBack }: ConfigViewProps): ReactNode {
 
   useKeyboard(handleKey);
 
+  endSpan("ConfigView", renderSpan);
   return (
     <box width={width} height={height} flexDirection="column">
       <box height={1} style={{ backgroundColor: colors.bg.secondary, paddingLeft: 1 }}>

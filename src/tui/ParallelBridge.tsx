@@ -150,7 +150,7 @@ export function ParallelBridge({ tuiData, parallelState, taskGraphAnalysis, onQu
 
 interface SerialBridgeProps {
   tuiData: TuiEngineData;
-  onQuit: () => void;
+  onQuit?: () => void;
   onLogSubscribe?: (subscriber: LogSubscriber) => () => void;
 }
 
@@ -192,9 +192,18 @@ export function SerialBridge({ tuiData, onQuit, onLogSubscribe }: SerialBridgePr
     }, []),
   );
 
+  const resolvedOnQuit = tuiData._onQuit ?? onQuit;
+  const onFinalize = tuiData._onFinalize;
+  const onReviewStart = tuiData._onReviewStart;
+
   return (
     <box style={{ width: "100%", height: "100%", position: "relative" }}>
-      <App {...tuiData} onQuit={showLogs ? undefined : onQuit} />
+      <App
+        {...tuiData}
+        onQuit={showLogs ? undefined : resolvedOnQuit}
+        onFinalize={onFinalize}
+        onReviewStart={onReviewStart}
+      />
       <LogOverlay
         visible={showLogs}
         filter={logFilter}

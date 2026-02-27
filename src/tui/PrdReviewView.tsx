@@ -14,6 +14,7 @@ import { useSyncLineCount } from "./hooks/useSyncLineCount.js";
 import { calcInputSizing } from "./hooks/useInputSizing.js";
 import { useAgentStreaming } from "./hooks/useAgentStreaming.js";
 import { useExitConfirm } from "./hooks/useExitConfirm.js";
+import { startSpan, endSpan } from "./profiler.js";
 
 interface PrdReviewViewProps {
   prdMarkdown: string;
@@ -34,6 +35,7 @@ export function PrdReviewView({
   onApprove,
   onQuit,
 }: PrdReviewViewProps): ReactNode {
+  const renderSpan = startSpan("PrdReviewView");
   const [prdContent, setPrdContent] = useState(prdMarkdown);
   const [isLoading, setIsLoading] = useState(false);
   const [loadingStartTime, setLoadingStartTime] = useState(0);
@@ -242,6 +244,7 @@ export function PrdReviewView({
   const contentHeight = Math.max(1, termHeight - headerHeight - inputAreaHeight);
   const scrollHeight = Math.max(1, contentHeight - 1);
 
+  endSpan("PrdReviewView", renderSpan);
   return (
     <box style={{ width: "100%", height: "100%", flexDirection: "column" }}>
       {/* Header */}

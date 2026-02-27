@@ -1,6 +1,7 @@
 import { memo, type ReactNode } from "react";
 import { boldAttr, colors } from "../theme.js";
 import { formatTokenCount } from "../../engine/tokens.js";
+import { startSpan, endSpan } from "../profiler.js";
 
 export interface ParallelHeaderInfo {
   currentWave: number;
@@ -61,6 +62,7 @@ export const Header = memo(function Header({
   parallel,
   parallelCompletion,
 }: HeaderProps): ReactNode {
+  const renderSpan = startSpan("Header");
   const pct = total > 0 ? Math.round((done / total) * 100) : 0;
   const tokenDisplay = sessionTokens != null && sessionTokens > 0
     ? `${formatTokenCount(sessionTokens)} tokens`
@@ -68,6 +70,7 @@ export const Header = memo(function Header({
 
   // Parallel completion state: show summary stats
   if (parallelCompletion) {
+    endSpan("Header", renderSpan);
     return (
       <box
         width={width}
@@ -97,6 +100,7 @@ export const Header = memo(function Header({
 
   // Parallel active state: show wave/worker/merge info
   if (parallel) {
+    endSpan("Header", renderSpan);
     return (
       <box
         width={width}
@@ -129,6 +133,7 @@ export const Header = memo(function Header({
   }
 
   // Non-parallel mode: unchanged
+  endSpan("Header", renderSpan);
   return (
     <box
       width={width}

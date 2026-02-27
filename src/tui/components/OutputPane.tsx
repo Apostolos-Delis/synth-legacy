@@ -2,6 +2,7 @@ import { memo, useMemo, useRef, type ReactNode } from "react";
 import type { Task } from "../../tasks/types.js";
 import { colors, markdownSyntaxStyle } from "../theme.js";
 import { wrapText } from "../utils.js";
+import { startSpan, endSpan } from "../profiler.js";
 import { PhaseIndicator } from "./PhaseIndicator.js";
 import { TaskDetailHeader } from "./TaskDetailHeader.js";
 
@@ -199,6 +200,7 @@ export const OutputPane = memo(function OutputPane({
   // Output is pre-stripped of ANSI codes in the event handler for minimal render-path latency.
 
   const cacheRef = useRef(new Map<string, { signature: string; blocks: OutputBlock[] }>());
+  const renderSpan = startSpan("OutputPane");
 
   const outputIsEmpty = output.trim().length === 0 || output === "No output recorded";
   const minOutputHeight = outputIsEmpty && !isThinking ? MIN_EMPTY_OUTPUT_HEIGHT : MIN_OUTPUT_HEIGHT;
@@ -215,7 +217,9 @@ export const OutputPane = memo(function OutputPane({
   const outputBlocks = useMemo(() => {
     const cached = cacheRef.current.get(cacheKey);
     if (cached && cached.signature === signature) return cached.blocks;
+    const parseSpan = startSpan("OutputPane:parse");
     const blocks = parseOutputBlocks(output);
+    endSpan("OutputPane:parse", parseSpan);
     cacheRef.current.set(cacheKey, { signature, blocks });
     if (cacheRef.current.size > 20) {
       const firstKey = cacheRef.current.keys().next().value;
@@ -254,6 +258,7 @@ export const OutputPane = memo(function OutputPane({
     return nodes;
   };
 
+  endSpan("OutputPane", renderSpan);
   return (
     <box width={width} height={height} flexDirection="column" overflow="hidden">
       {task && (

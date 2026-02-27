@@ -1,6 +1,7 @@
 import { memo, useState, useEffect, useRef, useCallback, useMemo, type ReactNode } from "react";
 import type { LogEntry, LogSubscriber } from "../logging/types.js";
 import { colors, boldAttr } from "./theme.js";
+import { startSpan, endSpan } from "./profiler.js";
 
 const MAX_ENTRIES = 10_000;
 
@@ -42,6 +43,7 @@ export const LogView = memo(function LogView({
   filter,
   onSubscribe,
 }: LogViewProps): ReactNode {
+  const renderSpan = startSpan("LogView");
   const [entries, setEntries] = useState<LogEntry[]>([]);
   const bufferRef = useRef<LogEntry[]>([]);
 
@@ -72,6 +74,7 @@ export const LogView = memo(function LogView({
     });
   }, [entries, normalizedFilter]);
 
+  endSpan("LogView", renderSpan);
   return (
     <box
       width={width}

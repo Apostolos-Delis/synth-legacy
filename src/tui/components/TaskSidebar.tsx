@@ -2,6 +2,7 @@ import { memo, useRef, useEffect, type ReactNode } from "react";
 import type { ScrollBoxRenderable } from "@opentui/core";
 import type { Task } from "../../tasks/types.js";
 import { boldAttr, statusIndicators, colors, STATUS_COLORS_HEX, PRIORITY_COLORS_HEX } from "../theme.js";
+import { startSpan, endSpan } from "../profiler.js";
 
 interface TaskSidebarProps {
   tasks: Task[];
@@ -18,6 +19,7 @@ export const TaskSidebar = memo(function TaskSidebar({
   width,
   height,
 }: TaskSidebarProps): ReactNode {
+  const renderSpan = startSpan("TaskSidebar");
   const isCurrent = (id: string) => id === currentTaskId;
   const borderFg = currentTaskId ? colors.border.active : colors.border.normal;
   const scrollRef = useRef<ScrollBoxRenderable>(null);
@@ -87,6 +89,7 @@ export const TaskSidebar = memo(function TaskSidebar({
     );
   });
 
+  endSpan("TaskSidebar", renderSpan);
   return (
     <box
       width={width}

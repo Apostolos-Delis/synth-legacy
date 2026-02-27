@@ -62,6 +62,9 @@ export interface TuiEngineData {
   reviewStatus?: ReviewStatus;
   reviewError?: string;
   _notify?: () => void;
+  _onQuit?: () => void;
+  _onFinalize?: () => void;
+  _onReviewStart?: () => void;
 }
 
 export interface TuiState extends TuiEngineData {

@@ -5,6 +5,7 @@ import { boldAttr, colors, statusIndicators, STATUS_COLORS_HEX } from "./theme.j
 import { Footer } from "./components/Footer.js";
 import { stripAnsi } from "./utils.js";
 import { formatDuration } from "../utils/format.js";
+import { startSpan, endSpan } from "./profiler.js";
 
 interface CompletionViewProps {
   summary: CompletionSummary;
@@ -40,6 +41,7 @@ function truncateText(text: string, maxWidth: number): string {
 }
 
 export function CompletionView({ summary, showFinalizePrompt, showReviewPrompt, reviewStatus }: CompletionViewProps): ReactNode {
+  const renderSpan = startSpan("CompletionView");
   const { width, height } = useTerminalDimensions();
   const { progress, tasks, commits } = summary;
   const showReviewFixes = typeof summary.reviewFixesApplied === "number";
@@ -101,6 +103,7 @@ export function CompletionView({ summary, showFinalizePrompt, showReviewPrompt, 
     );
   }
 
+  endSpan("CompletionView", renderSpan);
   return (
     <box width={width} height={height} flexDirection="column">
       {/* Header */}

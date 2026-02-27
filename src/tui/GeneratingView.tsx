@@ -4,6 +4,7 @@ import { boldAttr, colors } from "./theme.js";
 import { Spinner } from "./components/Spinner.js";
 import { PhaseIndicator } from "./components/PhaseIndicator.js";
 import { Footer } from "./components/Footer.js";
+import { startSpan, endSpan } from "./profiler.js";
 
 interface GeneratingViewProps {
   output: string;
@@ -14,11 +15,13 @@ interface GeneratingViewProps {
 }
 
 export function GeneratingView({ output, taskCount, phase, phaseStartTime, label }: GeneratingViewProps): ReactNode {
+  const renderSpan = startSpan("GeneratingView");
   const { width, height } = useTerminalDimensions();
   const bodyHeight = Math.max(1, height - 2);
   const scrollHeight = Math.max(1, bodyHeight - 3);
   const spinnerLabel = label ?? "Agent is generating tasks";
 
+  endSpan("GeneratingView", renderSpan);
   return (
     <box width={width} height={height} flexDirection="column">
       <box height={1} style={{ backgroundColor: colors.bg.secondary, paddingLeft: 1 }}>

@@ -8,6 +8,7 @@ import { TaskSidebar } from "./components/TaskSidebar.js";
 import { OutputPane } from "./components/OutputPane.js";
 import { StatusBar } from "./components/StatusBar.js";
 import type { ParallelStatusInfo } from "./components/StatusBar.js";
+import { startSpan, endSpan } from "./profiler.js";
 
 interface ExecutionViewProps {
   state: TuiState;
@@ -28,6 +29,7 @@ export function ExecutionView({ state, selectedTaskIndex, navMode, detailFocus, 
     return () => clearInterval(id);
   }, [state.engineState]);
 
+  const renderSpan = startSpan("ExecutionView");
   const { width, height } = useTerminalDimensions();
   const sidebarWidth = Math.max(
     layout.sidebar.minWidth,
@@ -67,6 +69,7 @@ export function ExecutionView({ state, selectedTaskIndex, navMode, detailFocus, 
   const taskDetailFocused = navMode === "task-detail-scroll" || (navMode === "detail-select" && detailFocus === "task");
   const outputFocused = navMode === "output-scroll" || (navMode === "detail-select" && detailFocus === "output");
 
+  endSpan("ExecutionView", renderSpan);
   return (
     <box width={width} height={height} flexDirection="column">
       <Header

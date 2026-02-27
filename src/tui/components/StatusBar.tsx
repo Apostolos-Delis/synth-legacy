@@ -3,6 +3,7 @@ import type { EngineState } from "../../engine/types.js";
 import type { NavMode } from "../types.js";
 import { colors, statusIndicators } from "../theme.js";
 import { formatTokenCount } from "../../engine/tokens.js";
+import { startSpan, endSpan } from "../profiler.js";
 
 export interface ParallelStatusInfo {
   recommendedWorkers: number;
@@ -51,6 +52,7 @@ export const StatusBar = memo(function StatusBar({
   parallelStatus,
   exitArmed = false,
 }: StatusBarProps): ReactNode {
+  const renderSpan = startSpan("StatusBar");
   const display = STATE_DISPLAY[state];
   const elapsed = Math.round(elapsedMs / 1000);
 
@@ -84,6 +86,7 @@ export const StatusBar = memo(function StatusBar({
     ? `${formatTokenCount(currentTaskTokens)} tok`
     : "N/A";
 
+  endSpan("StatusBar", renderSpan);
   return (
     <box
       width={width}

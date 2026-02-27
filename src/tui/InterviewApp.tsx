@@ -16,6 +16,7 @@ import { useSyncLineCount } from "./hooks/useSyncLineCount.js";
 import { calcInputSizing } from "./hooks/useInputSizing.js";
 import { useAgentStreaming } from "./hooks/useAgentStreaming.js";
 import { useExitConfirm } from "./hooks/useExitConfirm.js";
+import { startSpan, endSpan } from "./profiler.js";
 
 interface InterviewAppProps {
   sessionId?: string;
@@ -87,6 +88,7 @@ export function InterviewApp({
   initialMessages,
   onPersistMessages,
 }: InterviewAppProps): ReactNode {
+  const renderSpan = startSpan("InterviewApp");
   const [messages, setMessages] = useState<InterviewMessage[]>(
     initialMessages && initialMessages.length > 0
       ? [{ role: "assistant", content: WELCOME_MESSAGE }, ...initialMessages]
@@ -349,6 +351,7 @@ export function InterviewApp({
   const messageAreaHeight = Math.max(1, termHeight - headerHeight - inputHeight - hintHeight);
   const messageScrollHeight = Math.max(1, messageAreaHeight - 1);
 
+  endSpan("InterviewApp", renderSpan);
   return (
     <box style={{ width: "100%", height: "100%", flexDirection: "column" }}>
       {/* Header */}

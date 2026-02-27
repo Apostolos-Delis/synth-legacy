@@ -14,6 +14,7 @@ import { MergeQueuePanel } from "./components/MergeQueuePanel.js";
 import type { MergeQueueItem } from "./components/MergeQueuePanel.js";
 import { ConflictResolutionPanel } from "./components/ConflictResolutionPanel.js";
 import type { ConflictInfo } from "./components/ConflictResolutionPanel.js";
+import { startSpan, endSpan } from "./profiler.js";
 
 interface ParallelExecutionViewProps {
   state: TuiState;
@@ -49,6 +50,7 @@ export function ParallelExecutionView({
     return () => clearInterval(id);
   }, [state.engineState]);
 
+  const renderSpan = startSpan("ParallelExecutionView");
   const { width, height } = useTerminalDimensions();
   const bodyHeight = Math.max(1, height - layout.header.height - layout.footer.height);
   const done = state.tasks.filter((t) => t.status === "done").length;
@@ -113,6 +115,7 @@ export function ParallelExecutionView({
   const taskDetailFocused = navMode === "task-detail-scroll" || (navMode === "detail-select" && detailFocus === "task");
   const outputFocused = navMode === "output-scroll" || (navMode === "detail-select" && detailFocus === "output");
 
+  endSpan("ParallelExecutionView", renderSpan);
   return (
     <box width={width} height={height} flexDirection="column">
       <Header

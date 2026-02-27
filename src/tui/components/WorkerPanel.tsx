@@ -1,5 +1,6 @@
 import { memo, useState, useEffect, type ReactNode } from "react";
 import { SPINNER_FRAMES, boldAttr, colors } from "../theme.js";
+import { startSpan, endSpan } from "../profiler.js";
 
 export type WorkerStatus = "running" | "completed" | "failed";
 
@@ -120,6 +121,7 @@ export const WorkerPanel = memo(function WorkerPanel({
   width,
   height,
 }: WorkerPanelProps): ReactNode {
+  const renderSpan = startSpan("WorkerPanel");
   const [now, setNow] = useState(Date.now());
   const [spinnerFrame, setSpinnerFrame] = useState(0);
 
@@ -164,6 +166,7 @@ export const WorkerPanel = memo(function WorkerPanel({
     />
   ));
 
+  endSpan("WorkerPanel", renderSpan);
   return (
     <box
       width={width}

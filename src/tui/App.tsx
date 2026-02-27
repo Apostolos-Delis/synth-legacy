@@ -16,6 +16,7 @@ import type { ParallelStatusInfo } from "./components/StatusBar.js";
 import type { WorkerInfo } from "./components/WorkerPanel.js";
 import type { MergeQueueItem } from "./components/MergeQueuePanel.js";
 import type { ConflictInfo } from "./components/ConflictResolutionPanel.js";
+import { startSpan, endSpan, countEvent } from "./profiler.js";
 
 interface AppProps extends TuiEngineData {
   defaultView?: ViewMode;
@@ -54,6 +55,14 @@ export function App({
   const [detailFocus, setDetailFocus] = useState<"task" | "output">("task");
   const { toasts, showSuccess, showInfo, showWarning } = useToast();
   const { exitArmed, requestQuit } = useExitConfirm();
+  const renderSpan = startSpan("App");
+
+  useEffect(() => {
+    countEvent("app:mount");
+    return () => {
+      countEvent("app:unmount");
+    };
+  }, []);
 
   // Hide cursor — no text input fields exist in execution/dashboard/completion views
   const renderer = useRenderer();
@@ -74,6 +83,8 @@ export function App({
   detailFocusRef.current = detailFocus;
   const selectedTaskIndexRef = useRef(selectedTaskIndex);
   selectedTaskIndexRef.current = selectedTaskIndex;
+  const prevSelectedIndexRef = useRef(selectedTaskIndex);
+  prevSelectedIndexRef.current = selectedTaskIndex;
   const tasksRef = useRef(engineData.tasks);
   tasksRef.current = engineData.tasks;
   const parallelRef = useRef(parallel);
@@ -101,14 +112,15 @@ export function App({
       prevTaskId.current = engineData.currentTaskId;
       return;
     }
-      if (engineData.currentTaskId && engineData.currentTaskId !== prevTaskId.current) {
-        const idx = engineData.tasks.findIndex((t) => t.id === engineData.currentTaskId);
-        if (idx >= 0) {
-          setSelectedTaskIndex(idx);
-          setNavMode("task-scroll");
-          setDetailFocus("task");
-        }
+    if (engineData.currentTaskId && engineData.currentTaskId !== prevTaskId.current) {
+      const idx = engineData.tasks.findIndex((t) => t.id === engineData.currentTaskId);
+      if (idx >= 0) {
+        countEvent("tui:auto-follow");
+        setSelectedTaskIndex(idx);
+        setNavMode("task-scroll");
+        setDetailFocus("task");
       }
+    }
     prevTaskId.current = engineData.currentTaskId;
   }, [engineData.currentTaskId, engineData.tasks]);
 
@@ -118,6 +130,14 @@ export function App({
       setView("completion");
     }
   }, [engineData.completionSummary, engineData.engineState]);
+
+  useEffect(() => {
+    if (prevSelectedIndexRef.current !== selectedTaskIndex) {
+      countEvent("tui:selected-index-change");
+      if (selectedTaskIndex === 0) countEvent("tui:selected-index-zero");
+      prevSelectedIndexRef.current = selectedTaskIndex;
+    }
+  }, [selectedTaskIndex]);
 
   // engineData is a new object every render (rest-spread from props), so
   // useMemo with [engineData] never caches.  Build state objects inline instead
@@ -274,10 +294,12 @@ export function App({
 
         if (navModeRef.current === "task-scroll" && taskCount > 0) {
           if (key.name === "j" || key.name === "down") {
+            countEvent("tui:manual-select");
             setSelectedTaskIndex((i) => Math.min(i + 1, taskCount - 1));
             return;
           }
           if (key.name === "k" || key.name === "up") {
+            countEvent("tui:manual-select");
             setSelectedTaskIndex((i) => Math.max(i - 1, 0));
             return;
           }
@@ -357,6 +379,7 @@ export function App({
   const isHistory = view === "history";
   const isConfig = view === "config";
 
+  endSpan("App", renderSpan);
   return (
     <box style={{ width: "100%", height: "100%", position: "relative" }}>
       <box style={isExecution ? visibleStyle : hiddenStyle}>
