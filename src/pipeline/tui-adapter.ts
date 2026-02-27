@@ -116,43 +116,21 @@ export class TuiAdapter {
     } else {
       this.renderer = await createCliRenderer({
         useKittyKeyboard: { disambiguate: true, alternateKeys: true },
+        targetFps: 15,
+        maxFps: 30,
       });
       this.root = createRoot(this.renderer);
     }
 
-    // Rate-limit requestRender — @opentui's scrollbox calls
-    // process.nextTick(() => requestRender()) from recalculateBarProps() on every
-    // content change, creating an infinite render loop. The React reconciler also
-    // calls requestRender for every DOM mutation. Together these produce 30,000+
-    // requestRender calls/sec and 300-900ms frame times.
-    //
-    // Fix: time-based rate limiter. Allow at most one actual render per 80ms
-    // (matching the TUI throttle). This breaks the nextTick render loop.
+    // The renderer has its own fps-based render loop (targetFps/maxFps above).
+    // Patch requestRender for profiling only.
     const rendererAny = this.renderer as { requestRender?: () => void };
     const origRequestRender = rendererAny.requestRender?.bind(this.renderer);
     if (origRequestRender) {
       this.originalRequestRender = origRequestRender;
-      let lastRenderTime = 0;
-      let pendingTimer: ReturnType<typeof setTimeout> | null = null;
       rendererAny.requestRender = () => {
         countEvent("renderer:requestRender");
-        const now = performance.now();
-        const elapsed = now - lastRenderTime;
-        if (elapsed >= 80) {
-          lastRenderTime = now;
-          if (pendingTimer) { clearTimeout(pendingTimer); pendingTimer = null; }
-          const fs = performance.now();
-          origRequestRender();
-          recordSpan("renderer:origRequestRender", performance.now() - fs);
-        } else if (!pendingTimer) {
-          pendingTimer = setTimeout(() => {
-            pendingTimer = null;
-            lastRenderTime = performance.now();
-            const fs = performance.now();
-            origRequestRender();
-            recordSpan("renderer:origRequestRender", performance.now() - fs);
-          }, 80 - elapsed);
-        }
+        origRequestRender();
       };
     }
 
