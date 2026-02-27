@@ -134,4 +134,22 @@ export const ExecutionView = memo(function ExecutionView({ state, selectedTaskIn
       />
     </box>
   );
-});
+}, (prev, next) =>
+  prev.selectedTaskIndex === next.selectedTaskIndex &&
+  prev.navMode === next.navMode &&
+  prev.detailFocus === next.detailFocus &&
+  prev.exitArmed === next.exitArmed &&
+  prev.parallel === next.parallel &&
+  prev.parallelCompletion === next.parallelCompletion &&
+  prev.parallelStatus === next.parallelStatus &&
+  prev.state.engineState === next.state.engineState &&
+  prev.state.output === next.state.output &&
+  prev.state.tasks === next.state.tasks &&
+  prev.state.currentTaskId === next.state.currentTaskId &&
+  prev.state.isThinking === next.state.isThinking &&
+  prev.state.currentPhase === next.state.currentPhase &&
+  prev.state.phaseStartTime === next.state.phaseStartTime &&
+  prev.state.completionSummary === next.state.completionSummary &&
+  prev.state.taskOutputMap === next.state.taskOutputMap &&
+  prev.state.tokenUsage === next.state.tokenUsage,
+);
