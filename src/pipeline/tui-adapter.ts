@@ -139,10 +139,16 @@ export class TuiAdapter {
       };
     }
 
-    if (this.renderer && process.env.SYNTH_TUI_PROFILE === "1") {
+    if (this.renderer) {
       this.frameCallback = async (deltaTime: number) => {
-        recordSpan("renderer:frame", deltaTime);
-        countEvent("renderer:frame");
+        if (process.env.SYNTH_TUI_PROFILE === "1") {
+          recordSpan("renderer:frame", deltaTime);
+          countEvent("renderer:frame");
+        }
+        // Write frame timing to stderr for live debugging
+        if (process.env.SYNTH_FRAME_DEBUG === "1" && deltaTime > 16) {
+          process.stderr.write(`[frame] ${Math.round(deltaTime)}ms\n`);
+        }
       };
       this.renderer.setFrameCallback(this.frameCallback);
     }
