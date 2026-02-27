@@ -17,35 +17,52 @@ import type { CompletionSummary } from "./types.js";
 // Lazy-loaded modules (same pattern as src/commands/helpers.ts)
 // ---------------------------------------------------------------------------
 
+let _agentRegistry: Awaited<ReturnType<typeof lazyAgentRegistry>> | null = null;
 async function lazyAgentRegistry() {
+  if (_agentRegistry) return _agentRegistry;
   const { getAgent } = await import("../agents/registry.js");
-  return { getAgent };
+  _agentRegistry = { getAgent };
+  return _agentRegistry;
 }
 
+let _engine: Awaited<ReturnType<typeof lazyEngine>> | null = null;
 async function lazyEngine() {
+  if (_engine) return _engine;
   const { Engine } = await import("../engine/engine.js");
-  return { Engine };
+  _engine = { Engine };
+  return _engine;
 }
 
+let _runModule: Awaited<ReturnType<typeof lazyRunModule>> | null = null;
 async function lazyRunModule() {
+  if (_runModule) return _runModule;
   const mod = await import("../run/run.js");
-  return {
+  _runModule = {
     createRun: mod.createRun,
     acquireLock: mod.acquireLock,
     releaseLock: mod.releaseLock,
     endRun: mod.endRun,
   };
+  return _runModule;
 }
 
+let _reviewOrchestrator: Awaited<ReturnType<typeof lazyReviewOrchestrator>> | null = null;
 async function lazyReviewOrchestrator() {
+  if (_reviewOrchestrator) return _reviewOrchestrator;
   const { ReviewOrchestrator } = await import("../review/orchestrator.js");
-  return { ReviewOrchestrator };
+  _reviewOrchestrator = { ReviewOrchestrator };
+  return _reviewOrchestrator;
 }
 
+let _parallelCoordinator: Awaited<ReturnType<typeof lazyParallelCoordinator>> | null = null;
 async function lazyParallelCoordinator() {
-  const { ParallelCoordinator } = await import("../parallel/coordinator.js");
-  const { analyzeTaskGraph } = await import("../parallel/task-graph.js");
-  return { ParallelCoordinator, analyzeTaskGraph };
+  if (_parallelCoordinator) return _parallelCoordinator;
+  const [{ ParallelCoordinator }, { analyzeTaskGraph }] = await Promise.all([
+    import("../parallel/coordinator.js"),
+    import("../parallel/task-graph.js"),
+  ]);
+  _parallelCoordinator = { ParallelCoordinator, analyzeTaskGraph };
+  return _parallelCoordinator;
 }
 
 async function lazyTaskStore() {

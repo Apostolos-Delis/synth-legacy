@@ -15,13 +15,15 @@ export async function loadTaskOutput(
 
   if (matching.length === 0) return "";
 
-  const chunks: string[] = [];
-  for (const entry of matching) {
-    const logPath = `${logsDir}/iteration-${String(entry.iteration).padStart(3, "0")}.jsonl`;
-    if (await fileExists(logPath)) {
-      chunks.push(await readText(logPath));
-    }
-  }
+  const chunks = await Promise.all(
+    matching.map(async (entry) => {
+      const logPath = `${logsDir}/iteration-${String(entry.iteration).padStart(3, "0")}.jsonl`;
+      if (await fileExists(logPath)) {
+        return await readText(logPath);
+      }
+      return "";
+    }),
+  );
 
   return chunks.join("");
 }

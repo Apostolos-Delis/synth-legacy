@@ -394,7 +394,7 @@ export class Engine {
 
           const stripped = stripAcDoneMarkers(chunk);
           output += stripped;
-          const display = stripped.replace(COMPLETION_PATTERN, "");
+          const display = stripped.includes("<promise>") ? stripped.replace(COMPLETION_PATTERN, "") : stripped;
           this.emit({ type: "agent:stdout", message: display, taskId: task.id, isFirstChunk: isFirst });
         },
         onStderr: (chunk) => {

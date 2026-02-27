@@ -13,6 +13,15 @@ const TOOL_HEADER_RE = /^\[tool:(use|result)\]\s*(.*)$/;
 const TOOL_INPUT_RE = /^\s{2}input:\s?(.*)$/;
 const TOOL_OUTPUT_RE = /^\s{2}output:\s?(.*)$/;
 
+const FLEX_COLUMN_STYLE = { flexDirection: "column" } as const;
+const VERTICAL_SCROLLBAR_OPTIONS = {
+  showArrows: false,
+  trackOptions: {
+    backgroundColor: colors.bg.secondary,
+    foregroundColor: colors.border.normal,
+  },
+} as const;
+
 type OutputBlock =
   | { type: "markdown"; content: string }
   | { type: "tool"; kind: "use" | "result"; name: string; id: string; input: string[]; output: string[] };
@@ -212,13 +221,23 @@ export const OutputPane = memo(function OutputPane({
   const outputHeight = Math.max(1, height - headerHeight);
   const outputScrollHeight = Math.max(1, outputHeight - 2);
   const waiting = isThinking && !output;
+
+  // Truncate output to visible portion before parsing — the scrollbox only
+  // shows outputScrollHeight lines, so parsing the full string is wasteful.
+  const maxVisibleChars = Math.max(2000, outputScrollHeight * 200);
+  let truncatedOutput = output;
+  if (output.length > maxVisibleChars) {
+    const cutPoint = output.indexOf("\n", output.length - maxVisibleChars);
+    truncatedOutput = cutPoint >= 0 ? output.slice(cutPoint + 1) : output.slice(-maxVisibleChars);
+  }
+
   const cacheKey = outputCacheKey ?? "default";
-  const signature = outputSignature ?? `${output.length}:${output.slice(-256)}`;
+  const signature = outputSignature ?? `${truncatedOutput.length}:${truncatedOutput.slice(-256)}`;
   const outputBlocks = useMemo(() => {
     const cached = cacheRef.current.get(cacheKey);
     if (cached && cached.signature === signature) return cached.blocks;
     const parseSpan = startSpan("OutputPane:parse");
-    const blocks = parseOutputBlocks(output);
+    const blocks = parseOutputBlocks(truncatedOutput);
     endSpan("OutputPane:parse", parseSpan);
     cacheRef.current.set(cacheKey, { signature, blocks });
     if (cacheRef.current.size > 20) {
@@ -226,7 +245,7 @@ export const OutputPane = memo(function OutputPane({
       if (firstKey) cacheRef.current.delete(firstKey);
     }
     return blocks;
-  }, [cacheKey, signature, output]);
+  }, [cacheKey, signature, truncatedOutput]);
 
   const renderLabeledLines = (
     label: "input" | "output",
@@ -284,14 +303,8 @@ export const OutputPane = memo(function OutputPane({
           focused={outputScrollFocused}
           stickyScroll={!outputScrollFocused && autoScroll}
           stickyStart="bottom"
-          verticalScrollbarOptions={{
-            showArrows: false,
-            trackOptions: {
-              backgroundColor: colors.bg.secondary,
-              foregroundColor: colors.border.normal,
-            },
-          }}
-          style={{ flexDirection: "column" }}
+          verticalScrollbarOptions={VERTICAL_SCROLLBAR_OPTIONS}
+          style={FLEX_COLUMN_STYLE}
         >
           {waiting ? (
             currentPhase && phaseStartTime ? (
@@ -313,7 +326,7 @@ export const OutputPane = memo(function OutputPane({
               const inputColor = colors.fg.secondary;
               const outputColor = colors.fg.primary;
               return (
-                <box key={`tool-${idx}`} style={{ flexDirection: "column" }}>
+                <box key={`tool-${idx}`} style={FLEX_COLUMN_STYLE}>
                   <text>
                     <span fg={labelColor}>{block.kind === "use" ? "\u2192" : "\u2190"}</span>
                     <span fg={colors.fg.primary}>{` ${kindText} `}</span>

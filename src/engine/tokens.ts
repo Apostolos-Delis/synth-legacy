@@ -123,10 +123,17 @@ export function parseTokenUsageFromOutput(output: string): TokenUsage | null {
   let best: TokenUsage | null = null;
   let bestScore = 0;
 
-  // Token usage appears near the end of output — scan last 50 lines only
-  const lines = output.split("\n");
-  const startIdx = Math.max(0, lines.length - 50);
-  for (let i = startIdx; i < lines.length; i++) {
+  // Token usage appears near the end of output — scan last 50 lines only.
+  // Instead of splitting the entire string, scan backwards from the end
+  // to find the 50th-from-last newline, then split only that tail substring.
+  let tailStart = output.length;
+  for (let remaining = 50; remaining > 0 && tailStart > 0; remaining--) {
+    const prev = output.lastIndexOf("\n", tailStart - 1);
+    tailStart = prev === -1 ? 0 : prev;
+  }
+  const tail = tailStart === 0 ? output : output.slice(tailStart + 1);
+  const lines = tail.split("\n");
+  for (let i = 0; i < lines.length; i++) {
     const usage = parseTokenUsageLine(lines[i]);
     if (!usage) continue;
     const score =

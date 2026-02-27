@@ -9,7 +9,8 @@ const RATE_LIMIT_PATTERNS = [
 ];
 
 export function detectRateLimit(output: string): boolean {
-  return RATE_LIMIT_PATTERNS.some((p) => p.test(output));
+  const tail = output.length > 2000 ? output.slice(-2000) : output;
+  return RATE_LIMIT_PATTERNS.some((p) => p.test(tail));
 }
 
 export function getBackoffDelay(attempt: number): number {

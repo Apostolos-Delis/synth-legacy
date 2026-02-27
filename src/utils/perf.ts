@@ -67,6 +67,17 @@ export class PerfTrace {
     return { phases, totalMs };
   }
 
+  finalizeOpenPhases(): void {
+    if (!this.enabled) return;
+    const now = performance.now();
+    for (const phase of this.phases.values()) {
+      if (phase.startedAt !== null) {
+        phase.durationMs += now - phase.startedAt;
+        phase.startedAt = null;
+      }
+    }
+  }
+
   reset(): void {
     this.phases.clear();
     this.order = [];

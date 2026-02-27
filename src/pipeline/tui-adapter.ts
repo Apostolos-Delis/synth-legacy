@@ -381,7 +381,8 @@ export class TuiAdapter {
         const stripped = event.message ? stripAnsi(event.message) : "";
         if (stripped) {
           this.tuiData.output += stripped;
-          if (this.tuiData.output.length > MAX_OUTPUT_LENGTH) {
+          // Only trim when 10% over limit to amortize the cost of the 100KB slice
+          if (this.tuiData.output.length > MAX_OUTPUT_LENGTH * 1.1) {
             this.tuiData.output = this.tuiData.output.slice(-MAX_OUTPUT_LENGTH);
           }
           if (this.tuiData.currentTaskId && this.tuiData.currentTaskId in this.tuiData.taskOutputMap) {
@@ -401,7 +402,7 @@ export class TuiAdapter {
         countEvent("engine:agent:stderr");
         if (event.message) {
           this.tuiData.output += stripAnsi(event.message);
-          if (this.tuiData.output.length > MAX_OUTPUT_LENGTH) {
+          if (this.tuiData.output.length > MAX_OUTPUT_LENGTH * 1.1) {
             this.tuiData.output = this.tuiData.output.slice(-MAX_OUTPUT_LENGTH);
           }
         }
@@ -414,7 +415,7 @@ export class TuiAdapter {
         const formatted = formatToolEvent(event.tool);
         const suffix = `\n${formatted}\n`;
         this.tuiData.output += suffix;
-        if (this.tuiData.output.length > MAX_OUTPUT_LENGTH) {
+        if (this.tuiData.output.length > MAX_OUTPUT_LENGTH * 1.1) {
           this.tuiData.output = this.tuiData.output.slice(-MAX_OUTPUT_LENGTH);
         }
         if (this.tuiData.currentTaskId && this.tuiData.currentTaskId in this.tuiData.taskOutputMap) {
@@ -460,7 +461,7 @@ export class TuiAdapter {
         break;
     }
 
-    this.renderSerial();
+    this.renderSerialThrottled();
   }
 
   // ---------------------------------------------------------------------------
@@ -628,7 +629,7 @@ export class TuiAdapter {
     setTimeout(() => {
       this.renderScheduled = false;
       this.renderSerial();
-    }, 16);
+    }, 80);
   }
 
   private renderParallel(): void {

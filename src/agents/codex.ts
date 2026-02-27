@@ -42,12 +42,16 @@ class CodexStreamParser {
 
   handleChunk(chunk: string): void {
     this.buffer += chunk;
-    let newlineIdx = this.buffer.indexOf("\n");
+    let start = 0;
+    let newlineIdx = this.buffer.indexOf("\n", start);
     while (newlineIdx !== -1) {
-      const line = this.buffer.slice(0, newlineIdx);
-      this.buffer = this.buffer.slice(newlineIdx + 1);
+      const line = this.buffer.slice(start, newlineIdx);
+      start = newlineIdx + 1;
       this.handleLine(line);
-      newlineIdx = this.buffer.indexOf("\n");
+      newlineIdx = this.buffer.indexOf("\n", start);
+    }
+    if (start > 0) {
+      this.buffer = start < this.buffer.length ? this.buffer.slice(start) : "";
     }
   }
 
