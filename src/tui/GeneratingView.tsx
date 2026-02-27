@@ -10,12 +10,14 @@ interface GeneratingViewProps {
   taskCount?: number;
   phase?: string;
   phaseStartTime?: number;
+  label?: string;
 }
 
-export function GeneratingView({ output, taskCount, phase, phaseStartTime }: GeneratingViewProps): ReactNode {
+export function GeneratingView({ output, taskCount, phase, phaseStartTime, label }: GeneratingViewProps): ReactNode {
   const { width, height } = useTerminalDimensions();
   const bodyHeight = Math.max(1, height - 2);
   const scrollHeight = Math.max(1, bodyHeight - 3);
+  const spinnerLabel = label ?? "Agent is generating tasks";
 
   return (
     <box width={width} height={height} flexDirection="column">
@@ -30,8 +32,8 @@ export function GeneratingView({ output, taskCount, phase, phaseStartTime }: Gen
       <box style={{ height: bodyHeight, flexDirection: "column", paddingLeft: 1, paddingTop: 1 }}>
         <box style={{ flexDirection: "row", gap: 1, marginBottom: 1 }}>
           {phaseStartTime
-            ? <PhaseIndicator phase="Agent is generating tasks" startTime={phaseStartTime} />
-            : <Spinner label="Agent is generating tasks" color={colors.status.info} />}
+            ? <PhaseIndicator phase={spinnerLabel} startTime={phaseStartTime} />
+            : <Spinner label={spinnerLabel} color={colors.status.info} />}
           {taskCount != null && taskCount > 0 && (
             <text fg={colors.status.success}>{`Found ${taskCount} task${taskCount === 1 ? "" : "s"} so far...`}</text>
           )}

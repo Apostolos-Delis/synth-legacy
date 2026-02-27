@@ -42,6 +42,11 @@ export interface StartContext {
 
 type Session = { id: string; paths: SessionPaths; metadata: SessionMetadata };
 
+const PRD_REGEN_PROMPT =
+  "Write the complete PRD now. Start with a level-1 heading. Do not wrap it in code fences or JSON. " +
+  "Use the exact PRD structure from the interview template (all 10 areas). " +
+  "Do not ask questions; make reasonable assumptions where needed and state them in the PRD.";
+
 // ── Exported helpers ──
 
 export function parseWorktreeFlag(argv: string[]): { useWorktree: boolean; explicitName?: string } {
@@ -140,14 +145,6 @@ export async function resumeInterview(
   const agent = getAgent(config.agent.name);
 
   let prdMarkdown: string | null = null;
-  const getLastAssistantMessage = (messages: InterviewMessage[]): string | null => {
-    for (let i = messages.length - 1; i >= 0; i -= 1) {
-      const msg = messages[i];
-      if (msg.role === "assistant" && msg.content.trim()) return msg.content;
-    }
-    return null;
-  };
-  let lastAssistantResponse: string | null = getLastAssistantMessage(savedState.interviewerHistory);
   const { id, paths } = { id: plan.metadata.id, paths: plan.paths };
 
   const interviewer = new interviewMod.Interviewer(agent, cwd, config.agent.model, async (messages) => {
@@ -192,7 +189,6 @@ export async function resumeInterview(
           initialMessages={savedState.interviewerHistory}
           onSendMessage={async (msg, onChunk, onTool, onReset) => {
             const response = await interviewer.respond(msg, onChunk, showToolLogs ? onTool : undefined, onReset);
-            lastAssistantResponse = response;
             const extractedMd = interviewer.extractPrdMarkdown(response);
             if (extractedMd) prdMarkdown = extractedMd;
             return { response, done: !!extractedMd };
@@ -213,15 +209,50 @@ export async function resumeInterview(
     }
 
     if (!prdMarkdown) {
-      const fallback = lastAssistantResponse?.trim();
-      if (fallback) {
-        prdMarkdown = fallback;
-        logger.warn("prd:missing", "No PRD extracted; using last assistant response");
-      } else {
-        logger.warn("prd:missing", "No PRD extracted from interview");
+      logger.warn("prd:missing", "No PRD extracted from interview", { sessionId: id });
+      let regenOutput = "";
+      const regenStartTime = Date.now();
+      const renderRegen = () => {
+        planRoot.render(
+          <tui.GeneratingView
+            output={regenOutput}
+            phase="Generating PRD..."
+            phaseStartTime={regenStartTime}
+            label="Agent is generating PRD"
+          />,
+        );
+      };
+      renderRegen();
+      logger.info("prd:regenerate-start", "Attempting PRD regeneration", { sessionId: id });
+      try {
+        const response = await interviewer.respond(
+          PRD_REGEN_PROMPT,
+          (chunk) => {
+            regenOutput += chunk;
+            renderRegen();
+          },
+          showToolLogs
+            ? (event) => {
+              regenOutput += `\n${formatToolEvent(event)}\n`;
+              renderRegen();
+            }
+            : undefined,
+        );
+        const extractedMd = interviewer.extractPrdMarkdown(response);
+        if (extractedMd) {
+          prdMarkdown = extractedMd;
+          logger.info("prd:regenerated", "PRD regenerated", { length: extractedMd.length });
+        }
+      } catch (err) {
+        logger.error("prd:regenerate-error", "PRD regeneration failed", { error: err instanceof Error ? err.message : String(err) });
+      }
+
+      if (!prdMarkdown) {
+        logger.error("prd:missing", "PRD generation failed; cannot continue", { sessionId: id });
         process.off("SIGINT", sigintHandler);
         cleanup();
         agent.dispose();
+        logError(`PRD generation failed. Resume later with: ${fmt.bold(`synth resume ${id}`)}`);
         await restoreBranch?.();
         return;
       }
@@ -642,15 +673,6 @@ export async function cmdStart(
   const agent = getAgent(config.agent.name);
 
   let prdMarkdown: string | null = null;
-  const getLastAssistantMessage = (messages: InterviewMessage[]): string | null => {
-    for (let i = messages.length - 1; i >= 0; i -= 1) {
-      const msg = messages[i];
-      if (msg.role === "assistant" && msg.content.trim()) return msg.content;
-    }
-    return null;
-  };
-  let lastAssistantResponse: string | null = null;
-
   const logger = getLogger();
   let session: Session | null = null;
   let interviewer: InstanceType<typeof interviewMod.Interviewer> | null = null;
@@ -722,7 +744,6 @@ export async function cmdStart(
               logger.info("interview:prompt", "User message", { sessionId: session!.id, length: msg.length });
               try {
                 const response = await interviewer!.respond(msg, onChunk, showToolLogs ? onTool : undefined);
-                lastAssistantResponse = response;
                 logger.info("interview:response", "Assistant response", { sessionId: session!.id, length: response.length });
                 if (!response.trim()) {
                   logger.warn("interview:empty-response", "Assistant returned empty response");
@@ -740,9 +761,6 @@ export async function cmdStart(
             }}
             onPersistMessages={async (messages) => {
               if (!session || !interviewer) return;
-              if (!lastAssistantResponse) {
-                lastAssistantResponse = getLastAssistantMessage(messages);
-              }
               const state: InterviewState = {
                 messages,
                 interviewerHistory: interviewer.getHistory(),
@@ -770,15 +788,54 @@ export async function cmdStart(
 
     if (!prdMarkdown) {
       const sessionId = (session as Session | null)?.id;
-      const fallback = lastAssistantResponse?.trim();
-      if (fallback) {
-        prdMarkdown = fallback;
-        logger.warn("prd:missing", "No PRD extracted; using last assistant response", { sessionId });
-      } else {
-        logger.warn("prd:missing", "No PRD extracted from interview", { sessionId });
+      logger.warn("prd:missing", "No PRD extracted from interview", { sessionId });
+      let regenOutput = "";
+      const regenStartTime = Date.now();
+      const renderRegen = () => {
+        planRoot.render(
+          <tui.GeneratingView
+            output={regenOutput}
+            phase="Generating PRD..."
+            phaseStartTime={regenStartTime}
+            label="Agent is generating PRD"
+          />,
+        );
+      };
+      renderRegen();
+      logger.info("prd:regenerate-start", "Attempting PRD regeneration", { sessionId });
+      try {
+        const response = await interviewer!.respond(
+          PRD_REGEN_PROMPT,
+          (chunk) => {
+            regenOutput += chunk;
+            renderRegen();
+          },
+          showToolLogs
+            ? (event) => {
+              regenOutput += `\n${formatToolEvent(event)}\n`;
+              renderRegen();
+            }
+            : undefined,
+        );
+        const extractedMd = interviewer!.extractPrdMarkdown(response);
+        if (extractedMd) {
+          prdMarkdown = extractedMd;
+          logger.info("prd:regenerated", "PRD regenerated", { length: extractedMd.length });
+        }
+      } catch (err) {
+        logger.error("prd:regenerate-error", "PRD regeneration failed", { error: err instanceof Error ? err.message : String(err) });
+      }
+
+      if (!prdMarkdown) {
+        logger.error("prd:missing", "PRD generation failed; cannot continue", { sessionId });
         process.off("SIGINT", sigintHandler);
         cleanup();
         agent.dispose();
+        if (sessionId) {
+          logError(`PRD generation failed. Resume later with: ${fmt.bold(`synth resume ${sessionId}`)}`);
+        } else {
+          logError("PRD generation failed. Resume later with: synth resume <session-id>");
+        }
         await restoreOriginalBranch();
         return;
       }
