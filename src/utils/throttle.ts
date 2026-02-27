@@ -1,4 +1,4 @@
-export function createThrottledRender(renderFn: () => void, ms = 80): () => void {
+export function createThrottledRender(renderFn: () => void, ms = 33): () => void {
   let scheduled = false;
   return () => {
     if (scheduled) return;
