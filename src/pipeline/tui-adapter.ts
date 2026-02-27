@@ -123,31 +123,23 @@ export class TuiAdapter {
       this.root = createRoot(this.renderer);
     }
 
-    // Batch requestRender: coalesce all calls within a 16ms window into one.
-    // queueMicrotask alone doesn't work because @opentui's scrollbox fires
-    // process.nextTick(() => requestRender()) which runs AFTER microtasks.
+    // Coalesce requestRender: the React reconciler + scrollbox produce 1000+
+    // calls/sec. Each call is cheap but the volume creates event loop contention.
+    // Use a simple dirty flag: first call passes through, subsequent calls within
+    // the same event loop turn are skipped. The flag resets after each frame.
     const rendererAny = this.renderer as Record<string, unknown>;
     const origRequestRender = (rendererAny.requestRender as (() => void) | undefined)?.bind(this.renderer);
     if (origRequestRender) {
       this.originalRequestRender = origRequestRender;
-      let lastCallTime = 0;
-      let pending: ReturnType<typeof setTimeout> | null = null;
+      let dirty = false;
       (rendererAny as { requestRender: () => void }).requestRender = () => {
         countEvent("renderer:requestRender");
-        const now = performance.now();
-        if (now - lastCallTime < 16) {
-          // Within the same frame window — skip, a render is already scheduled
-          if (!pending) {
-            pending = setTimeout(() => {
-              pending = null;
-              lastCallTime = performance.now();
-              origRequestRender();
-            }, 16);
-          }
-          return;
-        }
-        lastCallTime = now;
-        if (pending) { clearTimeout(pending); pending = null; }
+        if (dirty) return;
+        dirty = true;
+        // Let the renderer's own frame scheduling handle timing.
+        // Reset dirty after a short delay so the next batch of mutations
+        // can trigger a new render request.
+        setTimeout(() => { dirty = false; }, 4);
         origRequestRender();
       };
     }
