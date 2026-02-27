@@ -123,23 +123,19 @@ export class TuiAdapter {
       this.root = createRoot(this.renderer);
     }
 
-    // Coalesce requestRender: the React reconciler + scrollbox produce 1000+
-    // calls/sec. Each call is cheap but the volume creates event loop contention.
-    // Use a simple dirty flag: first call passes through, subsequent calls within
-    // the same event loop turn are skipped. The flag resets after each frame.
+    // Coalesce requestRender: suppress duplicate calls within each frame period.
+    // The renderer targets 30fps (33ms frames). We allow ONE origRequestRender
+    // per 33ms. The renderer's internal loop handles the actual frame pacing.
     const rendererAny = this.renderer as Record<string, unknown>;
     const origRequestRender = (rendererAny.requestRender as (() => void) | undefined)?.bind(this.renderer);
     if (origRequestRender) {
       this.originalRequestRender = origRequestRender;
-      let dirty = false;
+      let lastPassTime = 0;
       (rendererAny as { requestRender: () => void }).requestRender = () => {
         countEvent("renderer:requestRender");
-        if (dirty) return;
-        dirty = true;
-        // Let the renderer's own frame scheduling handle timing.
-        // Reset dirty after a short delay so the next batch of mutations
-        // can trigger a new render request.
-        setTimeout(() => { dirty = false; }, 4);
+        const now = performance.now();
+        if (now - lastPassTime < 33) return;
+        lastPassTime = now;
         origRequestRender();
       };
     }
