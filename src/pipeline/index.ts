@@ -18,3 +18,6 @@ export type {
   PipelineEventListener,
   PipelineEmitter,
 } from "./types.js";
+
+export { LogAdapter } from "./log-adapter.js";
+export type { LogAdapterOptions } from "./log-adapter.js";
