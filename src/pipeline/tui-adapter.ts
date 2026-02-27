@@ -116,22 +116,20 @@ export class TuiAdapter {
     } else {
       this.renderer = await createCliRenderer({
         useKittyKeyboard: { disambiguate: true, alternateKeys: true },
-        targetFps: 15,
-        maxFps: 30,
+        targetFps: 30,
+        maxFps: 60,
       });
       this.root = createRoot(this.renderer);
     }
 
-    // Batch requestRender: the React reconciler and scrollbox produce hundreds of
-    // requestRender() calls per user interaction. Each call walks up the renderable
-    // tree calling markDirty(). Coalesce into one actual call per microtask to
-    // eliminate the tree-walk overhead (measured: 795-4000 calls/sec → 1 per microtask).
-    const rendererAny = this.renderer as { requestRender?: () => void };
-    const origRequestRender = rendererAny.requestRender?.bind(this.renderer);
+    // Batch requestRender calls via queueMicrotask to prevent tree-walk spam.
+    // Also instrument the renderer's loop() to measure actual frame render cost.
+    const rendererAny = this.renderer as Record<string, unknown>;
+    const origRequestRender = (rendererAny.requestRender as (() => void) | undefined)?.bind(this.renderer);
     if (origRequestRender) {
       this.originalRequestRender = origRequestRender;
       let batchQueued = false;
-      rendererAny.requestRender = () => {
+      (rendererAny as { requestRender: () => void }).requestRender = () => {
         countEvent("renderer:requestRender");
         if (batchQueued) return;
         batchQueued = true;
@@ -139,6 +137,18 @@ export class TuiAdapter {
           batchQueued = false;
           origRequestRender();
         });
+      };
+    }
+
+    // Instrument the renderer's actual loop() to measure real frame cost
+    const origLoop = (rendererAny.loop as (() => Promise<void>) | undefined)?.bind(this.renderer);
+    if (origLoop) {
+      (rendererAny as { loop: () => Promise<void> }).loop = async () => {
+        const start = performance.now();
+        await origLoop();
+        const ms = performance.now() - start;
+        recordSpan("renderer:loop", ms);
+        if (ms > 30) countEvent("renderer:slow-loop");
       };
     }
 
