@@ -122,15 +122,23 @@ export class TuiAdapter {
       this.root = createRoot(this.renderer);
     }
 
-    // The renderer has its own fps-based render loop (targetFps/maxFps above).
-    // Patch requestRender for profiling only.
+    // Batch requestRender: the React reconciler and scrollbox produce hundreds of
+    // requestRender() calls per user interaction. Each call walks up the renderable
+    // tree calling markDirty(). Coalesce into one actual call per microtask to
+    // eliminate the tree-walk overhead (measured: 795-4000 calls/sec → 1 per microtask).
     const rendererAny = this.renderer as { requestRender?: () => void };
     const origRequestRender = rendererAny.requestRender?.bind(this.renderer);
     if (origRequestRender) {
       this.originalRequestRender = origRequestRender;
+      let batchQueued = false;
       rendererAny.requestRender = () => {
         countEvent("renderer:requestRender");
-        origRequestRender();
+        if (batchQueued) return;
+        batchQueued = true;
+        queueMicrotask(() => {
+          batchQueued = false;
+          origRequestRender();
+        });
       };
     }
 
