@@ -1,4 +1,4 @@
-import { memo, useState, useEffect, type ReactNode } from "react";
+import { memo, useState, useEffect, useMemo, type ReactNode } from "react";
 import { SPINNER_FRAMES, boldAttr, colors } from "../theme.js";
 import { startSpan, endSpan } from "../profiler.js";
 
@@ -121,22 +121,26 @@ export const MergeQueuePanel = memo(function MergeQueuePanel({
   height,
 }: MergeQueuePanelProps): ReactNode {
   const renderSpan = startSpan("MergeQueuePanel");
-  const [now, setNow] = useState(Date.now());
-  const [spinnerFrame, setSpinnerFrame] = useState(0);
+  const [tick, setTick] = useState(0);
 
   const hasInProgress = items.some((i) => i.status === "in-progress");
 
   useEffect(() => {
     if (!hasInProgress) return;
     const interval = setInterval(() => {
-      setNow(Date.now());
-      setSpinnerFrame((f) => (f + 1) % SPINNER_FRAMES.length);
+      setTick((n) => n + 1);
     }, 80);
     return () => clearInterval(interval);
   }, [hasInProgress]);
 
+  const now = Date.now();
+  const spinnerFrame = tick % SPINNER_FRAMES.length;
+
   // Sort by queue position
-  const sorted = [...items].sort((a, b) => a.queuePosition - b.queuePosition);
+  const sorted = useMemo(
+    () => [...items].sort((a, b) => a.queuePosition - b.queuePosition),
+    [items],
+  );
 
   const pendingCount = sorted.filter(
     (i) => i.status === "queued" || i.status === "in-progress",

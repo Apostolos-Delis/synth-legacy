@@ -1,4 +1,4 @@
-import { useCallback, type ReactNode } from "react";
+import { useCallback, useMemo, type ReactNode } from "react";
 import { useTerminalDimensions, useKeyboard } from "@opentui/react";
 import type { TuiState } from "./types.js";
 import { boldAttr, colors } from "./theme.js";
@@ -13,7 +13,7 @@ interface ConfigViewProps {
 export function ConfigView({ state, onBack }: ConfigViewProps): ReactNode {
   const renderSpan = startSpan("ConfigView");
   const { width, height } = useTerminalDimensions();
-  const lines = state.configDisplay.split("\n");
+  const lines = useMemo(() => state.configDisplay.split("\n"), [state.configDisplay]);
   const bodyHeight = Math.max(1, height - 2);
 
   const handleKey = useCallback(

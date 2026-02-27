@@ -54,7 +54,7 @@ export function ReviewView({ tasks, sessionId, onConfirm, onDecline }: ReviewVie
   const selectedTask = tasks[selectedIndex] ?? null;
 
   // Summary stats
-  const depCount = tasks.reduce((acc, t) => acc + (t.dependsOn?.length ?? 0), 0);
+  const depCount = useMemo(() => tasks.reduce((acc, t) => acc + (t.dependsOn?.length ?? 0), 0), [tasks]);
 
   endSpan("ReviewView", renderSpan);
   return (

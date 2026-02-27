@@ -1,4 +1,4 @@
-import { memo, type ReactNode } from "react";
+import { memo, useMemo, type ReactNode } from "react";
 import type { Task } from "../../tasks/types.js";
 import { boldAttr, statusIndicators, colors, STATUS_COLORS_HEX, PRIORITY_COLORS_HEX } from "../theme.js";
 import { wrapText } from "../utils.js";
@@ -48,7 +48,7 @@ export const TaskDetailHeader = memo(function TaskDetailHeader({
   const innerWidth = Math.max(1, width - 6);
   const innerHeight = Math.max(1, height - 2);
   const scrollHeight = Math.max(1, innerHeight - 1);
-  const descLines = wrapText(task.description, innerWidth);
+  const descLines = useMemo(() => wrapText(task.description, innerWidth), [task.description, innerWidth]);
 
   // Pre-truncate title to fit within the box alongside fixed-width elements
   const titlePrefix = `${statusIcon} [${task.id}] `;

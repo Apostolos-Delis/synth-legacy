@@ -8,18 +8,16 @@ export interface FormattedSegment {
   color?: SegmentColor;
 }
 
-function getColorMap(): Record<SegmentColor, string> {
-  return {
-    blue: colors.accent.primary,
-    purple: colors.accent.secondary,
-    cyan: colors.status.info,
-    green: colors.status.success,
-    yellow: colors.status.warning,
-    pink: colors.status.error,
-    muted: colors.fg.muted,
-    default: colors.fg.primary,
-  };
-}
+const COLOR_MAP: Record<SegmentColor, string> = {
+  blue: colors.accent.primary,
+  purple: colors.accent.secondary,
+  cyan: colors.status.info,
+  green: colors.status.success,
+  yellow: colors.status.warning,
+  pink: colors.status.error,
+  muted: colors.fg.muted,
+  default: colors.fg.primary,
+};
 
 export interface FormattedTextProps {
   segments: FormattedSegment[];
@@ -30,7 +28,7 @@ export function FormattedText({ segments }: FormattedTextProps): ReactNode {
     return null;
   }
 
-  const colorMap = getColorMap();
+  const colorMap = COLOR_MAP;
   const panelBg = colors.bg.secondary;
 
   return (

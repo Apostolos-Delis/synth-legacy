@@ -19,20 +19,20 @@ function useTuiBridge(tuiData: TuiEngineData) {
   }, [tuiData, notify]);
 }
 
+const PUNCTUATION_KEYS = new Set([
+  "space", "period", "comma", "semicolon", "colon",
+  "slash", "backslash", "apostrophe", "quote",
+  "bracketleft", "bracketright", "minus", "equal",
+  "grave", "tilde", "exclamation", "at", "hash",
+  "dollar", "percent", "caret", "ampersand", "asterisk",
+  "parenleft", "parenright", "underscore", "plus",
+  "braceleft", "braceright", "pipe", "less", "greater",
+  "question",
+]);
+
 function isTypableChar(name: string): boolean {
   if (name.length === 1) return true;
-  // Known punctuation key names that map to printable characters
-  const punctuation = new Set([
-    "space", "period", "comma", "semicolon", "colon",
-    "slash", "backslash", "apostrophe", "quote",
-    "bracketleft", "bracketright", "minus", "equal",
-    "grave", "tilde", "exclamation", "at", "hash",
-    "dollar", "percent", "caret", "ampersand", "asterisk",
-    "parenleft", "parenright", "underscore", "plus",
-    "braceleft", "braceright", "pipe", "less", "greater",
-    "question",
-  ]);
-  return punctuation.has(name);
+  return PUNCTUATION_KEYS.has(name);
 }
 
 function charFromKeyName(name: string): string {

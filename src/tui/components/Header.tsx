@@ -3,6 +3,8 @@ import { boldAttr, colors } from "../theme.js";
 import { formatTokenCount } from "../../engine/tokens.js";
 import { startSpan, endSpan } from "../profiler.js";
 
+const headerStyle = { backgroundColor: colors.bg.secondary, paddingLeft: 1, paddingRight: 1 } as const;
+
 export interface ParallelHeaderInfo {
   currentWave: number;
   totalWaves: number;
@@ -76,7 +78,7 @@ export const Header = memo(function Header({
         width={width}
         height={1}
         flexDirection="row"
-        style={{ backgroundColor: colors.bg.secondary, paddingLeft: 1, paddingRight: 1 }}
+        style={headerStyle}
       >
         <text>
           <span fg={colors.accent.primary} attributes={boldAttr()}>synth</span>
@@ -106,7 +108,7 @@ export const Header = memo(function Header({
         width={width}
         height={1}
         flexDirection="row"
-        style={{ backgroundColor: colors.bg.secondary, paddingLeft: 1, paddingRight: 1 }}
+        style={headerStyle}
       >
         <text>
           <span fg={colors.accent.primary} attributes={boldAttr()}>synth</span>
@@ -139,7 +141,7 @@ export const Header = memo(function Header({
       width={width}
       height={1}
       flexDirection="row"
-      style={{ backgroundColor: colors.bg.secondary, paddingLeft: 1, paddingRight: 1 }}
+      style={headerStyle}
     >
       <text>
         <span fg={colors.accent.primary} attributes={boldAttr()}>synth</span>

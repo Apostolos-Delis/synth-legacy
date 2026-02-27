@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useMemo, type ReactNode } from "react";
 import { useTerminalDimensions } from "@opentui/react";
 import type { TuiState } from "./types.js";
 import { boldAttr, colors, statusIndicators, STATUS_COLORS_HEX, PRIORITY_COLORS_HEX } from "./theme.js";
@@ -35,9 +35,17 @@ export function DashboardView({ state }: DashboardViewProps): ReactNode {
   const renderSpan = startSpan("DashboardView");
   const { width, height } = useTerminalDimensions();
   const tasks = state.tasks;
-  const done = tasks.filter((t) => t.status === "done").length;
-  const failed = tasks.filter((t) => t.status === "failed").length;
-  const inProgress = tasks.filter((t) => t.status === "in_progress");
+  const counts = useMemo(() => {
+    let done = 0, failed = 0, inProgress = 0;
+    const inProgressIds: string[] = [];
+    for (const t of tasks) {
+      if (t.status === "done") done++;
+      else if (t.status === "failed") failed++;
+      else if (t.status === "in_progress") { inProgress++; inProgressIds.push(t.id); }
+    }
+    return { done, failed, inProgress, inProgressIds };
+  }, [tasks]);
+  const { done, failed } = counts;
   const total = tasks.length;
   const pct = total > 0 ? Math.round((done / total) * 100) : 0;
 
@@ -76,7 +84,7 @@ export function DashboardView({ state }: DashboardViewProps): ReactNode {
       <box height={1} style={{ paddingLeft: 1 }}>
         <text>
           <span fg={colors.fg.muted}>Active:</span>
-          <span fg={colors.status.info}> {inProgress.length > 0 ? inProgress.map((t) => t.id).join(", ") : "none"}</span>
+          <span fg={colors.status.info}> {counts.inProgressIds.length > 0 ? counts.inProgressIds.join(", ") : "none"}</span>
         </text>
       </box>
       <box height={1} style={{ paddingLeft: 1 }}>

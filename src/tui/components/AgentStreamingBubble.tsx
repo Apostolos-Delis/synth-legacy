@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { memo, type ReactNode } from "react";
 import { boldAttr, colors } from "../theme.js";
 import { PhaseIndicator } from "./PhaseIndicator.js";
 import type { AgentToolEvent } from "../../agents/types.js";
@@ -12,7 +12,7 @@ interface AgentStreamingBubbleProps {
   phaseLabel: string;
 }
 
-export function AgentStreamingBubble({
+export const AgentStreamingBubble = memo(function AgentStreamingBubble({
   isLoading,
   loadingStartTime,
   streamingText,
@@ -37,4 +37,4 @@ export function AgentStreamingBubble({
       )}
     </box>
   );
-}
+});

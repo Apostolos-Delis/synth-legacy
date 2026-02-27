@@ -1,4 +1,4 @@
-import { useState, useEffect, type ReactNode } from "react";
+import { useState, useEffect, useMemo, type ReactNode } from "react";
 import { useTerminalDimensions } from "@opentui/react";
 import type { TuiState, NavMode } from "./types.js";
 import { layout } from "./theme.js";
@@ -37,7 +37,7 @@ export function ExecutionView({ state, selectedTaskIndex, navMode, detailFocus, 
   );
   const contentWidth = width - sidebarWidth;
   const bodyHeight = height - layout.header.height - layout.footer.height - 1;
-  const done = state.tasks.filter((t) => t.status === "done").length;
+  const done = useMemo(() => state.tasks.filter((t) => t.status === "done").length, [state.tasks]);
 
   // Clamp selectedTaskIndex to valid range
   const clampedIndex = Math.min(selectedTaskIndex, Math.max(0, state.tasks.length - 1));
@@ -60,7 +60,10 @@ export function ExecutionView({ state, selectedTaskIndex, navMode, detailFocus, 
   const outputCacheKey = selectedTask
     ? `${selectedTask.id}:${isSelectedTaskActive ? "active" : "stored"}`
     : "none";
-  const outputSignature = `${displayOutput.length}:${displayOutput.slice(-256)}`;
+  const outputSignature = useMemo(
+    () => `${displayOutput.length}:${displayOutput.slice(-256)}`,
+    [displayOutput],
+  );
 
   // Only show thinking indicator for the active task
   const showThinking = isSelectedTaskActive && state.isThinking;
@@ -68,6 +71,8 @@ export function ExecutionView({ state, selectedTaskIndex, navMode, detailFocus, 
   const showPhaseStartTime = isSelectedTaskActive ? state.phaseStartTime : null;
   const taskDetailFocused = navMode === "task-detail-scroll" || (navMode === "detail-select" && detailFocus === "task");
   const outputFocused = navMode === "output-scroll" || (navMode === "detail-select" && detailFocus === "output");
+
+  const elapsedMs = Date.now() - state.startTime;
 
   endSpan("ExecutionView", renderSpan);
   return (
@@ -78,7 +83,7 @@ export function ExecutionView({ state, selectedTaskIndex, navMode, detailFocus, 
         iteration={state.iteration}
         maxIterations={state.maxIterations}
         agentName={state.agentName}
-        elapsedMs={Date.now() - state.startTime}
+        elapsedMs={elapsedMs}
         done={done}
         total={state.tasks.length}
         width={width}
@@ -115,7 +120,7 @@ export function ExecutionView({ state, selectedTaskIndex, navMode, detailFocus, 
         state={state.engineState}
         iteration={state.iteration}
         agentName={state.agentName}
-        elapsedMs={Date.now() - state.startTime}
+        elapsedMs={elapsedMs}
         width={width}
         currentPhase={state.currentPhase}
         navMode={navMode}

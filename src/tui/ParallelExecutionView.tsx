@@ -1,4 +1,4 @@
-import { useState, useEffect, type ReactNode } from "react";
+import { useState, useEffect, useMemo, type ReactNode } from "react";
 import { useTerminalDimensions } from "@opentui/react";
 import type { TuiState, NavMode } from "./types.js";
 import { layout } from "./theme.js";
@@ -53,7 +53,7 @@ export function ParallelExecutionView({
   const renderSpan = startSpan("ParallelExecutionView");
   const { width, height } = useTerminalDimensions();
   const bodyHeight = Math.max(1, height - layout.header.height - layout.footer.height);
-  const done = state.tasks.filter((t) => t.status === "done").length;
+  const done = useMemo(() => state.tasks.filter((t) => t.status === "done").length, [state.tasks]);
 
   // Top row: left column + output pane (right)
   const sidebarWidth = Math.max(
@@ -107,13 +107,18 @@ export function ParallelExecutionView({
   const outputCacheKey = selectedTask
     ? `${selectedTask.id}:${isSelectedTaskActive ? "active" : "stored"}`
     : "none";
-  const outputSignature = `${displayOutput.length}:${displayOutput.slice(-256)}`;
+  const outputSignature = useMemo(
+    () => `${displayOutput.length}:${displayOutput.slice(-256)}`,
+    [displayOutput],
+  );
 
   const showThinking = isSelectedTaskActive && state.isThinking;
   const showPhase = isSelectedTaskActive ? state.currentPhase : null;
   const showPhaseStartTime = isSelectedTaskActive ? state.phaseStartTime : null;
   const taskDetailFocused = navMode === "task-detail-scroll" || (navMode === "detail-select" && detailFocus === "task");
   const outputFocused = navMode === "output-scroll" || (navMode === "detail-select" && detailFocus === "output");
+
+  const elapsedMs = Date.now() - state.startTime;
 
   endSpan("ParallelExecutionView", renderSpan);
   return (
@@ -124,7 +129,7 @@ export function ParallelExecutionView({
         iteration={state.iteration}
         maxIterations={state.maxIterations}
         agentName={state.agentName}
-        elapsedMs={Date.now() - state.startTime}
+        elapsedMs={elapsedMs}
         done={done}
         total={state.tasks.length}
         width={width}
@@ -186,7 +191,7 @@ export function ParallelExecutionView({
         state={state.engineState}
         iteration={state.iteration}
         agentName={state.agentName}
-        elapsedMs={Date.now() - state.startTime}
+        elapsedMs={elapsedMs}
         width={width}
         currentPhase={state.currentPhase}
         navMode={navMode}

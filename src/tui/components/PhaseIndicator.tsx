@@ -1,4 +1,4 @@
-import { useState, useEffect, type ReactNode } from "react";
+import { useState, useEffect, memo, type ReactNode } from "react";
 import { colors } from "../theme.js";
 import { Spinner } from "./Spinner.js";
 
@@ -7,7 +7,7 @@ interface PhaseIndicatorProps {
   startTime: number;
 }
 
-export function PhaseIndicator({ phase, startTime }: PhaseIndicatorProps): ReactNode {
+export const PhaseIndicator = memo(function PhaseIndicator({ phase, startTime }: PhaseIndicatorProps): ReactNode {
   const [elapsed, setElapsed] = useState(Math.floor((Date.now() - startTime) / 1000));
 
   useEffect(() => {
@@ -27,4 +27,4 @@ export function PhaseIndicator({ phase, startTime }: PhaseIndicatorProps): React
       </text>
     </box>
   );
-}
+});

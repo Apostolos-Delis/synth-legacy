@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { memo, type ReactNode } from "react";
 import { colors } from "../theme.js";
 import type { Toast as ToastType, ToastVariant } from "../hooks/useToast.js";
 
@@ -45,7 +45,7 @@ export interface ToastContainerProps {
   toasts: ToastType[];
 }
 
-export function ToastContainer({ toasts }: ToastContainerProps): ReactNode {
+export const ToastContainer = memo(function ToastContainer({ toasts }: ToastContainerProps): ReactNode {
   if (toasts.length === 0) {
     return null;
   }
@@ -65,4 +65,4 @@ export function ToastContainer({ toasts }: ToastContainerProps): ReactNode {
       ))}
     </box>
   );
-}
+});

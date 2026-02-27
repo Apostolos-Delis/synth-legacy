@@ -140,12 +140,8 @@ export function App({
   }, [selectedTaskIndex]);
 
   // engineData is a new object every render (rest-spread from props), so
-  // useMemo with [engineData] never caches.  Build state objects inline instead
-  // — the real protection comes from React.memo on child components.
+  // useMemo with [engineData] can't cache — build inline instead.
   const executionState: TuiState = { ...engineData, view: "execution" as ViewMode };
-  const dashboardState: TuiState = { ...engineData, view: "dashboard" as ViewMode };
-  const historyState: TuiState = { ...engineData, view: "history" as ViewMode };
-  const configState: TuiState = { ...engineData, view: "config" as ViewMode };
 
   const attemptQuit = useCallback(() => {
     if (requestQuit()) {
@@ -361,6 +357,7 @@ export function App({
   if (view === "completion" && engineData.completionSummary) {
     const { progress } = engineData.completionSummary;
     const allDone = progress.failed === 0 && progress.open === 0 && progress.inProgress === 0;
+    endSpan("App", renderSpan);
     return (
       <box style={{ width: "100%", height: "100%", position: "relative" }}>
         <CompletionView
@@ -373,17 +370,11 @@ export function App({
     );
   }
 
-  // Render views — active view gets full size, others hidden.
-  const isExecution = view === "execution";
-  const isDashboard = view === "dashboard";
-  const isHistory = view === "history";
-  const isConfig = view === "config";
-
   endSpan("App", renderSpan);
   return (
     <box style={{ width: "100%", height: "100%", position: "relative" }}>
-      <box style={isExecution ? visibleStyle : hiddenStyle}>
-        {parallel ? (
+      {view === "execution" && (
+        parallel ? (
           <ParallelExecutionView
             state={executionState}
             selectedTaskIndex={selectedTaskIndex}
@@ -408,25 +399,15 @@ export function App({
             parallelStatus={parallelStatus}
             exitArmed={exitArmed}
           />
-        )}
-      </box>
-      <box style={isDashboard ? visibleStyle : hiddenStyle}>
-        <DashboardView state={dashboardState} />
-      </box>
-      <box style={isHistory ? visibleStyle : hiddenStyle}>
-        <HistoryView state={historyState} onBack={() => setView("execution")} />
-      </box>
-      <box style={isConfig ? visibleStyle : hiddenStyle}>
-        <ConfigView state={configState} onBack={() => setView("execution")} />
-      </box>
+        )
+      )}
+      {view === "dashboard" && <DashboardView state={{ ...engineData, view: "dashboard" }} />}
+      {view === "history" && <HistoryView state={{ ...engineData, view: "history" }} onBack={() => setView("execution")} />}
+      {view === "config" && <ConfigView state={{ ...engineData, view: "config" }} onBack={() => setView("execution")} />}
       <ToastContainer toasts={toasts} />
       <HelpOverlay visible={showHelp} />
     </box>
   );
 }
-
-// Static style objects to avoid re-creating on every render
-const visibleStyle = { width: "100%" as const, height: "100%" as const };
-const hiddenStyle = { width: 0, height: 0, overflow: "hidden" as const };
 
 export type { TuiState, TuiEngineData };

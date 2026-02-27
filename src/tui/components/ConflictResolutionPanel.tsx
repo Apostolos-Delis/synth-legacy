@@ -1,4 +1,4 @@
-import { memo, useState, useEffect, type ReactNode } from "react";
+import { memo, useState, useEffect, useMemo, type ReactNode } from "react";
 import { SPINNER_FRAMES, boldAttr, colors } from "../theme.js";
 import { startSpan, endSpan } from "../profiler.js";
 
@@ -83,7 +83,10 @@ export const ConflictResolutionPanel = memo(function ConflictResolutionPanel({
   const renderSpan = startSpan("ConflictResolutionPanel");
   const [spinnerFrame, setSpinnerFrame] = useState(0);
 
-  const hasResolving = conflict?.files.some((f) => f.status === "ai-resolving") ?? false;
+  const hasResolving = useMemo(
+    () => conflict?.files.some((f) => f.status === "ai-resolving") ?? false,
+    [conflict?.files],
+  );
 
   useEffect(() => {
     if (!hasResolving) return;

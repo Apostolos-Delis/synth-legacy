@@ -1,4 +1,4 @@
-import { memo, useState, useEffect, type ReactNode } from "react";
+import { memo, useState, useEffect, useMemo, type ReactNode } from "react";
 import { SPINNER_FRAMES, boldAttr, colors } from "../theme.js";
 import { startSpan, endSpan } from "../profiler.js";
 
@@ -122,22 +122,26 @@ export const WorkerPanel = memo(function WorkerPanel({
   height,
 }: WorkerPanelProps): ReactNode {
   const renderSpan = startSpan("WorkerPanel");
-  const [now, setNow] = useState(Date.now());
-  const [spinnerFrame, setSpinnerFrame] = useState(0);
+  const [tick, setTick] = useState(0);
 
   const hasRunning = workers.some((w) => w.status === "running");
 
   useEffect(() => {
     if (!hasRunning) return;
     const interval = setInterval(() => {
-      setNow(Date.now());
-      setSpinnerFrame((f) => (f + 1) % SPINNER_FRAMES.length);
+      setTick((n) => n + 1);
     }, 80);
     return () => clearInterval(interval);
   }, [hasRunning]);
 
+  const now = Date.now();
+  const spinnerFrame = tick % SPINNER_FRAMES.length;
+
   // Sort workers by ID
-  const sorted = [...workers].sort((a, b) => a.id.localeCompare(b.id));
+  const sorted = useMemo(
+    () => [...workers].sort((a, b) => a.id.localeCompare(b.id)),
+    [workers],
+  );
 
   const activeCount = sorted.filter((w) => w.status === "running").length;
   const totalCount = sorted.length;

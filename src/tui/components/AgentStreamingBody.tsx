@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { memo, type ReactNode } from "react";
 import type { AgentToolEvent } from "../../agents/types.js";
 import { colors } from "../theme.js";
 import { getToolEventDisplay } from "../../utils/tool-format.js";
@@ -9,7 +9,7 @@ interface AgentStreamingBodyProps {
   paddingLeft?: number;
 }
 
-export function AgentStreamingBody({
+export const AgentStreamingBody = memo(function AgentStreamingBody({
   streamingText,
   toolEvents,
   paddingLeft = 2,
@@ -55,4 +55,4 @@ export function AgentStreamingBody({
       )}
     </box>
   );
-}
+});

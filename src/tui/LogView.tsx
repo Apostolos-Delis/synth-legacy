@@ -46,6 +46,16 @@ export const LogView = memo(function LogView({
   const renderSpan = startSpan("LogView");
   const [entries, setEntries] = useState<LogEntry[]>([]);
   const bufferRef = useRef<LogEntry[]>([]);
+  const flushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const dirtyRef = useRef(false);
+
+  const flushBuffer = useCallback(() => {
+    flushTimerRef.current = null;
+    if (dirtyRef.current) {
+      dirtyRef.current = false;
+      setEntries([...bufferRef.current]);
+    }
+  }, []);
 
   const handleEntry = useCallback((entry: LogEntry) => {
     const buf = bufferRef.current;
@@ -54,13 +64,22 @@ export const LogView = memo(function LogView({
       const excess = buf.length - MAX_ENTRIES;
       buf.splice(0, excess);
     }
-    setEntries([...buf]);
-  }, []);
+    dirtyRef.current = true;
+    if (flushTimerRef.current === null) {
+      flushTimerRef.current = setTimeout(flushBuffer, 200);
+    }
+  }, [flushBuffer]);
 
   useEffect(() => {
     if (!onSubscribe) return;
     const unsubscribe = onSubscribe(handleEntry);
-    return unsubscribe;
+    return () => {
+      unsubscribe();
+      if (flushTimerRef.current !== null) {
+        clearTimeout(flushTimerRef.current);
+        flushTimerRef.current = null;
+      }
+    };
   }, [onSubscribe, handleEntry]);
 
   const normalizedFilter = (filter ?? "").trim().toLowerCase();

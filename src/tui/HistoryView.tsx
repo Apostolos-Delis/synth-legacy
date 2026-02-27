@@ -87,9 +87,14 @@ export function HistoryView({ state, onBack }: HistoryViewProps): ReactNode {
 
   useKeyboard(handleKey);
 
-  if (detailMode && selectedEntry) {
+  const detailLines = useMemo(() => {
     const outputText = detailOutput || "Log file not found";
     const isError = !detailOutput;
+    return { outputText, isError, lines: outputText.split("\n") };
+  }, [detailOutput]);
+
+  if (detailMode && selectedEntry) {
+    const { isError, lines } = detailLines;
     return (
       <box width={width} height={height} flexDirection="column">
         <box height={1} style={{ backgroundColor: colors.bg.secondary, paddingLeft: 1 }}>
@@ -104,7 +109,7 @@ export function HistoryView({ state, onBack }: HistoryViewProps): ReactNode {
           </text>
         </box>
         <scrollbox height={detailBodyHeight} stickyScroll={false} stickyStart="top" style={{ flexDirection: "column", paddingLeft: 1, paddingRight: 1 }}>
-          {outputText.split("\n").map((line, i) => (
+          {lines.map((line, i) => (
             <text key={i}>
               <span fg={isError ? colors.status.warning : colors.fg.primary}>{line}</span>
             </text>

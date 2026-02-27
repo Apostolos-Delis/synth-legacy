@@ -34,6 +34,8 @@ const STATE_DISPLAY: Record<EngineState, { label: string; color: string; indicat
   failed: { label: "FAILED", color: colors.status.error, indicator: statusIndicators.failed },
 };
 
+const statusBarStyle = { backgroundColor: colors.bg.secondary, paddingLeft: 1 } as const;
+
 const CONFIDENCE_COLOR: Record<string, string> = {
   high: colors.status.success,
   medium: colors.status.warning,
@@ -92,7 +94,7 @@ export const StatusBar = memo(function StatusBar({
       width={width}
       height={1}
       flexDirection="row"
-      style={{ backgroundColor: colors.bg.secondary, paddingLeft: 1 }}
+      style={statusBarStyle}
     >
       <text>
         <span fg={display.color}>{display.indicator} {display.label}</span>

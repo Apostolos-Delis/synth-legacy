@@ -1,4 +1,4 @@
-import { useState, useEffect, type ReactNode } from "react";
+import { useState, useEffect, memo, type ReactNode } from "react";
 import { SPINNER_FRAMES, colors } from "../theme.js";
 
 interface SpinnerProps {
@@ -6,7 +6,7 @@ interface SpinnerProps {
   color?: string;
 }
 
-export function Spinner({ label, color }: SpinnerProps): ReactNode {
+export const Spinner = memo(function Spinner({ label, color }: SpinnerProps): ReactNode {
   const [frame, setFrame] = useState(0);
 
   useEffect(() => {
@@ -24,4 +24,4 @@ export function Spinner({ label, color }: SpinnerProps): ReactNode {
       {label ? ` ${label}` : ""}
     </text>
   );
-}
+});

@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useMemo, type ReactNode } from "react";
 import { useTerminalDimensions } from "@opentui/react";
 import type { CompletionSummary, ReviewStatus } from "./types.js";
 import { boldAttr, colors, statusIndicators, STATUS_COLORS_HEX } from "./theme.js";
@@ -78,30 +78,33 @@ export function CompletionView({ summary, showFinalizePrompt, showReviewPrompt, 
         ? "Review failed."
         : null;
 
-  const commitRows: ReactNode[] = [];
-  for (let i = 0; i < commits.length; i++) {
-    const commit = commits[i];
-    const firstSpace = commit.indexOf(" ");
-    const hash = firstSpace === -1 ? commit : commit.slice(0, firstSpace);
-    const subject = firstSpace === -1 ? "" : commit.slice(firstSpace + 1);
-    const indent = innerWidth >= 2 ? "  " : "";
-    const maxHashWidth = Math.max(0, innerWidth - indent.length);
-    const displayHash = maxHashWidth > 0 ? hash.slice(0, maxHashWidth) : "";
-    const cleanedSubject = normalizeCommitSubject(subject);
-    const subjectWidth = Math.max(0, innerWidth - indent.length - displayHash.length - (cleanedSubject ? 1 : 0));
-    const displaySubject = cleanedSubject ? truncateText(cleanedSubject, subjectWidth) : "";
-    const rowText = `${indent}${displayHash}${displaySubject ? ` ${displaySubject}` : ""}`;
-    const rowPad = padRight(rowText, innerWidth);
+  const commitRows = useMemo(() => {
+    const rows: ReactNode[] = [];
+    for (let i = 0; i < commits.length; i++) {
+      const commit = commits[i];
+      const firstSpace = commit.indexOf(" ");
+      const hash = firstSpace === -1 ? commit : commit.slice(0, firstSpace);
+      const subject = firstSpace === -1 ? "" : commit.slice(firstSpace + 1);
+      const indent = innerWidth >= 2 ? "  " : "";
+      const maxHashWidth = Math.max(0, innerWidth - indent.length);
+      const displayHash = maxHashWidth > 0 ? hash.slice(0, maxHashWidth) : "";
+      const cleanedSubject = normalizeCommitSubject(subject);
+      const subjectWidth = Math.max(0, innerWidth - indent.length - displayHash.length - (cleanedSubject ? 1 : 0));
+      const displaySubject = cleanedSubject ? truncateText(cleanedSubject, subjectWidth) : "";
+      const rowText = `${indent}${displayHash}${displaySubject ? ` ${displaySubject}` : ""}`;
+      const rowPad = padRight(rowText, innerWidth);
 
-    commitRows.push(
-      <text key={`commit-${i}`} truncate={true}>
-        <span fg={colors.fg.secondary}>{indent}{displayHash}</span>
-        {displaySubject ? <span fg={colors.fg.muted}>{" "}</span> : null}
-        {displaySubject ? <span fg={colors.fg.primary}>{displaySubject}</span> : null}
-        <span>{rowPad}</span>
-      </text>,
-    );
-  }
+      rows.push(
+        <text key={`commit-${i}`} truncate={true}>
+          <span fg={colors.fg.secondary}>{indent}{displayHash}</span>
+          {displaySubject ? <span fg={colors.fg.muted}>{" "}</span> : null}
+          {displaySubject ? <span fg={colors.fg.primary}>{displaySubject}</span> : null}
+          <span>{rowPad}</span>
+        </text>,
+      );
+    }
+    return rows;
+  }, [commits, innerWidth]);
 
   endSpan("CompletionView", renderSpan);
   return (
