@@ -156,6 +156,15 @@ export class TuiAdapter {
       ).length;
       this.parallelState = createInitialTuiState(totalTasks, initialMergedTasks);
 
+      // Compute task graph analysis if not provided
+      if (!this.options.taskGraphAnalysis) {
+        const { analyzeTaskGraph } = await import("../parallel/task-graph.js");
+        const actionableTasks = tasks.filter(
+          (t) => t.status === "open" || t.status === "in_progress",
+        );
+        this.options.taskGraphAnalysis = analyzeTaskGraph(actionableTasks);
+      }
+
       this.renderParallel();
     } else {
       this.tuiData = {

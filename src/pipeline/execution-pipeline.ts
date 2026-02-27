@@ -250,6 +250,10 @@ export class ExecutionPipeline implements PipelineEmitter {
     }
   }
 
+  getWorkerDisplayStates(): import("../parallel/worker.js").WorkerDisplayState[] {
+    return this.coordinator?.getWorkerDisplayStates() ?? [];
+  }
+
   // -------------------------------------------------------------------------
   // Lifecycle
   // -------------------------------------------------------------------------
