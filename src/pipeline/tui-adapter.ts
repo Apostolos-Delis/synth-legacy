@@ -135,23 +135,24 @@ export class TuiAdapter {
       let lastRenderTime = 0;
       let pendingTimer: ReturnType<typeof setTimeout> | null = null;
       rendererAny.requestRender = () => {
-        if (process.env.SYNTH_TUI_PROFILE === "1") countEvent("renderer:requestRender");
+        countEvent("renderer:requestRender");
         const now = performance.now();
         const elapsed = now - lastRenderTime;
         if (elapsed >= 80) {
-          // Enough time has passed — render immediately
           lastRenderTime = now;
           if (pendingTimer) { clearTimeout(pendingTimer); pendingTimer = null; }
+          const fs = performance.now();
           origRequestRender();
+          recordSpan("renderer:origRequestRender", performance.now() - fs);
         } else if (!pendingTimer) {
-          // Schedule a render for when the budget allows
           pendingTimer = setTimeout(() => {
             pendingTimer = null;
             lastRenderTime = performance.now();
+            const fs = performance.now();
             origRequestRender();
+            recordSpan("renderer:origRequestRender", performance.now() - fs);
           }, 80 - elapsed);
         }
-        // Otherwise: a render is already pending, skip
       };
     }
 
@@ -654,15 +655,6 @@ export class TuiAdapter {
     const renderStart = performance.now();
     this.tuiData._notify?.();
     const notifyMs = performance.now() - renderStart;
-    // Measure full frame: notify triggers setState → React reconciliation → @opentui render.
-    // Use setImmediate to measure after the synchronous portion completes.
-    setImmediate(() => {
-      const totalMs = performance.now() - renderStart;
-      recordSpan("tui:render:serial:total", totalMs);
-      if (totalMs > 50) {
-        countEvent("tui:render:slow-frame");
-      }
-    });
     recordSpan("tui:render:serial:notify", notifyMs);
   }
 
