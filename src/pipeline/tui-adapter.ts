@@ -491,7 +491,7 @@ export class TuiAdapter {
         break;
     }
 
-    this.renderSerialThrottled();
+    this.renderSerial();
   }
 
   // ---------------------------------------------------------------------------
@@ -660,7 +660,7 @@ export class TuiAdapter {
     setTimeout(() => {
       this.renderScheduled = false;
       this.renderSerial();
-    }, 33);
+    }, 16);
   }
 
   private renderParallel(): void {
