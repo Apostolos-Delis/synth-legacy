@@ -68,6 +68,7 @@ export class TuiAdapter {
 
   // Serial rendering state
   private firstTokenRendered = false;
+  private streamRenderScheduled = false;
   private serialBridgeRendered = false;
   private taskStartTimes = new Map<string, number>();
   private tokenAccumulator = new TokenAccumulator();
@@ -417,7 +418,19 @@ export class TuiAdapter {
             appendTaskOutput(this.tuiData, this.tuiData.currentTaskId, stripped, MAX_OUTPUT_LENGTH);
           }
         }
-        this.renderSerial();
+        // Minimal throttle for stdout only — can fire hundreds of times/sec.
+        // First chunk renders immediately, then cap at ~60fps.
+        if (event.isFirstChunk || !this.streamRenderScheduled) {
+          this.streamRenderScheduled = true;
+          if (event.isFirstChunk) {
+            this.renderSerial();
+          } else {
+            setTimeout(() => {
+              this.streamRenderScheduled = false;
+              this.renderSerial();
+            }, 16);
+          }
+        }
         if (event.isFirstChunk && !this.firstTokenRendered) {
           this.firstTokenRendered = true;
           const renderMs = performance.now() - renderStart;
