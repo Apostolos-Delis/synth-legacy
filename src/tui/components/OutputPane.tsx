@@ -1,7 +1,6 @@
-import { memo, useMemo, useRef, type ReactNode } from "react";
+import { memo, useMemo, type ReactNode } from "react";
 import type { Task } from "../../tasks/types.js";
 import { colors } from "../theme.js";
-import { wrapText } from "../utils.js";
 import { startSpan, endSpan } from "../profiler.js";
 import { PhaseIndicator } from "./PhaseIndicator.js";
 import { TaskDetailHeader } from "./TaskDetailHeader.js";
@@ -26,7 +25,7 @@ type OutputBlock =
   | { type: "markdown"; content: string }
   | { type: "tool"; kind: "use" | "result"; name: string; id: string; input: string[]; output: string[] };
 
-function expandToolLine(line: string, label: "input" | "output"): string[] {
+function _expandToolLine(line: string, label: "input" | "output"): string[] {
   const trimmed = line.trim();
   if (!(trimmed.startsWith("{") && trimmed.endsWith("}"))) return [line];
   let parsed: unknown;
@@ -102,7 +101,7 @@ function expandToolLine(line: string, label: "input" | "output"): string[] {
   return lines.length > 0 ? lines : [line];
 }
 
-function parseOutputBlocks(output: string): OutputBlock[] {
+function _parseOutputBlocks(output: string): OutputBlock[] {
   if (!output) return [];
   const lines = output.split("\n");
   const blocks: OutputBlock[] = [];
@@ -192,8 +191,8 @@ interface OutputPaneProps {
 
 export const OutputPane = memo(function OutputPane({
   output,
-  outputCacheKey,
-  outputSignature,
+  outputCacheKey: _outputCacheKey,
+  outputSignature: _outputSignature,
   width,
   height,
   isThinking = false,
@@ -206,13 +205,10 @@ export const OutputPane = memo(function OutputPane({
   taskDetailScrollFocused = false,
   autoScroll: _autoScroll = true,
 }: OutputPaneProps): ReactNode {
-  const cacheRef = useRef(new Map<string, { signature: string; blocks: OutputBlock[] }>());
-  const blockRenderCache = useRef(new Map<string, ReactNode>());
   const renderSpan = startSpan("OutputPane");
 
   const outputIsEmpty = output.trim().length === 0 || output === "No output recorded";
   const minOutputHeight = outputIsEmpty && !isThinking ? MIN_EMPTY_OUTPUT_HEIGHT : MIN_OUTPUT_HEIGHT;
-  const outputInnerWidth = Math.max(1, width - 6);
   const headerHeight = useMemo(
     () => (task ? calcHeaderHeight(height, minOutputHeight) : 0),
     [task, height, minOutputHeight],
@@ -221,109 +217,18 @@ export const OutputPane = memo(function OutputPane({
   const outputScrollHeight = Math.max(1, outputHeight - 2);
   const waiting = isThinking && !output;
 
-  // Truncate output to visible portion before parsing — the scrollbox only
-  // shows outputScrollHeight lines, so parsing the full string is wasteful.
-  const maxVisibleChars = Math.max(1500, outputScrollHeight * 120);
-  let truncatedOutput = output;
-  if (output.length > maxVisibleChars) {
-    const cutPoint = output.indexOf("\n", output.length - maxVisibleChars);
-    truncatedOutput = cutPoint >= 0 ? output.slice(cutPoint + 1) : output.slice(-maxVisibleChars);
-  }
-
-  const cacheKey = outputCacheKey ?? "default";
-  const signature = outputSignature ?? `${truncatedOutput.length}:${truncatedOutput.slice(-256)}`;
-  const outputBlocks = useMemo(() => {
-    const cached = cacheRef.current.get(cacheKey);
-    if (cached && cached.signature === signature) return cached.blocks;
-    const parseSpan = startSpan("OutputPane:parse");
-    const blocks = parseOutputBlocks(truncatedOutput);
-    endSpan("OutputPane:parse", parseSpan);
-    cacheRef.current.set(cacheKey, { signature, blocks });
-    if (cacheRef.current.size > 20) {
-      const firstKey = cacheRef.current.keys().next().value;
-      if (firstKey) cacheRef.current.delete(firstKey);
-    }
-    return blocks;
-  }, [cacheKey, signature, truncatedOutput]);
-
-  const renderLabeledLines = (
-    label: "input" | "output",
-    lines: string[],
-    keyPrefix: string,
-    valueColor: string,
-  ): ReactNode[] => {
-    if (lines.length === 0) return [];
-    const labelText = `  ${label}:`;
-    const indent = " ".repeat(labelText.length);
-    const contentWidth = Math.max(1, outputInnerWidth - labelText.length - 1);
-    const nodes: ReactNode[] = [];
-
-    lines.forEach((line, lineIdx) => {
-      const expanded = expandToolLine(line, label);
-      expanded.forEach((expandedLine, expandedIdx) => {
-        const wrapped = wrapText(expandedLine, contentWidth);
-        wrapped.forEach((segment, segIdx) => {
-          const prefix = segIdx === 0 ? labelText : indent;
-          nodes.push(
-            <text key={`${keyPrefix}-${lineIdx}-${expandedIdx}-${segIdx}`}>
-              <span fg={colors.fg.muted}>{prefix}</span>
-              <span fg={valueColor}>{` ${segment}`}</span>
-            </text>,
-          );
-        });
-      });
-    });
-    return nodes;
-  };
-
-  const renderedBlocks = useMemo(() => {
-    const renderBlocksStart = startSpan("OutputPane:renderBlocks");
-    const cache = blockRenderCache.current;
-    const result = outputBlocks.map((block, idx) => {
-      if (block.type === "markdown") {
-        // Use <text> instead of <markdown> to reduce native renderable count.
-        // <markdown> creates internal renderables per parsed block (code, heading,
-        // list, etc.) that the Zig layout engine must process. <text> is a single
-        // renderable regardless of content size.
-        return (
-          <text key={`md-${idx}`}>{block.content}</text>
-        );
-      }
-      // Cache rendered tool blocks by content fingerprint — only the last
-      // (growing) block changes during streaming, so previous blocks hit cache.
-      const inputSig = block.input.join("\0");
-      const outputSig = block.output.join("\0");
-      const fingerprint = `${block.kind}:${block.name}:${inputSig.length}:${inputSig.slice(-64)}:${outputSig.length}:${outputSig.slice(-64)}:${outputInnerWidth}`;
-      const cached = cache.get(fingerprint);
-      if (cached) return cached;
-
-      const labelColor = block.kind === "use" ? colors.status.info : colors.status.success;
-      const kindText = block.kind === "use" ? "tool use" : "tool result";
-      const inputColor = colors.fg.secondary;
-      const outputColor = colors.fg.primary;
-      const rendered = (
-        <box key={`tool-${idx}`} style={FLEX_COLUMN_STYLE}>
-          <text>
-            <span fg={labelColor}>{block.kind === "use" ? "\u2192" : "\u2190"}</span>
-            <span fg={colors.fg.primary}>{` ${kindText} `}</span>
-            <span fg={colors.accent.primary}>{block.name}</span>
-            {block.id && <span fg={colors.fg.muted}>{block.id}</span>}
-          </text>
-          {renderLabeledLines("input", block.input, `tool-in-${idx}`, inputColor)}
-          {renderLabeledLines("output", block.output, `tool-out-${idx}`, outputColor)}
-        </box>
-      );
-      cache.set(fingerprint, rendered);
-      // Evict old entries
-      if (cache.size > 100) {
-        const firstKey = cache.keys().next().value;
-        if (firstKey) cache.delete(firstKey);
-      }
-      return rendered;
-    });
-    endSpan("OutputPane:renderBlocks", renderBlocksStart);
-    return result;
-  }, [outputBlocks, outputInnerWidth]);
+  // Simple line-based rendering — same approach as ralph-tui.
+  // Split output into lines and render each as a <text> element.
+  // No block parsing, no markdown, no JSON expansion — just lines.
+  const TOOL_LINE_RE = /^\[tool:(use|result)\]\s*(.*)/;
+  const outputLines = useMemo(() => {
+    // Truncate to visible tail
+    const maxChars = Math.max(1500, outputScrollHeight * 120);
+    const src = output.length > maxChars
+      ? output.slice(output.indexOf("\n", output.length - maxChars) + 1 || output.length - maxChars)
+      : output;
+    return src.split("\n");
+  }, [output, outputScrollHeight]);
 
   endSpan("OutputPane", renderSpan);
   return (
@@ -363,7 +268,22 @@ export const OutputPane = memo(function OutputPane({
               </text>
             )
           ) : (
-            renderedBlocks
+            <box style={FLEX_COLUMN_STYLE}>
+              {outputLines.map((line, i) => {
+                const toolMatch = TOOL_LINE_RE.exec(line);
+                if (toolMatch) {
+                  const kind = toolMatch[1];
+                  const rest = toolMatch[2] ?? "";
+                  return (
+                    <text key={i}>
+                      <span fg={kind === "use" ? colors.status.info : colors.status.success}>{`[tool:${kind}]`}</span>
+                      <span fg={colors.fg.secondary}>{` ${rest}`}</span>
+                    </text>
+                  );
+                }
+                return <text key={i} fg={colors.fg.secondary}>{line}</text>;
+              })}
+            </box>
           )}
         </scrollbox>
       </box>
