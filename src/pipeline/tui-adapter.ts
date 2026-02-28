@@ -60,7 +60,6 @@ export class TuiAdapter {
   private ParallelBridgeComponent: typeof import("../tui/ParallelBridge.js")["ParallelBridge"] | null = null;
   private SerialBridgeComponent: typeof import("../tui/ParallelBridge.js")["SerialBridge"] | null = null;
   private applyParallelEventFn: typeof import("../finalize/parallel-bridge.js")["applyParallelEvent"] | null = null;
-  private frameCallback: ((deltaTime: number) => Promise<void>) | null = null;
   private originalRequestRender: (() => void) | null = null;
 
   private unsubscribe: (() => void) | null = null;
@@ -123,32 +122,8 @@ export class TuiAdapter {
       this.root = createRoot(this.renderer);
     }
 
-    // Instrument the renderer's actual loop() to measure real frame cost
-    const rendererAny = this.renderer as Record<string, unknown>;
-    const origLoop = (rendererAny.loop as (() => Promise<void>) | undefined)?.bind(this.renderer);
-    if (origLoop) {
-      (rendererAny as { loop: () => Promise<void> }).loop = async () => {
-        const start = performance.now();
-        await origLoop();
-        const ms = performance.now() - start;
-        recordSpan("renderer:loop", ms);
-        if (ms > 30) countEvent("renderer:slow-loop");
-      };
-    }
-
-    if (this.renderer) {
-      this.frameCallback = async (deltaTime: number) => {
-        if (process.env.SYNTH_TUI_PROFILE === "1") {
-          recordSpan("renderer:frame", deltaTime);
-          countEvent("renderer:frame");
-        }
-        // Write frame timing to stderr for live debugging
-        if (process.env.SYNTH_FRAME_DEBUG === "1" && deltaTime > 16) {
-          process.stderr.write(`[frame] ${Math.round(deltaTime)}ms\n`);
-        }
-      };
-      this.renderer.setFrameCallback(this.frameCallback);
-    }
+    // No renderer instrumentation — wrapping loop() with async/await
+    // changes frame scheduling timing and adds per-frame overhead.
 
     const initialTaskElapsedMs = Object.fromEntries(
       tasks
@@ -258,10 +233,6 @@ export class TuiAdapter {
     this.destroyed = true;
     this.parallelDestroyed = true;
     this.unsubscribe?.();
-    if (this.renderer && this.frameCallback) {
-      this.renderer.removeFrameCallback(this.frameCallback);
-      this.frameCallback = null;
-    }
     if (this.renderer && this.originalRequestRender) {
       (this.renderer as { requestRender: () => void }).requestRender = this.originalRequestRender;
       this.originalRequestRender = null;
