@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useEffect, type ReactNode } from "react";
+import { useState, useCallback, useRef, useEffect, memo, type ReactNode } from "react";
 import { useKeyboard, useRenderer } from "@opentui/react";
 import type { TuiState, TuiEngineData, ViewMode, NavMode } from "./types.js";
 import { ExecutionView } from "./ExecutionView.js";
@@ -33,7 +33,7 @@ interface AppProps extends TuiEngineData {
   conflict?: ConflictInfo | null;
 }
 
-export function App({
+export const App = memo(function App({
   defaultView = "execution",
   onQuit,
   onFinalize,
@@ -408,6 +408,27 @@ export function App({
       <HelpOverlay visible={showHelp} />
     </box>
   );
-}
+}, (prev, next) =>
+  // Only re-render when data that affects the view actually changes.
+  // The _notify mechanism re-renders SerialBridge which spreads tuiData,
+  // creating new prop references even when values haven't changed.
+  prev.engineState === next.engineState &&
+  prev.output === next.output &&
+  prev.tasks === next.tasks &&
+  prev.currentTaskId === next.currentTaskId &&
+  prev.isThinking === next.isThinking &&
+  prev.currentPhase === next.currentPhase &&
+  prev.phaseStartTime === next.phaseStartTime &&
+  prev.iteration === next.iteration &&
+  prev.completionSummary === next.completionSummary &&
+  prev.tokenUsage === next.tokenUsage &&
+  prev.onQuit === next.onQuit &&
+  prev.onFinalize === next.onFinalize &&
+  prev.onReviewStart === next.onReviewStart &&
+  prev.parallel === next.parallel &&
+  prev.parallelCompletion === next.parallelCompletion &&
+  prev.parallelStatus === next.parallelStatus &&
+  prev.reviewStatus === next.reviewStatus,
+);
 
 export type { TuiState, TuiEngineData };
