@@ -1,6 +1,6 @@
 import { memo, useMemo, type ReactNode } from "react";
 import type { Task } from "../../tasks/types.js";
-import { boldAttr, statusIndicators, colors, STATUS_COLORS_HEX } from "../theme.js";
+import { boldAttr, statusIndicators, colors, STATUS_COLORS_HEX, PRIORITY_COLORS_HEX } from "../theme.js";
 import { wrapText } from "../utils.js";
 import { startSpan, endSpan } from "../profiler.js";
 
@@ -44,6 +44,7 @@ export const TaskDetailHeader = memo(function TaskDetailHeader({
   const renderSpan = startSpan("TaskDetailHeader");
   const statusIcon = statusIndicators[task.status] ?? "?";
   const statusColor = STATUS_COLORS_HEX[task.status] ?? colors.fg.muted;
+  const priorityColor = PRIORITY_COLORS_HEX[task.priority] ?? colors.fg.muted;
   const priorityLabel = PRIORITY_LABELS[task.priority] ?? `P${task.priority}`;
 
   const innerWidth = Math.max(1, width - 6);
@@ -75,7 +76,10 @@ export const TaskDetailHeader = memo(function TaskDetailHeader({
 
     criteriaRows.push(
       <text key={`ac-${i}`}>
-        <span fg={iconColor}>{` ${icon} #${i + 1} ${text}${rowPad}`}</span>
+        <span fg={iconColor}> {icon}</span>
+        <span fg={colors.fg.secondary}> #{i + 1} </span>
+        <span fg={colors.fg.primary}>{text}</span>
+        <span>{rowPad}</span>
       </text>,
     );
   }
@@ -90,7 +94,10 @@ export const TaskDetailHeader = memo(function TaskDetailHeader({
     const line = truncateText(descLines[i], innerWidth);
     const pad = padLine("", Math.max(0, innerWidth - line.length));
     contentRows.push(
-      <text key={`desc-${i}`} fg={colors.fg.secondary}>{`${line}${pad}`}</text>,
+      <text key={`desc-${i}`}>
+        <span fg={colors.fg.secondary}>{line}</span>
+        <span>{pad}</span>
+      </text>,
     );
   }
   contentRows.push(
@@ -137,7 +144,14 @@ export const TaskDetailHeader = memo(function TaskDetailHeader({
       overflow="hidden"
     >
       <text>
-        <span fg={statusColor} attributes={boldAttr()}>{`${statusIcon} [${task.id}] ${displayTitle}  [${priorityLabel}] [${task.status}]${titlePad}`}</span>
+        <span fg={statusColor} attributes={boldAttr()}>{statusIcon} </span>
+        <span fg={colors.fg.secondary} attributes={boldAttr()}>[{task.id}]</span>
+        {" "}
+        <span fg={colors.fg.primary} attributes={boldAttr()}>{displayTitle}</span>
+        {"  "}
+        <span fg={priorityColor} attributes={boldAttr()}>[{priorityLabel}]</span>
+        <span fg={statusColor}> [{task.status}]</span>
+        <span>{titlePad}</span>
       </text>
       <box
         height={scrollHeight}
