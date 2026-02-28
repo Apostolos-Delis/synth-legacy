@@ -1,6 +1,6 @@
 import { memo, useMemo, useRef, type ReactNode } from "react";
 import type { Task } from "../../tasks/types.js";
-import { colors, markdownSyntaxStyle } from "../theme.js";
+import { colors } from "../theme.js";
 import { wrapText } from "../utils.js";
 import { startSpan, endSpan } from "../profiler.js";
 import { PhaseIndicator } from "./PhaseIndicator.js";
@@ -281,8 +281,12 @@ export const OutputPane = memo(function OutputPane({
     const cache = blockRenderCache.current;
     const result = outputBlocks.map((block, idx) => {
       if (block.type === "markdown") {
+        // Use <text> instead of <markdown> to reduce native renderable count.
+        // <markdown> creates internal renderables per parsed block (code, heading,
+        // list, etc.) that the Zig layout engine must process. <text> is a single
+        // renderable regardless of content size.
         return (
-          <markdown key={`md-${idx}`} content={block.content} streaming syntaxStyle={markdownSyntaxStyle()} />
+          <text key={`md-${idx}`}>{block.content}</text>
         );
       }
       // Cache rendered tool blocks by content fingerprint — only the last
