@@ -117,27 +117,15 @@ export class TuiAdapter {
     } else {
       this.renderer = await createCliRenderer({
         useKittyKeyboard: { disambiguate: true, alternateKeys: true },
-        targetFps: 30,
+        targetFps: 60,
         maxFps: 120,
       });
       this.root = createRoot(this.renderer);
     }
 
-    // Instrument requestRender for profiling. Don't coalesce — the renderer's
-    // own 30fps loop handles frame pacing. Previous coalescing attempts (4ms
-    // dirty flag, 16ms window, 33ms gate) all interfered with the renderer's
-    // internal scheduling and REDUCED fps instead of helping.
-    const rendererAny = this.renderer as Record<string, unknown>;
-    if (process.env.SYNTH_TUI_PROFILE === "1") {
-      const origRR = (rendererAny.requestRender as (() => void) | undefined)?.bind(this.renderer);
-      if (origRR) {
-        this.originalRequestRender = origRR;
-        (rendererAny as { requestRender: () => void }).requestRender = () => {
-          countEvent("renderer:requestRender");
-          origRR();
-        };
-      }
-    }
+    // No requestRender interception — the renderer handles its own frame pacing.
+    // Previous attempts to coalesce or instrument requestRender all either
+    // reduced fps or added overhead from 1000-4500 function calls/sec.
 
     // Instrument the renderer's actual loop() to measure real frame cost
     const origLoop = (rendererAny.loop as (() => Promise<void>) | undefined)?.bind(this.renderer);
