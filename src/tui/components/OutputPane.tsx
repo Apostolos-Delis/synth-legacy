@@ -204,7 +204,7 @@ export const OutputPane = memo(function OutputPane({
   outputFocused = false,
   taskDetailFocused = false,
   taskDetailScrollFocused = false,
-  autoScroll = true,
+  autoScroll: _autoScroll = true,
 }: OutputPaneProps): ReactNode {
   const cacheRef = useRef(new Map<string, { signature: string; blocks: OutputBlock[] }>());
   const blockRenderCache = useRef(new Map<string, ReactNode>());
@@ -349,7 +349,6 @@ export const OutputPane = memo(function OutputPane({
         <scrollbox
           height={outputScrollHeight}
           focused={outputScrollFocused}
-          stickyScroll={!outputScrollFocused && autoScroll}
           stickyStart="bottom"
           viewportCulling
           verticalScrollbarOptions={VERTICAL_SCROLLBAR_OPTIONS}

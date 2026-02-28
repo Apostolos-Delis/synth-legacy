@@ -39,7 +39,7 @@ export const TaskDetailHeader = memo(function TaskDetailHeader({
   width,
   height = 10,
   focused = true,
-  scrollFocused = false,
+  scrollFocused: _scrollFocused = false,
 }: TaskDetailHeaderProps): ReactNode {
   const renderSpan = startSpan("TaskDetailHeader");
   const statusIcon = statusIndicators[task.status] ?? "?";
@@ -153,14 +153,13 @@ export const TaskDetailHeader = memo(function TaskDetailHeader({
         <span fg={statusColor}> [{task.status}]</span>
         <span>{titlePad}</span>
       </text>
-      <scrollbox
+      <box
         height={scrollHeight}
-        focused={scrollFocused}
-        stickyScroll={false}
         style={FLEX_COL}
+        overflow="hidden"
       >
         {contentRows}
-      </scrollbox>
+      </box>
     </box>
   );
 }, (prev, next) =>
