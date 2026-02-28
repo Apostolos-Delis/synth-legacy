@@ -49,8 +49,8 @@ export const TaskSidebar = memo(function TaskSidebar({
 
   const taskRows = tasks.map((task, index) => {
     const icon = statusIndicators[task.status] ?? "?";
-    const statusColor = STATUS_COLORS_HEX[task.status] ?? colors.fg.muted;
-    const priorityColor = PRIORITY_COLORS_HEX[task.priority] ?? colors.fg.muted;
+    const _statusColor = STATUS_COLORS_HEX[task.status] ?? colors.fg.muted;
+    const _priorityColor = PRIORITY_COLORS_HEX[task.priority] ?? colors.fg.muted;
     const active = isCurrent(task.id);
     const selected = index === selectedTaskIndex;
     const inProgress = task.status === "in_progress";
@@ -74,19 +74,12 @@ export const TaskSidebar = memo(function TaskSidebar({
     const rowText = `${prefix}${title}`;
     const rowPad = padLine(rowText).slice(rowText.length);
 
+    // Minimal spans — fewer renderables = faster native layout
+    const titleColor = highlighted ? colors.fg.primary : colors.fg.muted;
     return (
       <text key={task.id} truncate={true}>
-        <span fg={indicatorColor}>{indicator}</span>
-        <span fg={statusColor}>{icon}</span>
-        {" "}
-        <span fg={priorityColor}>P{task.priority}</span>
-        {" "}
-        <span fg={highlighted ? colors.fg.primary : colors.fg.secondary} attributes={highlighted ? boldAttr() : undefined}>
-          {task.id}
-        </span>
-        {" "}
-        <span fg={highlighted ? colors.fg.primary : colors.fg.muted}>{title}</span>
-        <span>{rowPad}</span>
+        <span fg={indicatorColor}>{`${indicator}${icon} `}</span>
+        <span fg={titleColor} attributes={highlighted ? boldAttr() : undefined}>{`${task.id} ${title}${rowPad}`}</span>
       </text>
     );
   });
