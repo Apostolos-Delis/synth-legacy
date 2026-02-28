@@ -67,8 +67,6 @@ export class TuiAdapter {
   private destroyed = false;
 
   // Serial rendering state
-  private renderScheduled = false;
-  private renderTimer: ReturnType<typeof setTimeout> | null = null;
   private firstTokenRendered = false;
   private serialBridgeRendered = false;
   private taskStartTimes = new Map<string, number>();
@@ -419,13 +417,13 @@ export class TuiAdapter {
             appendTaskOutput(this.tuiData, this.tuiData.currentTaskId, stripped, MAX_OUTPUT_LENGTH);
           }
         }
-        this.renderSerialThrottled();
+        this.renderSerial();
         if (event.isFirstChunk && !this.firstTokenRendered) {
           this.firstTokenRendered = true;
           const renderMs = performance.now() - renderStart;
           globalTrace().recordPhase("tui:first-token-render", renderMs);
         }
-        return; // already rendered via throttle
+        return;
       }
 
       case "agent:stderr":
@@ -451,7 +449,7 @@ export class TuiAdapter {
         if (this.tuiData.currentTaskId && this.tuiData.currentTaskId in this.tuiData.taskOutputMap) {
           appendTaskOutput(this.tuiData, this.tuiData.currentTaskId, suffix, MAX_OUTPUT_LENGTH);
         }
-        this.renderSerialThrottled();
+        this.renderSerial();
         return;
       }
 
@@ -551,7 +549,12 @@ export class TuiAdapter {
       applyTaskStatus(this.tuiData, event.taskId, "open");
     }
 
-    this.renderParallelThrottled();
+    if (!this.parallelDestroyed) {
+      countEvent("tui:render:parallel");
+      const renderStart = startSpan("tui:render:parallel");
+      this.tuiData?._notify?.();
+      endSpan("tui:render:parallel", renderStart);
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -649,13 +652,6 @@ export class TuiAdapter {
       );
     }
 
-    // Cancel any pending throttled render — this immediate render supersedes it
-    if (this.renderTimer) {
-      clearTimeout(this.renderTimer);
-      this.renderTimer = null;
-      this.renderScheduled = false;
-    }
-
     countEvent("tui:render:serial");
     const renderStart = performance.now();
     this.tuiData._notify?.();
@@ -663,15 +659,6 @@ export class TuiAdapter {
     recordSpan("tui:render:serial:notify", notifyMs);
   }
 
-  private renderSerialThrottled(): void {
-    if (this.renderScheduled) return;
-    this.renderScheduled = true;
-    this.renderTimer = setTimeout(() => {
-      this.renderTimer = null;
-      this.renderScheduled = false;
-      this.renderSerial();
-    }, 16);
-  }
 
   private renderParallel(): void {
     if (!this.root || !this.tuiData || !this.parallelState || !this.ParallelBridgeComponent) return;
