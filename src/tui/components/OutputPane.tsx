@@ -230,6 +230,33 @@ export const OutputPane = memo(function OutputPane({
     return src.split("\n");
   }, [output, outputScrollHeight]);
 
+  const outputContent = waiting ? (
+    currentPhase && phaseStartTime ? (
+      <PhaseIndicator phase={currentPhase} startTime={phaseStartTime} />
+    ) : (
+      <text>
+        <span fg={colors.fg.muted}>Agent is working...</span>
+      </text>
+    )
+  ) : (
+    <box style={FLEX_COLUMN_STYLE}>
+      {outputLines.map((line, i) => {
+        const toolMatch = TOOL_LINE_RE.exec(line);
+        if (toolMatch) {
+          const kind = toolMatch[1];
+          const rest = toolMatch[2] ?? "";
+          return (
+            <text key={i}>
+              <span fg={kind === "use" ? colors.status.info : colors.status.success}>{`[tool:${kind}]`}</span>
+              <span fg={colors.fg.secondary}>{` ${rest}`}</span>
+            </text>
+          );
+        }
+        return <text key={i} fg={colors.fg.secondary}>{line}</text>;
+      })}
+    </box>
+  );
+
   endSpan("OutputPane", renderSpan);
   return (
     <box width={width} height={height} flexDirection="column" overflow="hidden">
@@ -251,41 +278,22 @@ export const OutputPane = memo(function OutputPane({
         flexDirection="column"
         overflow="hidden"
       >
-        <scrollbox
-          height={outputScrollHeight}
-          focused={outputScrollFocused}
-          stickyStart="bottom"
-          viewportCulling
-          verticalScrollbarOptions={VERTICAL_SCROLLBAR_OPTIONS}
-          style={FLEX_COLUMN_STYLE}
-        >
-          {waiting ? (
-            currentPhase && phaseStartTime ? (
-              <PhaseIndicator phase={currentPhase} startTime={phaseStartTime} />
-            ) : (
-              <text>
-                <span fg={colors.fg.muted}>Agent is working...</span>
-              </text>
-            )
-          ) : (
-            <box style={FLEX_COLUMN_STYLE}>
-              {outputLines.map((line, i) => {
-                const toolMatch = TOOL_LINE_RE.exec(line);
-                if (toolMatch) {
-                  const kind = toolMatch[1];
-                  const rest = toolMatch[2] ?? "";
-                  return (
-                    <text key={i}>
-                      <span fg={kind === "use" ? colors.status.info : colors.status.success}>{`[tool:${kind}]`}</span>
-                      <span fg={colors.fg.secondary}>{` ${rest}`}</span>
-                    </text>
-                  );
-                }
-                return <text key={i} fg={colors.fg.secondary}>{line}</text>;
-              })}
-            </box>
-          )}
-        </scrollbox>
+        {outputScrollFocused ? (
+          <scrollbox
+            height={outputScrollHeight}
+            focused={true}
+            stickyStart="bottom"
+            viewportCulling
+            verticalScrollbarOptions={VERTICAL_SCROLLBAR_OPTIONS}
+            style={FLEX_COLUMN_STYLE}
+          >
+            {outputContent}
+          </scrollbox>
+        ) : (
+          <box height={outputScrollHeight} style={FLEX_COLUMN_STYLE} overflow="hidden">
+            {outputContent}
+          </box>
+        )}
       </box>
     </box>
   );
