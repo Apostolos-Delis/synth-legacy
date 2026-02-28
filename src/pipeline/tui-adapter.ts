@@ -123,11 +123,8 @@ export class TuiAdapter {
       this.root = createRoot(this.renderer);
     }
 
-    // No requestRender interception — the renderer handles its own frame pacing.
-    // Previous attempts to coalesce or instrument requestRender all either
-    // reduced fps or added overhead from 1000-4500 function calls/sec.
-
     // Instrument the renderer's actual loop() to measure real frame cost
+    const rendererAny = this.renderer as Record<string, unknown>;
     const origLoop = (rendererAny.loop as (() => Promise<void>) | undefined)?.bind(this.renderer);
     if (origLoop) {
       (rendererAny as { loop: () => Promise<void> }).loop = async () => {
