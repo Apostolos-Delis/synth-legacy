@@ -116,6 +116,8 @@ export class TuiAdapter {
     } else {
       this.renderer = await createCliRenderer({
         exitOnCtrlC: false,
+        useMouse: false,
+        enableMouseMovement: false,
       });
       this.root = createRoot(this.renderer);
     }
