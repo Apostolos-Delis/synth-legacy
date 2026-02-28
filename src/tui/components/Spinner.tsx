@@ -12,7 +12,7 @@ export const Spinner = memo(function Spinner({ label, color }: SpinnerProps): Re
   useEffect(() => {
     const interval = setInterval(() => {
       setFrame((f) => (f + 1) % SPINNER_FRAMES.length);
-    }, 200);
+    }, 150);
     return () => clearInterval(interval);
   }, []);
 
