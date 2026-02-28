@@ -115,9 +115,7 @@ export class TuiAdapter {
       this.root = this.tuiContext.root;
     } else {
       this.renderer = await createCliRenderer({
-        useKittyKeyboard: { disambiguate: true, alternateKeys: true },
-        targetFps: 30,
-        maxFps: 60,
+        exitOnCtrlC: false,
       });
       this.root = createRoot(this.renderer);
     }
