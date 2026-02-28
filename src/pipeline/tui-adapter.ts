@@ -19,6 +19,7 @@ import {
 } from "../tui/task-state.js";
 import { stripAnsi } from "../tui/utils.js";
 import { formatToolEvent } from "../utils/tool-format.js";
+import { getLogger } from "../logging/logger.js";
 import { TokenAccumulator } from "../engine/tokens.js";
 import { globalTrace } from "../utils/perf.js";
 import { loadTaskOutput, buildIterationMap } from "../engine/output-index.js";
@@ -635,6 +636,7 @@ export class TuiAdapter {
 
     if (!this.serialBridgeRendered) {
       this.serialBridgeRendered = true;
+      const logger = getLogger();
       this.root.render(
         createElement(this.SerialBridgeComponent, {
           tuiData: this.tuiData,
@@ -642,6 +644,7 @@ export class TuiAdapter {
             this.cleanup();
             process.exit(0);
           },
+          onLogSubscribe: (cb: import("../logging/types.js").LogSubscriber) => logger.subscribe(cb),
         }),
       );
     }
@@ -675,12 +678,14 @@ export class TuiAdapter {
 
     countEvent("tui:render:parallel");
     const renderStart = startSpan("tui:render:parallel");
+    const logger = getLogger();
     this.root.render(
       createElement(this.ParallelBridgeComponent, {
         tuiData: this.tuiData,
         parallelState: this.parallelState,
         taskGraphAnalysis: this.options.taskGraphAnalysis!,
         onQuit: () => this.pipeline.stop(),
+        onLogSubscribe: (cb: import("../logging/types.js").LogSubscriber) => logger.subscribe(cb),
       }),
     );
     endSpan("tui:render:parallel", renderStart);

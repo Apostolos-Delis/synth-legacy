@@ -14,6 +14,7 @@ import {
 import { ansi, fmt, initTheme } from "../tui/theme.js";
 import { fileExists, readJson } from "../utils/fs.js";
 import { createThrottledRender } from "../utils/throttle.js";
+import { getLogger } from "../logging/logger.js";
 
 export interface FinalizeRunContext {
   config: SynthConfig;
@@ -259,12 +260,14 @@ export async function cmdFinalize(
             let parallelDestroyed = false;
 
             // Render ONCE — the bridge manages its own re-renders via _notify
+            const logger = getLogger();
             root!.render(
               <ParallelBridge
                 tuiData={tuiData}
                 parallelState={parallelState}
                 taskGraphAnalysis={analysis}
                 onQuit={() => coordinator.abort()}
+                onLogSubscribe={(cb) => logger.subscribe(cb)}
               />,
             );
 
@@ -313,6 +316,7 @@ export async function cmdFinalize(
             let serialDestroyed = false;
 
             // Render ONCE — the bridge manages its own re-renders via _notify
+            const serialLogger = getLogger();
             root!.render(
               <SerialBridge
                 tuiData={tuiData}
@@ -320,6 +324,7 @@ export async function cmdFinalize(
                   cleanup();
                   process.exit(0);
                 }}
+                onLogSubscribe={(cb) => serialLogger.subscribe(cb)}
               />,
             );
 
