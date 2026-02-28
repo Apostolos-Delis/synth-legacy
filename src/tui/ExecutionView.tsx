@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef, memo, type ReactNode } from "react";
+import { useState, useEffect, useMemo, memo, type ReactNode } from "react";
 import { useTerminalDimensions } from "@opentui/react";
 import type { TuiState, NavMode } from "./types.js";
 import { layout } from "./theme.js";
@@ -41,22 +41,7 @@ export const ExecutionView = memo(function ExecutionView({ state, selectedTaskIn
 
   // Clamp selectedTaskIndex to valid range
   const clampedIndex = Math.min(selectedTaskIndex, Math.max(0, state.tasks.length - 1));
-
-  // Debounce the content panel task during rapid scrolling.
-  // Sidebar highlight updates instantly, but OutputPane + TaskDetailHeader
-  // defer by 80ms to avoid expensive content changes on every keypress.
-  const [settledIndex, setSettledIndex] = useState(clampedIndex);
-  const settleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  useEffect(() => {
-    if (settleTimer.current) clearTimeout(settleTimer.current);
-    settleTimer.current = setTimeout(() => {
-      settleTimer.current = null;
-      setSettledIndex(clampedIndex);
-    }, 80);
-    return () => { if (settleTimer.current) clearTimeout(settleTimer.current); };
-  }, [clampedIndex]);
-
-  const selectedTask = state.tasks[settledIndex] ?? null;
+  const selectedTask = state.tasks[clampedIndex] ?? null;
 
   // Determine if the selected task is the currently executing one
   const isSelectedTaskActive = selectedTask?.id === state.currentTaskId;
