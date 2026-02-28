@@ -28,8 +28,8 @@
     "bun": ">=1.0.0"
   },
   "dependencies": {
-    "@opentui/core": "^0.1.72",
-    "@opentui/react": "^0.1.72",
+    "@opentui/core": "0.1.72",
+    "@opentui/react": "0.1.72",
     "handlebars": "^4.7.8",
     "node-notifier": "^10.0.1",
     "react": "^19.2.0",
