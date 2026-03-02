@@ -216,6 +216,9 @@ export const OutputPane = memo(function OutputPane({
   const outputHeight = Math.max(1, height - headerHeight);
   const outputScrollHeight = Math.max(1, outputHeight - 2);
   const waiting = isThinking && !output;
+  const lineBudget = outputScrollFocused
+    ? Math.max(120, outputScrollHeight * 4)
+    : Math.max(24, outputScrollHeight + 4);
 
   // Simple line-based rendering — same approach as ralph-tui.
   // Split output into lines and render each as a <text> element.
@@ -223,12 +226,13 @@ export const OutputPane = memo(function OutputPane({
   const TOOL_LINE_RE = /^\[tool:(use|result)\]\s*(.*)/;
   const outputLines = useMemo(() => {
     // Truncate to visible tail
-    const maxChars = Math.max(1500, outputScrollHeight * 120);
+    const maxChars = Math.max(1200, lineBudget * 120);
     const src = output.length > maxChars
       ? output.slice(output.indexOf("\n", output.length - maxChars) + 1 || output.length - maxChars)
       : output;
-    return src.split("\n");
-  }, [output, outputScrollHeight]);
+    const lines = src.split("\n");
+    return lines.length > lineBudget ? lines.slice(-lineBudget) : lines;
+  }, [output, lineBudget]);
 
   const outputContent = waiting ? (
     currentPhase && phaseStartTime ? (

@@ -1,6 +1,7 @@
-import { memo, useState, useEffect, useMemo, type ReactNode } from "react";
+import { memo, useMemo, type ReactNode } from "react";
 import { SPINNER_FRAMES, boldAttr, colors } from "../theme.js";
 import { startSpan, endSpan } from "../profiler.js";
+import { useAnimationTick } from "../hooks/useAnimationTick.js";
 
 export type WorkerStatus = "running" | "completed" | "failed";
 
@@ -122,20 +123,11 @@ export const WorkerPanel = memo(function WorkerPanel({
   height,
 }: WorkerPanelProps): ReactNode {
   const renderSpan = startSpan("WorkerPanel");
-  const [tick, setTick] = useState(0);
 
   const hasRunning = workers.some((w) => w.status === "running");
-
-  useEffect(() => {
-    if (!hasRunning) return;
-    const interval = setInterval(() => {
-      setTick((n) => n + 1);
-    }, 80);
-    return () => clearInterval(interval);
-  }, [hasRunning]);
-
-  const now = Date.now();
-  const spinnerFrame = tick % SPINNER_FRAMES.length;
+  const tickState = useAnimationTick(hasRunning);
+  const now = hasRunning ? tickState.now : Date.now();
+  const spinnerFrame = hasRunning ? tickState.spinnerFrame : 0;
 
   // Sort workers by ID
   const sorted = useMemo(

@@ -1,5 +1,6 @@
-import { useState, useEffect, memo, type ReactNode } from "react";
+import { memo, type ReactNode } from "react";
 import { SPINNER_FRAMES, colors } from "../theme.js";
+import { useAnimationTick } from "../hooks/useAnimationTick.js";
 
 interface SpinnerProps {
   label?: string;
@@ -7,20 +8,13 @@ interface SpinnerProps {
 }
 
 export const Spinner = memo(function Spinner({ label, color }: SpinnerProps): ReactNode {
-  const [frame, setFrame] = useState(0);
-
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setFrame((f) => (f + 1) % SPINNER_FRAMES.length);
-    }, 80);
-    return () => clearInterval(interval);
-  }, []);
+  const { spinnerFrame } = useAnimationTick();
 
   const fg = color ?? colors.accent.primary;
 
   return (
     <text>
-      <span fg={fg}>{SPINNER_FRAMES[frame]}</span>
+      <span fg={fg}>{SPINNER_FRAMES[spinnerFrame % SPINNER_FRAMES.length]}</span>
       {label ? ` ${label}` : ""}
     </text>
   );

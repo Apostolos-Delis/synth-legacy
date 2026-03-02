@@ -63,57 +63,58 @@ export const TaskDetailHeader = memo(function TaskDetailHeader({
   const criteria = task.acceptanceCriteria;
   const completed = task.criteriaCompleted;
   const dependencies = task.dependsOn?.filter(Boolean) ?? [];
-
-  const criteriaRows: ReactNode[] = [];
-  for (let i = 0; i < criteria.length; i++) {
-    const done = completed?.[i] ?? false;
-    const icon = done ? "\u2713" : "\u25CB";
-    const iconColor = done ? colors.status.success : colors.fg.muted;
-    const maxLen = Math.max(0, innerWidth - 8);
-    const text = criteria[i].length > maxLen ? criteria[i].slice(0, Math.max(0, maxLen - 3)) + "..." : criteria[i];
-    const rowText = ` ${icon} #${i + 1} ${text}`;
-    const rowPad = padLine("", Math.max(0, innerWidth - rowText.length));
-
-    criteriaRows.push(
-      <text key={`ac-${i}`}>
-        <span fg={iconColor}> {icon}</span>
-        <span fg={colors.fg.secondary}> #{i + 1} </span>
-        <span fg={colors.fg.primary}>{text}</span>
-        <span>{rowPad}</span>
-      </text>,
-    );
-  }
-
   const contentRows: ReactNode[] = [];
-  contentRows.push(
+  let remainingRows = scrollHeight;
+  let hiddenRows = 0;
+  const pushRow = (row: ReactNode): void => {
+    if (remainingRows > 0) {
+      contentRows.push(row);
+      remainingRows -= 1;
+      return;
+    }
+    hiddenRows += 1;
+  };
+
+  pushRow(
     <text key="desc-gap-top">
       <span>{padLine("", innerWidth)}</span>
     </text>,
   );
+
   for (let i = 0; i < descLines.length; i++) {
+    if (remainingRows <= 0) {
+      hiddenRows += descLines.length - i;
+      break;
+    }
     const line = truncateText(descLines[i], innerWidth);
     const pad = padLine("", Math.max(0, innerWidth - line.length));
-    contentRows.push(
+    pushRow(
       <text key={`desc-${i}`}>
         <span fg={colors.fg.secondary}>{line}</span>
         <span>{pad}</span>
       </text>,
     );
   }
-  contentRows.push(
+
+  pushRow(
     <text key="desc-gap-bottom">
       <span>{padLine("", innerWidth)}</span>
     </text>,
   );
+
   if (dependencies.length > 0) {
     const depPrefix = "Depends on: ";
     const depWidth = Math.max(1, innerWidth - depPrefix.length);
     const depLines = wrapText(dependencies.join(", "), depWidth);
     for (let i = 0; i < depLines.length; i++) {
+      if (remainingRows <= 0) {
+        hiddenRows += depLines.length - i;
+        break;
+      }
       const prefix = i === 0 ? depPrefix : " ".repeat(depPrefix.length);
       const lineText = `${prefix}${depLines[i]}`;
       const pad = padLine("", Math.max(0, innerWidth - lineText.length));
-      contentRows.push(
+      pushRow(
         <text key={`dep-${i}`}>
           <span fg={colors.fg.secondary}>{prefix}</span>
           <span fg={colors.fg.primary}>{depLines[i]}</span>
@@ -123,14 +124,57 @@ export const TaskDetailHeader = memo(function TaskDetailHeader({
     }
   }
   if (criteria.length > 0) {
-    contentRows.push(
-      <text key="ac-header">
-        <span fg={colors.accent.primary} attributes={boldAttr()}>{"\u2500"} Acceptance Criteria</span>
-        <span fg={colors.fg.muted}> ({criteria.length})</span>
-        <span>{padLine("", Math.max(0, innerWidth - `\u2500 Acceptance Criteria (${criteria.length})`.length))}</span>
+    if (remainingRows <= 0) {
+      hiddenRows += 1 + criteria.length;
+    } else {
+      pushRow(
+        <text key="ac-header">
+          <span fg={colors.accent.primary} attributes={boldAttr()}>{"\u2500"} Acceptance Criteria</span>
+          <span fg={colors.fg.muted}> ({criteria.length})</span>
+          <span>{padLine("", Math.max(0, innerWidth - `\u2500 Acceptance Criteria (${criteria.length})`.length))}</span>
+        </text>,
+      );
+      for (let i = 0; i < criteria.length; i++) {
+        if (remainingRows <= 0) {
+          hiddenRows += criteria.length - i;
+          break;
+        }
+        const done = completed?.[i] ?? false;
+        const icon = done ? "\u2713" : "\u25CB";
+        const iconColor = done ? colors.status.success : colors.fg.muted;
+        const maxLen = Math.max(0, innerWidth - 8);
+        const text = criteria[i].length > maxLen ? criteria[i].slice(0, Math.max(0, maxLen - 3)) + "..." : criteria[i];
+        const rowText = ` ${icon} #${i + 1} ${text}`;
+        const rowPad = padLine("", Math.max(0, innerWidth - rowText.length));
+        pushRow(
+          <text key={`ac-${i}`}>
+            <span fg={iconColor}> {icon}</span>
+            <span fg={colors.fg.secondary}> #{i + 1} </span>
+            <span fg={colors.fg.primary}>{text}</span>
+            <span>{rowPad}</span>
+          </text>,
+        );
+      }
+    }
+  }
+
+  if (hiddenRows > 0 && remainingRows > 0) {
+    const summary = `... ${hiddenRows} more line${hiddenRows === 1 ? "" : "s"}`;
+    const summaryPad = padLine("", Math.max(0, innerWidth - summary.length));
+    pushRow(
+      <text key="content-truncated">
+        <span fg={colors.fg.muted}>{summary}</span>
+        <span>{summaryPad}</span>
       </text>,
     );
-    contentRows.push(...criteriaRows);
+  }
+
+  if (contentRows.length === 0) {
+    pushRow(
+      <text key="ac-header">
+        <span>{padLine("", innerWidth)}</span>
+      </text>,
+    );
   }
 
   endSpan("TaskDetailHeader", renderSpan);

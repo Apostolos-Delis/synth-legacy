@@ -26,13 +26,15 @@ const levelMap: Record<string, "debug" | "info" | "warn" | "error"> = {
 };
 
 export function createEngineLogBridge(logger: Logger): EngineEventListener {
+  const includeDebugLogs = process.env.SYNTH_DEBUG_ENGINE_LOGS === "1";
   return (event: EngineEvent): void => {
     const level = levelMap[event.type] ?? "info";
+    if (level === "debug" && !includeDebugLogs) return;
 
     const meta: Record<string, unknown> = {};
     if (event.taskId !== undefined) meta.taskId = event.taskId;
     if (event.iteration !== undefined) meta.iteration = event.iteration;
-    if (event.data !== undefined) meta.data = event.data;
+    if (event.data !== undefined && includeDebugLogs) meta.data = event.data;
     if (event.criterionIndex !== undefined)
       meta.criterionIndex = event.criterionIndex;
 

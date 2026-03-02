@@ -1,4 +1,4 @@
-import { memo, useState, useEffect, useMemo, type ReactNode } from "react";
+import { memo, useMemo, type ReactNode } from "react";
 import { useTerminalDimensions } from "@opentui/react";
 import type { TaskGraphAnalysis, TaskGraphNode } from "../../parallel/task-graph.js";
 import type { Task } from "../../tasks/types.js";
@@ -8,6 +8,7 @@ import {
   STATUS_COLORS_HEX,
   statusIndicators,
 } from "../theme.js";
+import { useAnimationTick } from "../hooks/useAnimationTick.js";
 
 export interface TaskGraphOverlayProps {
   visible: boolean;
@@ -175,20 +176,13 @@ export const TaskGraphOverlay = memo(function TaskGraphOverlay({
   taskStatuses,
 }: TaskGraphOverlayProps): ReactNode {
   const { width: termWidth } = useTerminalDimensions();
-  const [spinnerFrame, setSpinnerFrame] = useState(0);
 
   const hasRunning = useMemo(
     () => Object.values(taskStatuses).some((s) => s === "in_progress"),
     [taskStatuses],
   );
-
-  useEffect(() => {
-    if (!hasRunning || !visible) return;
-    const interval = setInterval(() => {
-      setSpinnerFrame((f) => (f + 1) % SPINNER_FRAMES.length);
-    }, 80);
-    return () => clearInterval(interval);
-  }, [hasRunning, visible]);
+  const tickState = useAnimationTick(hasRunning && visible);
+  const spinnerFrame = hasRunning && visible ? tickState.spinnerFrame : 0;
 
   const isNarrow = termWidth < MIN_OVERLAY_WIDTH;
 

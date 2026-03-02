@@ -1,6 +1,7 @@
-import { memo, useState, useEffect, useMemo, type ReactNode } from "react";
+import { memo, useMemo, type ReactNode } from "react";
 import { SPINNER_FRAMES, boldAttr, colors } from "../theme.js";
 import { startSpan, endSpan } from "../profiler.js";
+import { useAnimationTick } from "../hooks/useAnimationTick.js";
 
 export type MergeStatus =
   | "queued"
@@ -121,20 +122,11 @@ export const MergeQueuePanel = memo(function MergeQueuePanel({
   height,
 }: MergeQueuePanelProps): ReactNode {
   const renderSpan = startSpan("MergeQueuePanel");
-  const [tick, setTick] = useState(0);
 
   const hasInProgress = items.some((i) => i.status === "in-progress");
-
-  useEffect(() => {
-    if (!hasInProgress) return;
-    const interval = setInterval(() => {
-      setTick((n) => n + 1);
-    }, 80);
-    return () => clearInterval(interval);
-  }, [hasInProgress]);
-
-  const now = Date.now();
-  const spinnerFrame = tick % SPINNER_FRAMES.length;
+  const tickState = useAnimationTick(hasInProgress);
+  const now = hasInProgress ? tickState.now : Date.now();
+  const spinnerFrame = hasInProgress ? tickState.spinnerFrame : 0;
 
   // Sort by queue position
   const sorted = useMemo(

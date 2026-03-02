@@ -16,6 +16,7 @@ import type { BackgroundAuditController, BackgroundAuditState, BackgroundAuditSt
 import type { AgentToolEvent } from "../agents/types.js";
 import { spawn } from "../utils/process.js";
 import { formatToolEvent } from "../utils/tool-format.js";
+import { createThrottledRender } from "../utils/throttle.js";
 import { getLogger } from "../logging/logger.js";
 import { checkoutBranch, getCurrentBranch } from "../utils/git.js";
 
@@ -506,6 +507,9 @@ async function resumeInterview(
     let streamOutput = "";
     let taskCount = 0;
     let phaseStartTime = Date.now();
+    const throttledTaskGenRender = createThrottledRender(() => {
+      planRoot.render(<tui.GeneratingView output={streamOutput} taskCount={taskCount} phaseStartTime={phaseStartTime} />);
+    });
     planRoot.render(<tui.GeneratingView output={streamOutput} phaseStartTime={phaseStartTime} />);
 
     let taskFile;
@@ -520,12 +524,12 @@ async function resumeInterview(
             streamOutput += chunk;
             const ids = streamOutput.match(/\b[A-Z]{2,5}-\d{3}\b/g);
             taskCount = ids ? new Set(ids).size : 0;
-            planRoot.render(<tui.GeneratingView output={streamOutput} taskCount={taskCount} phaseStartTime={phaseStartTime} />);
+            throttledTaskGenRender();
           },
           onTool: showToolLogs
             ? (event) => {
               streamOutput += `\n${formatToolEvent(event)}\n`;
-              planRoot.render(<tui.GeneratingView output={streamOutput} taskCount={taskCount} phaseStartTime={phaseStartTime} />);
+              throttledTaskGenRender();
             }
             : undefined,
         },

@@ -25,7 +25,7 @@ import { globalTrace } from "../utils/perf.js";
 import { loadTaskOutput, buildIterationMap } from "../engine/output-index.js";
 import { startTuiProfiler, stopTuiProfiler, countEvent, startSpan, endSpan, recordSpan } from "../tui/profiler.js";
 
-const MAX_OUTPUT_LENGTH = 100_000;
+const MAX_OUTPUT_LENGTH = 40_000;
 
 // ---------------------------------------------------------------------------
 // TuiAdapterOptions
@@ -606,21 +606,22 @@ export class TuiAdapter {
   private renderSerial(): void {
     if (!this.root || !this.tuiData || !this.SerialBridgeComponent) return;
 
-    // Match v0.7.12 approach: call root.render() with fresh element tree.
-    // The old code called root.render(<App {...tuiData} />) directly on every
-    // update. The _notify/tick mechanism adds an extra SerialBridge re-render
-    // layer that slows things down.
     countEvent("tui:render:serial");
     const renderStart = performance.now();
-    this.root.render(
-      createElement(this.SerialBridgeComponent, {
-        tuiData: this.tuiData,
-        onQuit: () => {
-          this.cleanup();
-          process.exit(0);
-        },
-      }),
-    );
+    if (!this.serialBridgeRendered) {
+      this.root.render(
+        createElement(this.SerialBridgeComponent, {
+          tuiData: this.tuiData,
+          onQuit: () => {
+            this.cleanup();
+            process.exit(0);
+          },
+        }),
+      );
+      this.serialBridgeRendered = true;
+    } else {
+      this.tuiData._notify?.();
+    }
     const notifyMs = performance.now() - renderStart;
     recordSpan("tui:render:serial:notify", notifyMs);
   }

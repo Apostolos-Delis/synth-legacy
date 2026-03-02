@@ -1,6 +1,7 @@
-import { memo, useState, useEffect, useMemo, type ReactNode } from "react";
+import { memo, useMemo, type ReactNode } from "react";
 import { SPINNER_FRAMES, boldAttr, colors } from "../theme.js";
 import { startSpan, endSpan } from "../profiler.js";
+import { useAnimationTick } from "../hooks/useAnimationTick.js";
 
 export type ConflictFileStatus = "pending" | "ai-resolving" | "resolved" | "failed";
 
@@ -81,20 +82,13 @@ export const ConflictResolutionPanel = memo(function ConflictResolutionPanel({
   height,
 }: ConflictResolutionPanelProps): ReactNode {
   const renderSpan = startSpan("ConflictResolutionPanel");
-  const [spinnerFrame, setSpinnerFrame] = useState(0);
 
   const hasResolving = useMemo(
     () => conflict?.files.some((f) => f.status === "ai-resolving") ?? false,
     [conflict?.files],
   );
-
-  useEffect(() => {
-    if (!hasResolving) return;
-    const interval = setInterval(() => {
-      setSpinnerFrame((f) => (f + 1) % SPINNER_FRAMES.length);
-    }, 80);
-    return () => clearInterval(interval);
-  }, [hasResolving]);
+  const tickState = useAnimationTick(hasResolving);
+  const spinnerFrame = hasResolving ? tickState.spinnerFrame : 0;
 
   // AC #5: Panel disappears when conflict resolved/aborted (null = no conflict)
   if (!conflict) {

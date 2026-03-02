@@ -1,5 +1,4 @@
-import { memo, useRef, useEffect, type ReactNode } from "react";
-import type { ScrollBoxRenderable } from "@opentui/core";
+import { memo, useMemo, type ReactNode } from "react";
 import type { Task } from "../../tasks/types.js";
 import { boldAttr, statusIndicators, colors, STATUS_COLORS_HEX, PRIORITY_COLORS_HEX } from "../theme.js";
 import { startSpan, endSpan } from "../profiler.js";
@@ -24,7 +23,6 @@ export const TaskSidebar = memo(function TaskSidebar({
   const renderSpan = startSpan("TaskSidebar");
   const isCurrent = (id: string) => id === currentTaskId;
   const borderFg = currentTaskId ? colors.border.active : colors.border.normal;
-  const scrollRef = useRef<ScrollBoxRenderable>(null);
 
   const innerWidth = Math.max(1, width - 2);
   const padLine = (text: string): string => {
@@ -35,19 +33,17 @@ export const TaskSidebar = memo(function TaskSidebar({
   // 2 rows for top+bottom border
   const innerHeight = height - 2;
   const contentHeight = Math.max(1, innerHeight);
-  const needsScroll = tasks.length > innerHeight;
+  const visibleCount = Math.max(1, innerHeight);
+  const maxStart = Math.max(0, tasks.length - visibleCount);
+  const windowStart = useMemo(() => {
+    if (tasks.length <= visibleCount) return 0;
+    const preferred = selectedTaskIndex - Math.floor(visibleCount / 2);
+    return Math.max(0, Math.min(preferred, maxStart));
+  }, [tasks.length, selectedTaskIndex, visibleCount, maxStart]);
+  const visibleTasks = tasks.slice(windowStart, windowStart + visibleCount);
 
-  useEffect(() => {
-    if (!scrollRef.current || !needsScroll) return;
-    const top = scrollRef.current.scrollTop;
-    if (selectedTaskIndex < top) {
-      scrollRef.current.scrollTop = selectedTaskIndex;
-    } else if (selectedTaskIndex >= top + innerHeight) {
-      scrollRef.current.scrollTop = selectedTaskIndex - innerHeight + 1;
-    }
-  }, [selectedTaskIndex, needsScroll, innerHeight]);
-
-  const taskRows = tasks.map((task, index) => {
+  const taskRows = visibleTasks.map((task, i) => {
+    const index = windowStart + i;
     const icon = statusIndicators[task.status] ?? "?";
     const statusColor = STATUS_COLORS_HEX[task.status] ?? colors.fg.muted;
     const priorityColor = PRIORITY_COLORS_HEX[task.priority] ?? colors.fg.muted;
@@ -102,25 +98,14 @@ export const TaskSidebar = memo(function TaskSidebar({
       flexDirection="column"
       overflow="hidden"
     >
-      {needsScroll ? (
-        <scrollbox
-          ref={scrollRef}
-          height={contentHeight}
-          stickyScroll={false}
-          style={FLEX_COL_STYLE}
-        >
-          {taskRows}
-        </scrollbox>
-      ) : (
-        <box height={contentHeight} style={{ flexDirection: "column" }}>
-          {taskRows}
-          {Array.from({ length: Math.max(0, innerHeight - taskRows.length) }).map((_, i) => (
-            <text key={`empty-${i}`}>
-              <span>{padLine("")}</span>
-            </text>
-          ))}
-        </box>
-      )}
+      <box height={contentHeight} style={FLEX_COL_STYLE}>
+        {taskRows}
+        {Array.from({ length: Math.max(0, innerHeight - taskRows.length) }).map((_, i) => (
+          <text key={`empty-${i}`}>
+            <span>{padLine("")}</span>
+          </text>
+        ))}
+      </box>
     </box>
   );
 }, (prev, next) => {

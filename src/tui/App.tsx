@@ -85,6 +85,8 @@ export const App = memo(function App({
   selectedTaskIndexRef.current = selectedTaskIndex;
   const prevSelectedIndexRef = useRef(selectedTaskIndex);
   prevSelectedIndexRef.current = selectedTaskIndex;
+  const pendingSelectionDeltaRef = useRef(0);
+  const selectionFlushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const tasksRef = useRef(engineData.tasks);
   tasksRef.current = engineData.tasks;
   const parallelRef = useRef(parallel);
@@ -139,6 +141,13 @@ export const App = memo(function App({
     }
   }, [selectedTaskIndex]);
 
+  useEffect(() => () => {
+    if (selectionFlushTimerRef.current !== null) {
+      clearTimeout(selectionFlushTimerRef.current);
+      selectionFlushTimerRef.current = null;
+    }
+  }, []);
+
   // engineData is a new object every render (rest-spread from props), so
   // useMemo with [engineData] can't cache — build inline instead.
   const executionState: TuiState = { ...engineData, view: "execution" as ViewMode };
@@ -150,6 +159,23 @@ export const App = memo(function App({
     }
     showWarning("Press q/esc again to quit");
   }, [onQuit, requestQuit, showWarning]);
+
+  const flushSelectionDelta = useCallback(() => {
+    selectionFlushTimerRef.current = null;
+    const delta = pendingSelectionDeltaRef.current;
+    pendingSelectionDeltaRef.current = 0;
+    if (delta === 0) return;
+    const taskCount = tasksRef.current.length;
+    if (taskCount === 0) return;
+    setSelectedTaskIndex((i) => Math.max(0, Math.min(i + delta, taskCount - 1)));
+  }, []);
+
+  const queueSelectionDelta = useCallback((delta: number) => {
+    if (delta === 0) return;
+    pendingSelectionDeltaRef.current += delta;
+    if (selectionFlushTimerRef.current !== null) return;
+    selectionFlushTimerRef.current = setTimeout(flushSelectionDelta, 16);
+  }, [flushSelectionDelta]);
 
   const handleKeyboard = useCallback(
     (key: { name: string; ctrl?: boolean; meta?: boolean }) => {
@@ -291,12 +317,12 @@ export const App = memo(function App({
         if (navModeRef.current === "task-scroll" && taskCount > 0) {
           if (key.name === "j" || key.name === "down") {
             countEvent("tui:manual-select");
-            setSelectedTaskIndex((i) => Math.min(i + 1, taskCount - 1));
+            queueSelectionDelta(1);
             return;
           }
           if (key.name === "k" || key.name === "up") {
             countEvent("tui:manual-select");
-            setSelectedTaskIndex((i) => Math.max(i - 1, 0));
+            queueSelectionDelta(-1);
             return;
           }
           if (key.name === "return") {
@@ -348,7 +374,7 @@ export const App = memo(function App({
           break;
       }
     },
-    [attemptQuit, onFinalize, onReviewStart, onPause, onResume],
+    [attemptQuit, onFinalize, onReviewStart, onPause, onResume, queueSelectionDelta],
   );
 
   useKeyboard(handleKeyboard);
